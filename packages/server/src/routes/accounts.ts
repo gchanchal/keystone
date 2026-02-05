@@ -13,6 +13,10 @@ const accountSchema = z.object({
   accountType: z.enum(['savings', 'current', 'credit_card', 'loan']),
   currency: z.string().default('INR'),
   openingBalance: z.number().default(0),
+  // Credit card specific fields
+  cardName: z.string().optional().nullable(),
+  cardNetwork: z.string().optional().nullable(),
+  cardImage: z.string().optional().nullable(),
 });
 
 // Get all accounts
