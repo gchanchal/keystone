@@ -34,11 +34,16 @@ const PORT = process.env.PORT || 3001;
 initializeDatabase();
 
 // Middleware
+const isProduction = process.env.NODE_ENV === 'production';
+
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: isProduction ? undefined : false,
 }));
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: isProduction
+    ? [process.env.FRONTEND_URL || 'https://keystone.up.railway.app']
+    : ['http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: true,
 }));
 app.use(compression());
@@ -69,6 +74,20 @@ app.get('/api/health', (_req, res) => {
 
 // Serve static files from uploads
 app.use('/uploads', express.static(path.join(__dirname, '../../data/uploads')));
+
+// Serve static files from client build in production
+if (isProduction) {
+  const clientBuildPath = path.join(__dirname, '../../../client/dist');
+  app.use(express.static(clientBuildPath));
+
+  // Handle client-side routing - serve index.html for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
+  });
+}
 
 // Error handling middleware
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

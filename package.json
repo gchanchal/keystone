@@ -1,8 +1,8 @@
 {
-  "name": "finsync",
+  "name": "keystone",
   "version": "1.0.0",
   "private": true,
-  "description": "Full-stack finance management application with bank reconciliation, expense tracking, and investment monitoring",
+  "description": "KeyStone - Personal finance management with bank reconciliation, expense tracking, and investment monitoring",
   "workspaces": [
     "packages/*"
   ],
@@ -10,15 +10,18 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm run dev -w packages/server",
     "dev:client": "npm run dev -w packages/client",
-    "build": "npm run build -w packages/server && npm run build -w packages/client",
+    "build": "npm run build:client && npm run build:server",
     "build:server": "npm run build -w packages/server",
     "build:client": "npm run build -w packages/client",
-    "start": "npm run start -w packages/server",
+    "start": "NODE_ENV=production node packages/server/dist/index.js",
     "db:push": "npm run db:push -w packages/server",
     "db:studio": "npm run db:studio -w packages/server"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
     "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

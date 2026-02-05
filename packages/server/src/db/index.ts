@@ -20,7 +20,9 @@ import * as recurringIncomeSchema from './schema/recurring-income.js';
 import * as gmailIntegrationSchema from './schema/gmail-integration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '../../../data/finsync.db');
+
+// Use DATABASE_PATH env var for production (Railway volume), fallback to local data folder
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../../../data/keystone.db');
 
 // Ensure data directory exists
 import fs from 'fs';
