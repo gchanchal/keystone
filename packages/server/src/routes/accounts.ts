@@ -129,6 +129,20 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Hard delete account (permanent)
+router.delete('/:id/permanent', async (req, res) => {
+  try {
+    await db
+      .delete(accounts)
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
+
+    res.json({ success: true, message: 'Account permanently deleted' });
+  } catch (error) {
+    console.error('Error permanently deleting account:', error);
+    res.status(500).json({ error: 'Failed to permanently delete account' });
+  }
+});
+
 // Update account balance
 router.patch('/:id/balance', async (req, res) => {
   try {
