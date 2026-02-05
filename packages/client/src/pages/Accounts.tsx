@@ -282,14 +282,14 @@ export function Accounts() {
                 <div className="space-y-2">
                   <Label htmlFor="cardName">Card Variant</Label>
                   <Select
-                    value={formData.cardName}
-                    onValueChange={(value) => setFormData({ ...formData, cardName: value })}
+                    value={formData.cardName || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, cardName: value === '_none' ? '' : value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select card variant" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">-- Select Card --</SelectItem>
+                      <SelectItem value="_none">-- Select Card --</SelectItem>
                       {availableCards.length > 0 ? (
                         availableCards.map((card) => (
                           <SelectItem key={card.id} value={card.name}>
@@ -303,7 +303,7 @@ export function Accounts() {
                           </SelectItem>
                         ))
                       ) : (
-                        <SelectItem value="" disabled>
+                        <SelectItem value="_hint" disabled>
                           Enter bank name to see card options
                         </SelectItem>
                       )}
@@ -325,14 +325,14 @@ export function Accounts() {
                 <div className="space-y-2">
                   <Label htmlFor="cardNetwork">Card Network</Label>
                   <Select
-                    value={formData.cardNetwork}
-                    onValueChange={(value) => setFormData({ ...formData, cardNetwork: value })}
+                    value={formData.cardNetwork || undefined}
+                    onValueChange={(value) => setFormData({ ...formData, cardNetwork: value === '_none' ? '' : value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select network" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">-- Select Network --</SelectItem>
+                      <SelectItem value="_none">-- Select Network --</SelectItem>
                       {CARD_NETWORKS.map((network) => (
                         <SelectItem key={network} value={network}>
                           {network}
