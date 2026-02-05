@@ -249,10 +249,32 @@ export function CreditCards() {
             </Badge>
           )}
         </div>
-        <Button onClick={() => navigate('/uploads')} className="gap-2">
-          <Upload className="h-4 w-4" />
-          Upload Statement
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Card Selector */}
+          {summary && summary.accounts.length > 1 && (
+            <Select
+              value={selectedAccountId || 'all'}
+              onValueChange={(val) => setSelectedAccountId(val === 'all' ? undefined : val)}
+            >
+              <SelectTrigger className="w-[220px]">
+                <CreditCard className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select Card" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Cards</SelectItem>
+                {summary.accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.bankName} •• {account.accountNumber?.slice(-4)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button onClick={() => navigate('/uploads')} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Upload Statement
+          </Button>
+        </div>
       </div>
 
       {!hasAccounts ? (
