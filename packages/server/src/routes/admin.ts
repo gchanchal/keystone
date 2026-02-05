@@ -77,14 +77,30 @@ router.post('/restore-db', upload.single('database'), async (req, res) => {
     const dbPath = getDbPath();
     const tempPath = req.file.path;
     const backupPath = dbPath + '.backup';
+    const walPath = dbPath + '-wal';
+    const shmPath = dbPath + '-shm';
 
     // Backup existing database if it exists
     if (fs.existsSync(dbPath)) {
       fs.copyFileSync(dbPath, backupPath);
     }
 
-    // Move uploaded file to database location
-    fs.renameSync(tempPath, dbPath);
+    // Remove WAL mode files that might interfere
+    if (fs.existsSync(walPath)) {
+      fs.unlinkSync(walPath);
+    }
+    if (fs.existsSync(shmPath)) {
+      fs.unlinkSync(shmPath);
+    }
+
+    // Remove existing database
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+    }
+
+    // Copy uploaded file to database location (use copy instead of rename for cross-device)
+    fs.copyFileSync(tempPath, dbPath);
+    fs.unlinkSync(tempPath);
 
     res.json({
       success: true,
@@ -96,6 +112,33 @@ router.post('/restore-db', upload.single('database'), async (req, res) => {
   } catch (error) {
     console.error('Error restoring database:', error);
     res.status(500).json({ error: 'Failed to restore database: ' + (error as Error).message });
+  }
+});
+
+// GET /api/admin/list-files - List files in data directory
+router.get('/list-files', async (_req, res) => {
+  try {
+    const dbPath = getDbPath();
+    const dir = path.dirname(dbPath);
+
+    if (!fs.existsSync(dir)) {
+      return res.json({ dir, exists: false, files: [] });
+    }
+
+    const files = fs.readdirSync(dir).map(name => {
+      const filePath = path.join(dir, name);
+      const stats = fs.statSync(filePath);
+      return {
+        name,
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+      };
+    });
+
+    res.json({ dir, exists: true, files });
+  } catch (error) {
+    console.error('Error listing files:', error);
+    res.status(500).json({ error: 'Failed to list files' });
   }
 });
 
