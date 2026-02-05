@@ -10,6 +10,10 @@ export const accounts = sqliteTable('accounts', {
   openingBalance: real('opening_balance').default(0),
   currentBalance: real('current_balance').default(0),
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  // Credit card specific fields
+  cardName: text('card_name'), // e.g., "Regalia", "Infinia", "Amazon Pay"
+  cardNetwork: text('card_network'), // Visa, Mastercard, RuPay, Amex, Diners
+  cardImage: text('card_image'), // Custom card image URL (optional)
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

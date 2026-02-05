@@ -684,6 +684,20 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add credit card specific fields to accounts
+  const accountMigrations = [
+    'ALTER TABLE accounts ADD COLUMN card_name TEXT',
+    'ALTER TABLE accounts ADD COLUMN card_network TEXT',
+    'ALTER TABLE accounts ADD COLUMN card_image TEXT',
+  ];
+  for (const migration of accountMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
   // Create indexes for new credit card columns (after migrations add the columns)
   const ccIndexes = [
     'CREATE INDEX IF NOT EXISTS idx_credit_card_transactions_date ON credit_card_transactions(date)',

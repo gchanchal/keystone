@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Wifi, Check } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +29,7 @@ import {
 import { accountsApi } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Account } from '@/types';
+import { getCardsForBank, getCardGradient, CARD_NETWORKS, type CardVariant } from '@/config/credit-card-variants';
 
 const accountTypeIcons: Record<string, typeof Wallet> = {
   savings: Wallet,
@@ -54,7 +55,15 @@ export function Accounts() {
     accountNumber: '',
     accountType: 'savings' as 'savings' | 'current' | 'credit_card' | 'loan',
     openingBalance: 0,
+    cardName: '',
+    cardNetwork: '',
   });
+
+  // Get available cards based on selected bank
+  const availableCards = useMemo(() => {
+    if (formData.accountType !== 'credit_card' || !formData.bankName) return [];
+    return getCardsForBank(formData.bankName);
+  }, [formData.bankName, formData.accountType]);
 
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ['accounts'],
@@ -93,6 +102,8 @@ export function Accounts() {
       accountNumber: '',
       accountType: 'savings',
       openingBalance: 0,
+      cardName: '',
+      cardNetwork: '',
     });
     setEditingAccount(null);
   };
@@ -105,6 +116,8 @@ export function Accounts() {
       accountNumber: account.accountNumber || '',
       accountType: account.accountType,
       openingBalance: account.openingBalance,
+      cardName: account.cardName || '',
+      cardNetwork: account.cardNetwork || '',
     });
     setDialogOpen(true);
   };
@@ -249,7 +262,7 @@ export function Accounts() {
               <Label htmlFor="accountType">Account Type</Label>
               <Select
                 value={formData.accountType}
-                onValueChange={(value: any) => setFormData({ ...formData, accountType: value })}
+                onValueChange={(value: any) => setFormData({ ...formData, accountType: value, cardName: '', cardNetwork: '' })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -262,6 +275,74 @@ export function Accounts() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Credit Card specific fields */}
+            {formData.accountType === 'credit_card' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="cardName">Card Variant</Label>
+                  <Select
+                    value={formData.cardName}
+                    onValueChange={(value) => setFormData({ ...formData, cardName: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select card variant" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">-- Select Card --</SelectItem>
+                      {availableCards.length > 0 ? (
+                        availableCards.map((card) => (
+                          <SelectItem key={card.id} value={card.name}>
+                            <div className="flex items-center gap-2">
+                              <div className={`w-4 h-2.5 rounded-sm bg-gradient-to-r ${card.gradient}`} />
+                              {card.name}
+                              {card.tier && (
+                                <span className="text-xs text-muted-foreground capitalize">({card.tier})</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="" disabled>
+                          Enter bank name to see card options
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formData.cardName && (
+                    <div className="mt-2">
+                      <div className={`w-full h-24 rounded-lg bg-gradient-to-br ${getCardGradient(formData.bankName, formData.cardName)} flex items-end justify-between p-3 text-white`}>
+                        <div>
+                          <p className="text-xs opacity-70">Card Preview</p>
+                          <p className="font-semibold">{formData.cardName}</p>
+                        </div>
+                        <p className="text-sm font-medium">{formData.bankName}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="cardNetwork">Card Network</Label>
+                  <Select
+                    value={formData.cardNetwork}
+                    onValueChange={(value) => setFormData({ ...formData, cardNetwork: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select network" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">-- Select Network --</SelectItem>
+                      {CARD_NETWORKS.map((network) => (
+                        <SelectItem key={network} value={network}>
+                          {network}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="openingBalance">Opening Balance</Label>

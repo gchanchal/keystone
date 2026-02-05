@@ -8,6 +8,10 @@ export interface Account {
   openingBalance: number;
   currentBalance: number;
   isActive: boolean;
+  // Credit card specific fields
+  cardName: string | null;
+  cardNetwork: string | null;
+  cardImage: string | null;
   createdAt: string;
   updatedAt: string;
 }

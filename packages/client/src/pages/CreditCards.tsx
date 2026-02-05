@@ -49,6 +49,7 @@ import { LineChart } from '@/components/charts/LineChart';
 import { BarChart } from '@/components/charts/BarChart';
 import { creditCardsApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { getCardGradient } from '@/config/credit-card-variants';
 import type {
   CreditCardsSummary,
   CreditCardTransaction,
@@ -74,29 +75,11 @@ const CATEGORY_COLORS: Record<string, string> = {
   OTHER: '#64748b',
 };
 
-// Bank card gradients for visual cards
-const BANK_CARD_STYLES: Record<string, { gradient: string; logo?: string }> = {
-  hdfc: { gradient: 'from-blue-900 via-blue-800 to-blue-700' },
-  icici: { gradient: 'from-orange-600 via-orange-500 to-amber-500' },
-  sbi: { gradient: 'from-blue-600 via-blue-500 to-cyan-500' },
-  axis: { gradient: 'from-purple-900 via-purple-700 to-pink-600' },
-  kotak: { gradient: 'from-red-700 via-red-600 to-red-500' },
-  amex: { gradient: 'from-slate-700 via-slate-600 to-slate-500' },
-  citi: { gradient: 'from-blue-700 via-blue-600 to-blue-500' },
-  rbl: { gradient: 'from-orange-700 via-orange-600 to-yellow-500' },
-  yes: { gradient: 'from-blue-800 via-blue-700 to-blue-600' },
-  indusind: { gradient: 'from-red-800 via-red-700 to-orange-600' },
-  default: { gradient: 'from-gray-800 via-gray-700 to-gray-600' },
-};
-
-const getBankStyle = (bankName: string) => {
-  const key = bankName.toLowerCase().split(' ')[0];
-  return BANK_CARD_STYLES[key] || BANK_CARD_STYLES.default;
-};
-
 // Visual Credit Card Component
 interface VisualCardProps {
   bankName: string;
+  cardName?: string | null;
+  cardNetwork?: string | null;
   lastFour: string;
   cardHolder?: string;
   outstanding: number;
@@ -106,14 +89,14 @@ interface VisualCardProps {
   onClick?: () => void;
 }
 
-function VisualCreditCard({ bankName, lastFour, cardHolder, outstanding, creditLimit, dueDate, isSelected, onClick }: VisualCardProps) {
-  const style = getBankStyle(bankName);
+function VisualCreditCard({ bankName, cardName, cardNetwork, lastFour, cardHolder, outstanding, creditLimit, dueDate, isSelected, onClick }: VisualCardProps) {
+  const gradient = getCardGradient(bankName, cardName);
   const utilization = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0;
 
   return (
     <div
       onClick={onClick}
-      className={`relative w-full max-w-[320px] h-[190px] rounded-2xl p-5 cursor-pointer transition-all duration-200 bg-gradient-to-br ${style.gradient} text-white shadow-lg hover:shadow-xl hover:scale-[1.02] ${
+      className={`relative w-full max-w-[320px] h-[190px] rounded-2xl p-5 cursor-pointer transition-all duration-200 bg-gradient-to-br ${gradient} text-white shadow-lg hover:shadow-xl hover:scale-[1.02] ${
         isSelected ? 'ring-2 ring-white ring-offset-2 ring-offset-background' : ''
       }`}
     >
@@ -124,24 +107,36 @@ function VisualCreditCard({ bankName, lastFour, cardHolder, outstanding, creditL
         </div>
       )}
 
+      {/* Card network badge */}
+      {cardNetwork && (
+        <div className="absolute top-3 left-3">
+          <span className="text-xs font-semibold opacity-80 bg-white/20 px-2 py-0.5 rounded">
+            {cardNetwork}
+          </span>
+        </div>
+      )}
+
       {/* Chip and wireless */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-4 mt-2">
         <div className="w-10 h-7 bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-md" />
         <Wifi className="h-5 w-5 rotate-90 opacity-80" />
       </div>
 
       {/* Card number */}
-      <div className="text-lg tracking-widest font-mono mb-4 opacity-90">
+      <div className="text-lg tracking-widest font-mono mb-3 opacity-90">
         •••• •••• •••• {lastFour}
       </div>
 
-      {/* Bank name and holder */}
+      {/* Bank name, card variant and holder */}
       <div className="flex justify-between items-end">
         <div>
           <p className="text-xs opacity-70 uppercase tracking-wide">Card Holder</p>
           <p className="text-sm font-medium truncate max-w-[150px]">{cardHolder || 'Not Set'}</p>
         </div>
         <div className="text-right">
+          {cardName && (
+            <p className="text-sm font-semibold opacity-90">{cardName}</p>
+          )}
           <p className="text-lg font-bold">{bankName}</p>
           {dueDate && (
             <p className="text-xs opacity-70">Due: {format(new Date(dueDate), 'dd MMM')}</p>
@@ -428,6 +423,8 @@ export function CreditCards() {
                   <VisualCreditCard
                     key={account.id}
                     bankName={account.bankName}
+                    cardName={account.cardName}
+                    cardNetwork={account.cardNetwork}
                     lastFour={account.accountNumber?.slice(-4) || '****'}
                     cardHolder={account.cardHolders?.[0]?.name}
                     outstanding={accountStatement?.totalDue || Math.abs(account.currentBalance || 0)}
