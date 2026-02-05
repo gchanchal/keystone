@@ -689,6 +689,7 @@ export function initializeDatabase() {
     'ALTER TABLE accounts ADD COLUMN card_name TEXT',
     'ALTER TABLE accounts ADD COLUMN card_network TEXT',
     'ALTER TABLE accounts ADD COLUMN card_image TEXT',
+    'ALTER TABLE accounts ADD COLUMN card_holder_name TEXT',
   ];
   for (const migration of accountMigrations) {
     try {

@@ -16,6 +16,7 @@ const accountSchema = z.object({
   // Credit card specific fields
   cardName: z.string().optional().nullable(),
   cardNetwork: z.string().optional().nullable(),
+  cardHolderName: z.string().optional().nullable(),
   cardImage: z.string().optional().nullable(),
 });
 

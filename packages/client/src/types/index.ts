@@ -11,6 +11,7 @@ export interface Account {
   // Credit card specific fields
   cardName: string | null;
   cardNetwork: string | null;
+  cardHolderName: string | null;
   cardImage: string | null;
   createdAt: string;
   updatedAt: string;

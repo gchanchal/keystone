@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import {
@@ -18,12 +18,21 @@ import {
   Receipt,
   Check,
   Wifi,
+  Pencil,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -47,15 +56,16 @@ import {
 import { PieChart } from '@/components/charts/PieChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { BarChart } from '@/components/charts/BarChart';
-import { creditCardsApi } from '@/lib/api';
+import { creditCardsApi, accountsApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { getCardGradient } from '@/config/credit-card-variants';
+import { getCardGradient, getCardsForBank, CARD_NETWORKS } from '@/config/credit-card-variants';
 import type {
   CreditCardsSummary,
   CreditCardTransaction,
   CreditCardStatement,
   CreditCardAnalytics,
   CardHolder,
+  CreditCardAccountSummary,
 } from '@/types';
 
 // Category colors
@@ -81,15 +91,16 @@ interface VisualCardProps {
   cardName?: string | null;
   cardNetwork?: string | null;
   lastFour: string;
-  cardHolder?: string;
+  cardHolder?: string | null;
   outstanding: number;
   creditLimit: number;
   dueDate?: string;
   isSelected?: boolean;
   onClick?: () => void;
+  onEdit?: () => void;
 }
 
-function VisualCreditCard({ bankName, cardName, cardNetwork, lastFour, cardHolder, outstanding, creditLimit, dueDate, isSelected, onClick }: VisualCardProps) {
+function VisualCreditCard({ bankName, cardName, cardNetwork, lastFour, cardHolder, outstanding, creditLimit, dueDate, isSelected, onClick, onEdit }: VisualCardProps) {
   const gradient = getCardGradient(bankName, cardName);
   const utilization = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0;
 
@@ -100,9 +111,18 @@ function VisualCreditCard({ bankName, cardName, cardNetwork, lastFour, cardHolde
         isSelected ? 'ring-2 ring-white ring-offset-2 ring-offset-background' : ''
       }`}
     >
+      {/* Edit button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onEdit?.(); }}
+        className="absolute top-3 right-3 bg-white/20 hover:bg-white/40 rounded-full p-1.5 transition-colors"
+        title="Edit card details"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+
       {/* Selection indicator */}
       {isSelected && (
-        <div className="absolute top-3 right-3 bg-white rounded-full p-1">
+        <div className="absolute top-3 right-12 bg-white rounded-full p-1">
           <Check className="h-4 w-4 text-green-600" />
         </div>
       )}
@@ -157,6 +177,7 @@ function VisualCreditCard({ bankName, cardName, cardNetwork, lastFour, cardHolde
 
 export function CreditCards() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // State
@@ -172,6 +193,21 @@ export function CreditCards() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [emiOnly, setEmiOnly] = useState(false);
 
+  // Edit card dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingCard, setEditingCard] = useState<CreditCardAccountSummary | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    cardName: '',
+    cardNetwork: '',
+    cardHolderName: '',
+  });
+
+  // Get available card variants based on bank name
+  const availableCardVariants = useMemo(() => {
+    if (!editingCard) return [];
+    return getCardsForBank(editingCard.bankName);
+  }, [editingCard]);
+
   // Date calculations
   const startDate = format(startOfMonth(new Date(startMonth)), 'yyyy-MM-dd');
   const endDate = format(endOfMonth(new Date(endMonth)), 'yyyy-MM-dd');
@@ -184,6 +220,41 @@ export function CreditCards() {
     queryKey: ['credit-cards-summary'],
     queryFn: () => creditCardsApi.getSummary(),
   });
+
+  // Update card mutation
+  const updateCardMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => accountsApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit-cards-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      setEditDialogOpen(false);
+      setEditingCard(null);
+    },
+  });
+
+  // Handle edit card
+  const handleEditCard = (account: CreditCardAccountSummary) => {
+    setEditingCard(account);
+    setEditFormData({
+      cardName: account.cardName || '',
+      cardNetwork: account.cardNetwork || '',
+      cardHolderName: account.cardHolderName || '',
+    });
+    setEditDialogOpen(true);
+  };
+
+  // Handle save card
+  const handleSaveCard = () => {
+    if (!editingCard) return;
+    updateCardMutation.mutate({
+      id: editingCard.id,
+      data: {
+        cardName: editFormData.cardName || null,
+        cardNetwork: editFormData.cardNetwork || null,
+        cardHolderName: editFormData.cardHolderName || null,
+      },
+    });
+  };
 
   // Toggle card selection
   const toggleCardSelection = (accountId: string) => {
@@ -426,12 +497,13 @@ export function CreditCards() {
                     cardName={account.cardName}
                     cardNetwork={account.cardNetwork}
                     lastFour={account.accountNumber?.slice(-4) || '****'}
-                    cardHolder={account.cardHolders?.[0]?.name}
+                    cardHolder={account.cardHolderName || account.cardHolders?.[0]?.name}
                     outstanding={accountStatement?.totalDue || Math.abs(account.currentBalance || 0)}
                     creditLimit={accountStatement?.creditLimit || 0}
                     dueDate={accountStatement?.dueDate}
                     isSelected={!isAllSelected && isSelected}
                     onClick={() => toggleCardSelection(account.id)}
+                    onEdit={() => handleEditCard(account)}
                   />
                 );
               })}
@@ -1016,6 +1088,99 @@ export function CreditCards() {
           </Tabs>
         </>
       )}
+
+      {/* Edit Card Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setEditingCard(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Card Details</DialogTitle>
+          </DialogHeader>
+
+          {editingCard && (
+            <div className="space-y-4">
+              {/* Card Preview */}
+              <div className={`w-full h-24 rounded-lg bg-gradient-to-br ${getCardGradient(editingCard.bankName, editFormData.cardName || editingCard.cardName)} flex items-end justify-between p-3 text-white`}>
+                <div>
+                  <p className="text-xs opacity-70">{editFormData.cardHolderName || 'Card Holder'}</p>
+                  <p className="font-mono text-sm">•••• {editingCard.accountNumber?.slice(-4)}</p>
+                </div>
+                <div className="text-right">
+                  {editFormData.cardName && <p className="text-sm font-semibold">{editFormData.cardName}</p>}
+                  <p className="font-bold">{editingCard.bankName}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cardHolderName">Card Holder Name</Label>
+                <Input
+                  id="cardHolderName"
+                  value={editFormData.cardHolderName}
+                  onChange={(e) => setEditFormData({ ...editFormData, cardHolderName: e.target.value })}
+                  placeholder="Name on card"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cardName">Card Variant</Label>
+                <Select
+                  value={editFormData.cardName || undefined}
+                  onValueChange={(value) => setEditFormData({ ...editFormData, cardName: value === '_none' ? '' : value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select card variant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">-- Select Card --</SelectItem>
+                    {availableCardVariants.length > 0 ? (
+                      availableCardVariants.map((card) => (
+                        <SelectItem key={card.id} value={card.name}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-4 h-2.5 rounded-sm bg-gradient-to-r ${card.gradient}`} />
+                            {card.name}
+                          </div>
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="_hint" disabled>
+                        No variants available for this bank
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cardNetwork">Card Network</Label>
+                <Select
+                  value={editFormData.cardNetwork || undefined}
+                  onValueChange={(value) => setEditFormData({ ...editFormData, cardNetwork: value === '_none' ? '' : value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select network" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">-- Select Network --</SelectItem>
+                    {CARD_NETWORKS.map((network) => (
+                      <SelectItem key={network} value={network}>
+                        {network}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditingCard(null); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCard} disabled={updateCardMutation.isPending}>
+              {updateCardMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
