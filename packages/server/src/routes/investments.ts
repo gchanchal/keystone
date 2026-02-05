@@ -15,7 +15,7 @@ async function fetchStockPrice(symbol: string): Promise<{ price: number; currenc
     );
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = await response.json() as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; currency?: string } }> } };
     if (data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
       return {
         price: data.chart.result[0].meta.regularMarketPrice,
@@ -42,7 +42,7 @@ async function fetchLiveQuote(symbol: string): Promise<{
     );
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = await response.json() as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; previousClose?: number; chartPreviousClose?: number } }> } };
     const meta = data?.chart?.result?.[0]?.meta;
     if (meta?.regularMarketPrice) {
       const price = meta.regularMarketPrice;

@@ -820,8 +820,8 @@ router.post('/home-loan/import', async (req, res) => {
         newDisbursements: newDisbursements.length,
       });
     } else {
-      // Create new loan
-      await db.insert(loans).values(loan);
+      // Create new loan - loan data comes from parser with all required fields
+      await db.insert(loans).values(loan as typeof loans.$inferInsert);
 
       // Insert payments
       for (const payment of payments) {

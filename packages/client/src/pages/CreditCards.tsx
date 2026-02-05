@@ -16,6 +16,8 @@ import {
   User,
   Wallet,
   Receipt,
+  Check,
+  Wifi,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Table,
   TableBody,
@@ -67,15 +74,100 @@ const CATEGORY_COLORS: Record<string, string> = {
   OTHER: '#64748b',
 };
 
+// Bank card gradients for visual cards
+const BANK_CARD_STYLES: Record<string, { gradient: string; logo?: string }> = {
+  hdfc: { gradient: 'from-blue-900 via-blue-800 to-blue-700' },
+  icici: { gradient: 'from-orange-600 via-orange-500 to-amber-500' },
+  sbi: { gradient: 'from-blue-600 via-blue-500 to-cyan-500' },
+  axis: { gradient: 'from-purple-900 via-purple-700 to-pink-600' },
+  kotak: { gradient: 'from-red-700 via-red-600 to-red-500' },
+  amex: { gradient: 'from-slate-700 via-slate-600 to-slate-500' },
+  citi: { gradient: 'from-blue-700 via-blue-600 to-blue-500' },
+  rbl: { gradient: 'from-orange-700 via-orange-600 to-yellow-500' },
+  yes: { gradient: 'from-blue-800 via-blue-700 to-blue-600' },
+  indusind: { gradient: 'from-red-800 via-red-700 to-orange-600' },
+  default: { gradient: 'from-gray-800 via-gray-700 to-gray-600' },
+};
+
+const getBankStyle = (bankName: string) => {
+  const key = bankName.toLowerCase().split(' ')[0];
+  return BANK_CARD_STYLES[key] || BANK_CARD_STYLES.default;
+};
+
+// Visual Credit Card Component
+interface VisualCardProps {
+  bankName: string;
+  lastFour: string;
+  cardHolder?: string;
+  outstanding: number;
+  creditLimit: number;
+  dueDate?: string;
+  isSelected?: boolean;
+  onClick?: () => void;
+}
+
+function VisualCreditCard({ bankName, lastFour, cardHolder, outstanding, creditLimit, dueDate, isSelected, onClick }: VisualCardProps) {
+  const style = getBankStyle(bankName);
+  const utilization = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0;
+
+  return (
+    <div
+      onClick={onClick}
+      className={`relative w-full max-w-[320px] h-[190px] rounded-2xl p-5 cursor-pointer transition-all duration-200 bg-gradient-to-br ${style.gradient} text-white shadow-lg hover:shadow-xl hover:scale-[1.02] ${
+        isSelected ? 'ring-2 ring-white ring-offset-2 ring-offset-background' : ''
+      }`}
+    >
+      {/* Selection indicator */}
+      {isSelected && (
+        <div className="absolute top-3 right-3 bg-white rounded-full p-1">
+          <Check className="h-4 w-4 text-green-600" />
+        </div>
+      )}
+
+      {/* Chip and wireless */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-7 bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-md" />
+        <Wifi className="h-5 w-5 rotate-90 opacity-80" />
+      </div>
+
+      {/* Card number */}
+      <div className="text-lg tracking-widest font-mono mb-4 opacity-90">
+        •••• •••• •••• {lastFour}
+      </div>
+
+      {/* Bank name and holder */}
+      <div className="flex justify-between items-end">
+        <div>
+          <p className="text-xs opacity-70 uppercase tracking-wide">Card Holder</p>
+          <p className="text-sm font-medium truncate max-w-[150px]">{cardHolder || 'Not Set'}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold">{bankName}</p>
+          {dueDate && (
+            <p className="text-xs opacity-70">Due: {format(new Date(dueDate), 'dd MMM')}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Utilization bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/20 rounded-b-2xl overflow-hidden">
+        <div
+          className={`h-full transition-all ${utilization > 80 ? 'bg-red-400' : utilization > 50 ? 'bg-yellow-400' : 'bg-green-400'}`}
+          style={{ width: `${Math.min(utilization, 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function CreditCards() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // State
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview');
-  const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(
-    searchParams.get('accountId') || undefined
-  );
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [cardSelectorOpen, setCardSelectorOpen] = useState(false);
   const [startMonth, setStartMonth] = useState(() =>
     format(subMonths(new Date(), 2), 'yyyy-MM')
   );
@@ -89,11 +181,26 @@ export function CreditCards() {
   const startDate = format(startOfMonth(new Date(startMonth)), 'yyyy-MM-dd');
   const endDate = format(endOfMonth(new Date(endMonth)), 'yyyy-MM-dd');
 
+  // Get first selected account for single-account queries (or undefined for all)
+  const selectedAccountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : undefined;
+
   // Queries
   const { data: summary, isLoading: summaryLoading } = useQuery<CreditCardsSummary>({
-    queryKey: ['credit-cards-summary', selectedAccountId],
-    queryFn: () => creditCardsApi.getSummary(selectedAccountId),
+    queryKey: ['credit-cards-summary'],
+    queryFn: () => creditCardsApi.getSummary(),
   });
+
+  // Toggle card selection
+  const toggleCardSelection = (accountId: string) => {
+    setSelectedAccountIds((prev) =>
+      prev.includes(accountId)
+        ? prev.filter((id) => id !== accountId)
+        : [...prev, accountId]
+    );
+  };
+
+  const selectAllCards = () => setSelectedAccountIds([]);
+  const isAllSelected = selectedAccountIds.length === 0;
 
   const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
     queryKey: [
@@ -243,32 +350,53 @@ export function CreditCards() {
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Credit Cards</h1>
           {summary?.nextDueDate && (
-            <Badge variant="warning" className="flex items-center gap-1">
+            <Badge variant="destructive" className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
               Due: {formatDate(summary.nextDueDate)}
             </Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* Card Selector */}
+          {/* Multi-select Card Filter */}
           {summary && summary.accounts.length > 1 && (
-            <Select
-              value={selectedAccountId || 'all'}
-              onValueChange={(val) => setSelectedAccountId(val === 'all' ? undefined : val)}
-            >
-              <SelectTrigger className="w-[220px]">
-                <CreditCard className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Select Card" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Cards</SelectItem>
-                {summary.accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.bankName} •• {account.accountNumber?.slice(-4)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={cardSelectorOpen} onOpenChange={setCardSelectorOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Filter className="h-4 w-4" />
+                  {isAllSelected
+                    ? 'All Cards'
+                    : `${selectedAccountIds.length} Card${selectedAccountIds.length > 1 ? 's' : ''} Selected`}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-2" align="end">
+                <div className="space-y-1">
+                  <Button
+                    variant={isAllSelected ? 'secondary' : 'ghost'}
+                    className="w-full justify-start text-sm"
+                    onClick={selectAllCards}
+                  >
+                    <Check className={`h-4 w-4 mr-2 ${isAllSelected ? 'opacity-100' : 'opacity-0'}`} />
+                    All Cards
+                  </Button>
+                  <div className="h-px bg-border my-1" />
+                  {summary.accounts.map((account) => (
+                    <Button
+                      key={account.id}
+                      variant={selectedAccountIds.includes(account.id) ? 'secondary' : 'ghost'}
+                      className="w-full justify-start text-sm"
+                      onClick={() => toggleCardSelection(account.id)}
+                    >
+                      <Check
+                        className={`h-4 w-4 mr-2 ${
+                          selectedAccountIds.includes(account.id) ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                      {account.bankName} •• {account.accountNumber?.slice(-4)}
+                    </Button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
           <Button onClick={() => navigate('/uploads')} className="gap-2">
             <Upload className="h-4 w-4" />
@@ -290,7 +418,33 @@ export function CreditCards() {
         </Card>
       ) : (
         <>
-          {/* Summary Cards */}
+          {/* Visual Credit Cards Section */}
+          <div className="overflow-x-auto pb-2">
+            <div className="flex gap-4 min-w-max">
+              {summary?.accounts.map((account) => {
+                const isSelected = selectedAccountIds.includes(account.id);
+                const accountStatement = account.latestStatement;
+                return (
+                  <VisualCreditCard
+                    key={account.id}
+                    bankName={account.bankName}
+                    lastFour={account.accountNumber?.slice(-4) || '****'}
+                    cardHolder={account.cardHolders?.[0]?.name}
+                    outstanding={accountStatement?.totalDue || Math.abs(account.currentBalance || 0)}
+                    creditLimit={accountStatement?.creditLimit || 0}
+                    dueDate={accountStatement?.dueDate}
+                    isSelected={!isAllSelected && isSelected}
+                    onClick={() => toggleCardSelection(account.id)}
+                  />
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Click cards to filter • {isAllSelected ? 'Showing all cards' : `Showing ${selectedAccountIds.length} selected`}
+            </p>
+          </div>
+
+          {/* Summary Stats */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/30 dark:to-red-900/20 border-red-200 dark:border-red-800">
               <CardContent className="flex items-center gap-4 p-6">

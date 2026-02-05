@@ -507,7 +507,7 @@ router.post('/', async (req, res) => {
       const loanId = uuidv4();
       const newLoan = {
         id: loanId,
-        direction: 'taken' as const,
+        type: 'taken' as const,
         partyName: loanProvider || 'Unknown Bank',
         loanType: loanType || 'home',
         principalAmount: principalAmount || 0,
@@ -617,7 +617,7 @@ router.put('/:id', async (req, res) => {
         const loanId = uuidv4();
         await db.insert(loans).values({
           id: loanId,
-          direction: 'taken',
+          type: 'taken',
           ...loanData,
           status: 'active',
           notes: `Linked to asset: ${assetData.name || existingAsset.name}`,

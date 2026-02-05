@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, categories } from '../db/index.js';
-import { eq, and, between, like, desc, asc, or, sql } from 'drizzle-orm';
+import { eq, and, between, like, desc, asc, or, sql, isNull } from 'drizzle-orm';
 
 const router = Router();
 
@@ -410,7 +410,7 @@ router.post('/vyapar-items/auto-categorize', async (req, res) => {
     if (onlyUncategorized) {
       conditions.push(
         or(
-          eq(vyaparItemDetails.category, null),
+          isNull(vyaparItemDetails.category),
           eq(vyaparItemDetails.category, '')
         )
       );
@@ -516,7 +516,7 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
         .where(
           and(
             or(
-              eq(vyaparItemDetails.category, null),
+              isNull(vyaparItemDetails.category),
               eq(vyaparItemDetails.category, '')
             ),
             sql`${vyaparItemDetails.id} != ${req.params.id}`
