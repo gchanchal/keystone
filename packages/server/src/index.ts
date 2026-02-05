@@ -84,7 +84,7 @@ app.use((_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`FinSync server running on http://localhost:${PORT}`);
+  console.log(`KeyStone server running on http://localhost:${PORT}`);
 });
 
 export default app;

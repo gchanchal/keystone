@@ -371,7 +371,7 @@ export function Settings() {
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label>Database Location</Label>
-              <p className="text-sm text-muted-foreground">data/finsync.db</p>
+              <p className="text-sm text-muted-foreground">data/keystone.db</p>
             </div>
           </div>
           <p className="text-sm text-muted-foreground">

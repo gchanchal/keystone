@@ -18,7 +18,7 @@ export const useThemeStore = create<ThemeState>()(
       },
     }),
     {
-      name: 'finsync-theme',
+      name: 'keystone-theme',
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme);

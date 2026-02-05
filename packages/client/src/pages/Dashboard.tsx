@@ -42,29 +42,29 @@ export function Dashboard() {
 
   // Date range state - read from localStorage, default to last 3 months
   const [startMonth, setStartMonth] = useState(() => {
-    const stored = localStorage.getItem('finsync-date-start');
+    const stored = localStorage.getItem('keystone-date-start');
     if (stored) return stored;
     return format(subMonths(new Date(), 2), 'yyyy-MM');
   });
   const [endMonth, setEndMonth] = useState(() => {
-    const stored = localStorage.getItem('finsync-date-end');
+    const stored = localStorage.getItem('keystone-date-end');
     if (stored) return stored;
     return getMonthYear();
   });
   const [granularity, setGranularity] = useState<Granularity>(() => {
-    const stored = localStorage.getItem('finsync-dashboard-granularity');
+    const stored = localStorage.getItem('keystone-dashboard-granularity');
     return (stored as Granularity) || 'weekly';
   });
 
   // Persist granularity to localStorage
   useEffect(() => {
-    localStorage.setItem('finsync-dashboard-granularity', granularity);
+    localStorage.setItem('keystone-dashboard-granularity', granularity);
   }, [granularity]);
 
   // Persist date range to localStorage
   useEffect(() => {
-    localStorage.setItem('finsync-date-start', startMonth);
-    localStorage.setItem('finsync-date-end', endMonth);
+    localStorage.setItem('keystone-date-start', startMonth);
+    localStorage.setItem('keystone-date-end', endMonth);
   }, [startMonth, endMonth]);
 
   const startMonthDate = parseMonthYear(startMonth);

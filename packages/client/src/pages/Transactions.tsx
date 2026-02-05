@@ -59,7 +59,7 @@ export function Transactions() {
     if (startDateParam) {
       return startDateParam.substring(0, 7); // Extract yyyy-MM from yyyy-MM-dd
     }
-    const stored = localStorage.getItem('finsync-date-start');
+    const stored = localStorage.getItem('keystone-date-start');
     if (stored) return stored;
     return format(subMonths(new Date(), 2), 'yyyy-MM');
   });
@@ -67,15 +67,15 @@ export function Transactions() {
     if (endDateParam) {
       return endDateParam.substring(0, 7);
     }
-    const stored = localStorage.getItem('finsync-date-end');
+    const stored = localStorage.getItem('keystone-date-end');
     if (stored) return stored;
     return getMonthYear();
   });
 
   // Persist date range to localStorage
   useEffect(() => {
-    localStorage.setItem('finsync-date-start', startMonth);
-    localStorage.setItem('finsync-date-end', endMonth);
+    localStorage.setItem('keystone-date-start', startMonth);
+    localStorage.setItem('keystone-date-end', endMonth);
   }, [startMonth, endMonth]);
 
   // Calculate date range

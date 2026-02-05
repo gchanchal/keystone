@@ -1,5 +1,5 @@
 {
-  "name": "@finsync/server",
+  "name": "@keystone/server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
