@@ -3,6 +3,7 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 // OAuth tokens and connection state
 export const gmailConnections = sqliteTable('gmail_connections', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   email: text('email').notNull(),
   accessToken: text('access_token').notNull(),
   refreshToken: text('refresh_token').notNull(),
@@ -17,6 +18,7 @@ export const gmailConnections = sqliteTable('gmail_connections', {
 // Sync history and state
 export const gmailSyncState = sqliteTable('gmail_sync_state', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   connectionId: text('connection_id').notNull(),
   syncType: text('sync_type').notNull(), // 'historical' | 'incremental'
   status: text('status').notNull(), // 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -32,6 +34,7 @@ export const gmailSyncState = sqliteTable('gmail_sync_state', {
 // Processed emails tracking (deduplication)
 export const processedEmails = sqliteTable('processed_emails', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   connectionId: text('connection_id').notNull(),
   gmailMessageId: text('gmail_message_id').notNull().unique(),
   threadId: text('thread_id'),

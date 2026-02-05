@@ -86,22 +86,24 @@ function datesWithinRange(date1: string, date2: string, days: number): boolean {
 export async function autoReconcile(
   startDate: string,
   endDate: string,
-  accountIds?: string[]
+  accountIds?: string[],
+  userId?: string
 ): Promise<ReconciliationMatch[]> {
   const matches: ReconciliationMatch[] = [];
 
   // Get unreconciled bank transactions
-  let bankQuery = db
+  const bankConditions = [
+    eq(bankTransactions.isReconciled, false),
+    between(bankTransactions.date, startDate, endDate),
+  ];
+  if (userId) {
+    bankConditions.push(eq(bankTransactions.userId, userId));
+  }
+
+  const bankTxns = await db
     .select()
     .from(bankTransactions)
-    .where(
-      and(
-        eq(bankTransactions.isReconciled, false),
-        between(bankTransactions.date, startDate, endDate)
-      )
-    );
-
-  const bankTxns = await bankQuery;
+    .where(and(...bankConditions));
 
   // Get unreconciled vyapar transactions
   // Exclude:
@@ -109,17 +111,20 @@ export async function autoReconcile(
   // - Transaction Type "Sale Order" (pending payment - not reconcilable until payment received)
   // - Transaction Type "Payment-In" (doesn't need bank reconciliation)
   // Only include: Sale, Purchase, Payment-Out, Expense
+  const vyaparConditions = [
+    eq(vyaparTransactions.isReconciled, false),
+    between(vyaparTransactions.date, startDate, endDate),
+    sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
+    sql`${vyaparTransactions.transactionType} NOT IN ('Sale Order', 'Payment-In')`,
+  ];
+  if (userId) {
+    vyaparConditions.push(eq(vyaparTransactions.userId, userId));
+  }
+
   const vyaparTxns = await db
     .select()
     .from(vyaparTransactions)
-    .where(
-      and(
-        eq(vyaparTransactions.isReconciled, false),
-        between(vyaparTransactions.date, startDate, endDate),
-        sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
-        sql`${vyaparTransactions.transactionType} NOT IN ('Sale Order', 'Payment-In')`
-      )
-    );
+    .where(and(...vyaparConditions));
 
   // Filter bank transactions by account if specified
   const filteredBankTxns = accountIds?.length

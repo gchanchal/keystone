@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const loans = sqliteTable('loans', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   type: text('type').notNull(), // given, taken, home_loan, car_loan, personal_loan
   loanType: text('loan_type'), // home, car, personal, business, education
   partyName: text('party_name').notNull(), // Lender name (e.g., "Axis Bank")
@@ -59,6 +60,7 @@ export const loans = sqliteTable('loans', {
 
 export const loanPayments = sqliteTable('loan_payments', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   loanId: text('loan_id').notNull(),
   date: text('date').notNull(),
   valueDate: text('value_date'),
@@ -88,6 +90,7 @@ export const loanPayments = sqliteTable('loan_payments', {
 // Loan disbursements tracking (for construction-linked loans)
 export const loanDisbursements = sqliteTable('loan_disbursements', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   loanId: text('loan_id').notNull(),
   date: text('date').notNull(),
   amount: real('amount').notNull(),
@@ -107,6 +110,7 @@ export type NewLoanDisbursement = typeof loanDisbursements.$inferInsert;
 // Loan repayment schedule (future EMIs)
 export const loanSchedule = sqliteTable('loan_schedule', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   loanId: text('loan_id').notNull(),
   installmentNumber: integer('installment_number').notNull(),
   dueDate: text('due_date').notNull(),
@@ -128,6 +132,7 @@ export type NewLoanSchedule = typeof loanSchedule.$inferInsert;
 // Loan Given Details - tracking individual transactions for loans given
 export const loanGivenDetails = sqliteTable('loan_given_details', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   loanId: text('loan_id').notNull(),
   particular: text('particular').notNull(),
   toGet: real('to_get').default(0), // Amount to receive

@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const bankTransactions = sqliteTable('bank_transactions', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   accountId: text('account_id').notNull(),
   date: text('date').notNull(),
   valueDate: text('value_date'),

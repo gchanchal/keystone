@@ -3,6 +3,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 // Mutual Fund Folios (one folio per AMC)
 export const mutualFundFolios = sqliteTable('mutual_fund_folios', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   folioNumber: text('folio_number').notNull(),
   amcName: text('amc_name').notNull(), // e.g., "ICICI Prudential", "SBI Mutual Fund"
   panNumber: text('pan_number'),
@@ -18,6 +19,7 @@ export const mutualFundFolios = sqliteTable('mutual_fund_folios', {
 // Mutual Fund Holdings (schemes within a folio)
 export const mutualFundHoldings = sqliteTable('mutual_fund_holdings', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   folioId: text('folio_id').notNull(),
   schemeName: text('scheme_name').notNull(),
   schemeCode: text('scheme_code'),
@@ -46,6 +48,7 @@ export const mutualFundHoldings = sqliteTable('mutual_fund_holdings', {
 // Mutual Fund Transactions (SIP, Redemption, Switch, Dividend)
 export const mutualFundTransactions = sqliteTable('mutual_fund_transactions', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   holdingId: text('holding_id').notNull(),
   folioId: text('folio_id').notNull(),
   date: text('date').notNull(),
@@ -63,6 +66,7 @@ export const mutualFundTransactions = sqliteTable('mutual_fund_transactions', {
 // NAV History for tracking scheme performance
 export const mutualFundNavHistory = sqliteTable('mutual_fund_nav_history', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   holdingId: text('holding_id').notNull(),
   date: text('date').notNull(),
   nav: real('nav').notNull(),

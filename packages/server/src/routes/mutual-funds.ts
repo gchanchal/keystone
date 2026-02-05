@@ -62,7 +62,7 @@ async function fetchLatestNAV(schemeCode: string): Promise<{ nav: number; date: 
 const router = Router();
 
 // Get all mutual fund holdings with folio info
-router.get('/holdings', async (_req, res) => {
+router.get('/holdings', async (req, res) => {
   try {
     const holdings = await db
       .select({
@@ -94,7 +94,7 @@ router.get('/holdings', async (_req, res) => {
       })
       .from(mutualFundHoldings)
       .innerJoin(mutualFundFolios, eq(mutualFundHoldings.folioId, mutualFundFolios.id))
-      .where(eq(mutualFundHoldings.isActive, true))
+      .where(and(eq(mutualFundHoldings.isActive, true), eq(mutualFundFolios.userId, req.userId!)))
       .orderBy(desc(mutualFundHoldings.currentValue));
 
     res.json(holdings);
@@ -105,7 +105,7 @@ router.get('/holdings', async (_req, res) => {
 });
 
 // Get summary stats
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
     const result = await db
       .select({
@@ -115,12 +115,13 @@ router.get('/summary', async (_req, res) => {
         holdingsCount: sql<number>`COUNT(*)`,
       })
       .from(mutualFundHoldings)
-      .where(eq(mutualFundHoldings.isActive, true));
+      .innerJoin(mutualFundFolios, eq(mutualFundHoldings.folioId, mutualFundFolios.id))
+      .where(and(eq(mutualFundHoldings.isActive, true), eq(mutualFundFolios.userId, req.userId!)));
 
     const folioCount = await db
       .select({ count: sql<number>`COUNT(DISTINCT ${mutualFundFolios.id})` })
       .from(mutualFundFolios)
-      .where(eq(mutualFundFolios.isActive, true));
+      .where(and(eq(mutualFundFolios.isActive, true), eq(mutualFundFolios.userId, req.userId!)));
 
     const summary = result[0];
     const totalAbsoluteReturn = summary.totalCurrentValue - summary.totalCostValue;
@@ -138,7 +139,7 @@ router.get('/summary', async (_req, res) => {
       })
       .from(mutualFundHoldings)
       .innerJoin(mutualFundFolios, eq(mutualFundHoldings.folioId, mutualFundFolios.id))
-      .where(eq(mutualFundHoldings.isActive, true))
+      .where(and(eq(mutualFundHoldings.isActive, true), eq(mutualFundFolios.userId, req.userId!)))
       .groupBy(mutualFundFolios.amcName)
       .orderBy(desc(sql`COALESCE(SUM(${mutualFundHoldings.currentValue}), 0)`));
 
@@ -165,12 +166,12 @@ router.get('/summary', async (_req, res) => {
 });
 
 // Get all folios
-router.get('/folios', async (_req, res) => {
+router.get('/folios', async (req, res) => {
   try {
     const folios = await db
       .select()
       .from(mutualFundFolios)
-      .where(eq(mutualFundFolios.isActive, true))
+      .where(and(eq(mutualFundFolios.isActive, true), eq(mutualFundFolios.userId, req.userId!)))
       .orderBy(mutualFundFolios.amcName);
 
     // Get holdings count for each folio
@@ -312,9 +313,17 @@ router.delete('/:id', async (req, res) => {
 router.post('/sync-nav', async (req, res) => {
   try {
     const holdings = await db
-      .select()
+      .select({
+        id: mutualFundHoldings.id,
+        folioId: mutualFundHoldings.folioId,
+        schemeName: mutualFundHoldings.schemeName,
+        isin: mutualFundHoldings.isin,
+        units: mutualFundHoldings.units,
+        costValue: mutualFundHoldings.costValue,
+      })
       .from(mutualFundHoldings)
-      .where(eq(mutualFundHoldings.isActive, true));
+      .innerJoin(mutualFundFolios, eq(mutualFundHoldings.folioId, mutualFundFolios.id))
+      .where(and(eq(mutualFundHoldings.isActive, true), eq(mutualFundFolios.userId, req.userId!)));
 
     const now = new Date().toISOString();
     let updated = 0;
@@ -445,7 +454,7 @@ router.delete('/folios/:folioId', async (req, res) => {
         isActive: false,
         updatedAt: now,
       })
-      .where(eq(mutualFundFolios.id, folioId));
+      .where(and(eq(mutualFundFolios.id, folioId), eq(mutualFundFolios.userId, req.userId!)));
 
     res.json({ success: true });
   } catch (error) {

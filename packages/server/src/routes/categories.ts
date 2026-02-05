@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, categories } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -15,9 +15,9 @@ const categorySchema = z.object({
 });
 
 // Get all categories
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const allCategories = await db.select().from(categories);
+    const allCategories = await db.select().from(categories).where(eq(categories.userId, req.userId!));
     res.json(allCategories);
   } catch (error) {
     console.error('Error fetching categories:', error);
@@ -31,7 +31,7 @@ router.get('/:id', async (req, res) => {
     const category = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, req.params.id))
+      .where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)))
       .limit(1);
 
     if (!category[0]) {
@@ -54,6 +54,7 @@ router.post('/', async (req, res) => {
     const newCategory = {
       id: uuidv4(),
       ...data,
+      userId: req.userId!,
       isSystem: false,
       createdAt: now,
       updatedAt: now,
@@ -77,7 +78,7 @@ router.put('/:id', async (req, res) => {
     const existing = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, req.params.id))
+      .where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)))
       .limit(1);
 
     if (!existing[0]) {
@@ -94,12 +95,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(categories)
       .set({ ...data, updatedAt: now })
-      .where(eq(categories.id, req.params.id));
+      .where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, req.params.id))
+      .where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -119,7 +120,7 @@ router.delete('/:id', async (req, res) => {
     const existing = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, req.params.id))
+      .where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)))
       .limit(1);
 
     if (!existing[0]) {
@@ -130,7 +131,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Cannot delete system categories' });
     }
 
-    await db.delete(categories).where(eq(categories.id, req.params.id));
+    await db.delete(categories).where(and(eq(categories.id, req.params.id), eq(categories.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting category:', error);

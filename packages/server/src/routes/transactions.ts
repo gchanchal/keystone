@@ -44,7 +44,7 @@ const querySchema = z.object({
 router.get('/bank', async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
-    const conditions = [];
+    const conditions = [eq(bankTransactions.userId, req.userId!)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(bankTransactions.date, query.startDate, query.endDate));
@@ -102,7 +102,7 @@ router.get('/bank', async (req, res) => {
 router.get('/vyapar', async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
-    const conditions = [];
+    const conditions = [eq(vyaparTransactions.userId, req.userId!)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(vyaparTransactions.date, query.startDate, query.endDate));
@@ -117,13 +117,12 @@ router.get('/vyapar', async (req, res) => {
       conditions.push(eq(vyaparTransactions.paymentType, query.paymentType));
     }
     if (query.search) {
-      conditions.push(
-        or(
-          like(vyaparTransactions.partyName, `%${query.search}%`),
-          like(vyaparTransactions.invoiceNumber, `%${query.search}%`),
-          like(vyaparTransactions.description, `%${query.search}%`)
-        )
+      const searchCondition = or(
+        like(vyaparTransactions.partyName, `%${query.search}%`),
+        like(vyaparTransactions.invoiceNumber, `%${query.search}%`),
+        like(vyaparTransactions.description, `%${query.search}%`)
       );
+      if (searchCondition) conditions.push(searchCondition);
     }
 
     let dbQuery = db
@@ -154,7 +153,7 @@ router.get('/vyapar', async (req, res) => {
 router.get('/credit-card', async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
-    const conditions = [];
+    const conditions = [eq(creditCardTransactions.userId, req.userId!)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(creditCardTransactions.date, query.startDate, query.endDate));
@@ -204,6 +203,7 @@ router.post('/bank', async (req, res) => {
 
     const newTransaction = {
       id: uuidv4(),
+      userId: req.userId!,
       ...data,
       isReconciled: false,
       reconciledWithId: null,
@@ -233,12 +233,12 @@ router.put('/bank/:id', async (req, res) => {
     await db
       .update(bankTransactions)
       .set({ ...data, updatedAt: now })
-      .where(eq(bankTransactions.id, req.params.id));
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(bankTransactions)
-      .where(eq(bankTransactions.id, req.params.id))
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -254,7 +254,7 @@ router.put('/bank/:id', async (req, res) => {
 // Delete bank transaction
 router.delete('/bank/:id', async (req, res) => {
   try {
-    await db.delete(bankTransactions).where(eq(bankTransactions.id, req.params.id));
+    await db.delete(bankTransactions).where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting transaction:', error);
@@ -263,9 +263,11 @@ router.delete('/bank/:id', async (req, res) => {
 });
 
 // Get all categories
-router.get('/categories', async (_req, res) => {
+router.get('/categories', async (req, res) => {
   try {
-    const allCategories = await db.select().from(categories);
+    const allCategories = await db.select().from(categories).where(
+      or(eq(categories.userId, req.userId!), isNull(categories.userId))
+    );
     res.json(allCategories);
   } catch (error) {
     console.error('Error fetching categories:', error);
@@ -287,12 +289,12 @@ router.patch('/bank/:id/category', async (req, res) => {
     await db
       .update(bankTransactions)
       .set({ categoryId, updatedAt: now })
-      .where(eq(bankTransactions.id, req.params.id));
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(bankTransactions)
-      .where(eq(bankTransactions.id, req.params.id))
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -321,7 +323,7 @@ router.patch('/bank/bulk-category', async (req, res) => {
       await db
         .update(bankTransactions)
         .set({ categoryId, updatedAt: now })
-        .where(eq(bankTransactions.id, id));
+        .where(and(eq(bankTransactions.id, id), eq(bankTransactions.userId, req.userId!)));
     }
 
     res.json({ success: true, updated: ids.length });
@@ -347,7 +349,7 @@ router.get('/vyapar-items', async (req, res) => {
       offset: z.string().optional(),
     }).parse(req.query);
 
-    const conditions = [];
+    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(vyaparItemDetails.date, query.startDate, query.endDate));
@@ -359,12 +361,11 @@ router.get('/vyapar-items', async (req, res) => {
       conditions.push(eq(vyaparItemDetails.transactionType, query.transactionType));
     }
     if (query.search) {
-      conditions.push(
-        or(
-          like(vyaparItemDetails.itemName, `%${query.search}%`),
-          like(vyaparItemDetails.partyName, `%${query.search}%`)
-        )
+      const searchCondition = or(
+        like(vyaparItemDetails.itemName, `%${query.search}%`),
+        like(vyaparItemDetails.partyName, `%${query.search}%`)
       );
+      if (searchCondition) conditions.push(searchCondition);
     }
 
     let dbQuery = db
@@ -406,14 +407,13 @@ router.post('/vyapar-items/auto-categorize', async (req, res) => {
       .parse(req.body);
 
     // Get items to categorize
-    const conditions = [];
+    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
     if (onlyUncategorized) {
-      conditions.push(
-        or(
-          isNull(vyaparItemDetails.category),
-          eq(vyaparItemDetails.category, '')
-        )
+      const uncatCondition = or(
+        isNull(vyaparItemDetails.category),
+        eq(vyaparItemDetails.category, '')
       );
+      if (uncatCondition) conditions.push(uncatCondition);
     }
 
     let dbQuery = db.select().from(vyaparItemDetails);
@@ -477,7 +477,7 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
     const [currentItem] = await db
       .select()
       .from(vyaparItemDetails)
-      .where(eq(vyaparItemDetails.id, req.params.id))
+      .where(and(eq(vyaparItemDetails.id, req.params.id), eq(vyaparItemDetails.userId, req.userId!)))
       .limit(1);
 
     if (!currentItem) {
@@ -515,6 +515,7 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
         .from(vyaparItemDetails)
         .where(
           and(
+            eq(vyaparItemDetails.userId, req.userId!),
             or(
               isNull(vyaparItemDetails.category),
               eq(vyaparItemDetails.category, '')
@@ -575,7 +576,7 @@ router.get('/vyapar-items/categories', async (req, res) => {
       transactionType: z.string().optional(),
     }).parse(req.query);
 
-    const conditions = [];
+    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(vyaparItemDetails.date, query.startDate, query.endDate));
@@ -619,7 +620,7 @@ router.post('/bank/bulk-delete', async (req, res) => {
       })
       .parse(req.body);
 
-    const conditions = [];
+    const conditions = [eq(bankTransactions.userId, req.userId!)];
 
     if (accountId) {
       conditions.push(eq(bankTransactions.accountId, accountId));
@@ -628,25 +629,19 @@ router.post('/bank/bulk-delete', async (req, res) => {
       conditions.push(between(bankTransactions.date, startDate, endDate));
     }
 
-    // Safety check: require at least one filter unless deleteAll is explicitly true
-    if (conditions.length === 0 && !deleteAll) {
+    // Safety check: require at least one additional filter unless deleteAll is explicitly true
+    if (conditions.length === 1 && !deleteAll) {
       return res.status(400).json({ error: 'Please specify accountId or date range, or set deleteAll: true' });
     }
 
     // First count how many will be deleted
     let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(bankTransactions);
-    if (conditions.length > 0) {
-      countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    }
+    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
     const countResult = await countQuery;
     const count = countResult[0]?.count || 0;
 
     // Delete the transactions
-    if (conditions.length > 0) {
-      await db.delete(bankTransactions).where(and(...conditions));
-    } else if (deleteAll) {
-      await db.delete(bankTransactions);
-    }
+    await db.delete(bankTransactions).where(and(...conditions));
 
     res.json({ success: true, deleted: count });
   } catch (error) {
@@ -670,7 +665,7 @@ router.post('/vyapar/bulk-delete', async (req, res) => {
       })
       .parse(req.body);
 
-    const conditions = [];
+    const conditions = [eq(vyaparTransactions.userId, req.userId!)];
 
     if (startDate && endDate) {
       conditions.push(between(vyaparTransactions.date, startDate, endDate));
@@ -680,24 +675,18 @@ router.post('/vyapar/bulk-delete', async (req, res) => {
     }
 
     // Safety check
-    if (conditions.length === 0 && !deleteAll) {
+    if (conditions.length === 1 && !deleteAll) {
       return res.status(400).json({ error: 'Please specify date range or transactionType, or set deleteAll: true' });
     }
 
     // Count
     let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(vyaparTransactions);
-    if (conditions.length > 0) {
-      countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    }
+    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
     const countResult = await countQuery;
     const count = countResult[0]?.count || 0;
 
     // Delete
-    if (conditions.length > 0) {
-      await db.delete(vyaparTransactions).where(and(...conditions));
-    } else if (deleteAll) {
-      await db.delete(vyaparTransactions);
-    }
+    await db.delete(vyaparTransactions).where(and(...conditions));
 
     res.json({ success: true, deleted: count });
   } catch (error) {
@@ -721,7 +710,7 @@ router.post('/credit-card/bulk-delete', async (req, res) => {
       })
       .parse(req.body);
 
-    const conditions = [];
+    const conditions = [eq(creditCardTransactions.userId, req.userId!)];
 
     if (accountId) {
       conditions.push(eq(creditCardTransactions.accountId, accountId));
@@ -731,24 +720,18 @@ router.post('/credit-card/bulk-delete', async (req, res) => {
     }
 
     // Safety check
-    if (conditions.length === 0 && !deleteAll) {
+    if (conditions.length === 1 && !deleteAll) {
       return res.status(400).json({ error: 'Please specify accountId or date range, or set deleteAll: true' });
     }
 
     // Count
     let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(creditCardTransactions);
-    if (conditions.length > 0) {
-      countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    }
+    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
     const countResult = await countQuery;
     const count = countResult[0]?.count || 0;
 
     // Delete
-    if (conditions.length > 0) {
-      await db.delete(creditCardTransactions).where(and(...conditions));
-    } else if (deleteAll) {
-      await db.delete(creditCardTransactions);
-    }
+    await db.delete(creditCardTransactions).where(and(...conditions));
 
     res.json({ success: true, deleted: count });
   } catch (error) {
@@ -772,26 +755,27 @@ router.get('/counts', async (req, res) => {
       })
       .parse(req.query);
 
-    const conditions = [];
+    const conditions: any[] = [];
     let table: any;
 
     if (type === 'bank') {
       table = bankTransactions;
+      conditions.push(eq(bankTransactions.userId, req.userId!));
       if (accountId) conditions.push(eq(bankTransactions.accountId, accountId));
       if (startDate && endDate) conditions.push(between(bankTransactions.date, startDate, endDate));
     } else if (type === 'vyapar') {
       table = vyaparTransactions;
+      conditions.push(eq(vyaparTransactions.userId, req.userId!));
       if (startDate && endDate) conditions.push(between(vyaparTransactions.date, startDate, endDate));
     } else {
       table = creditCardTransactions;
+      conditions.push(eq(creditCardTransactions.userId, req.userId!));
       if (accountId) conditions.push(eq(creditCardTransactions.accountId, accountId));
       if (startDate && endDate) conditions.push(between(creditCardTransactions.date, startDate, endDate));
     }
 
     let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(table);
-    if (conditions.length > 0) {
-      countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    }
+    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
 
     const result = await countQuery;
     res.json({ count: result[0]?.count || 0 });
@@ -815,12 +799,12 @@ router.patch('/credit-card/:id/category', async (req, res) => {
     await db
       .update(creditCardTransactions)
       .set({ categoryId, updatedAt: now })
-      .where(eq(creditCardTransactions.id, req.params.id));
+      .where(and(eq(creditCardTransactions.id, req.params.id), eq(creditCardTransactions.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(creditCardTransactions)
-      .where(eq(creditCardTransactions.id, req.params.id))
+      .where(and(eq(creditCardTransactions.id, req.params.id), eq(creditCardTransactions.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);

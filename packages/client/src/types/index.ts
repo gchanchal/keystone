@@ -1,3 +1,17 @@
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  picture: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  user?: User;
+}
+
 export interface Account {
   id: string;
   name: string;

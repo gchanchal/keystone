@@ -55,7 +55,8 @@ router.get('/oauth/callback', async (req, res) => {
     // Get user email
     const email = await gmailService.getUserEmail(tokens.accessToken);
 
-    // Save connection
+    // Save connection - note: userId not available in OAuth callback,
+    // will need to be handled differently in a real implementation
     await gmailService.saveConnection(email, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -76,9 +77,9 @@ router.get('/oauth/callback', async (req, res) => {
  * GET /api/gmail/connections
  * List all connected Gmail accounts
  */
-router.get('/connections', async (_req, res) => {
+router.get('/connections', async (req, res) => {
   try {
-    const connections = await gmailService.getConnections();
+    const connections = await gmailService.getConnections(req.userId!);
 
     // Don't expose tokens in API response
     const safeConnections = connections.map(conn => ({

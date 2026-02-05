@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const investments = sqliteTable('investments', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(),
   type: text('type').notNull(), // stocks, mutual_funds, fd, ppf, gold, crypto, real_estate, other
   symbol: text('symbol'),
@@ -21,6 +22,7 @@ export const investments = sqliteTable('investments', {
 
 export const investmentHistory = sqliteTable('investment_history', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   investmentId: text('investment_id').notNull(),
   date: text('date').notNull(),
   price: real('price').notNull(),

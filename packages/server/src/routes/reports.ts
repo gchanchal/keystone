@@ -12,7 +12,7 @@ import {
   formatPLReport,
 } from '../services/export-service.js';
 import { db, bankTransactions, vyaparTransactions, categories } from '../db/index.js';
-import { between, eq, and, desc } from 'drizzle-orm';
+import { between, eq, and, desc, sql } from 'drizzle-orm';
 
 const router = Router();
 
@@ -25,7 +25,7 @@ router.get('/pl', async (req, res) => {
       })
       .parse(req.query);
 
-    const pl = await getMonthlyPL(month);
+    const pl = await getMonthlyPL(month, req.userId!);
     res.json(pl);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -46,7 +46,7 @@ router.get('/pl/export', async (req, res) => {
       })
       .parse(req.query);
 
-    const pl = await getMonthlyPL(month);
+    const pl = await getMonthlyPL(month, req.userId!);
 
     if (exportFormat === 'xlsx') {
       const buffer = formatPLReport(pl);
@@ -86,7 +86,7 @@ router.get('/gst', async (req, res) => {
       })
       .parse(req.query);
 
-    const summary = await getGSTSummary(startDate, endDate);
+    const summary = await getGSTSummary(startDate, endDate, req.userId!);
     res.json(summary);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -108,7 +108,7 @@ router.get('/category-breakdown', async (req, res) => {
       })
       .parse(req.query);
 
-    const breakdown = await getExpenseBreakdown(startDate, endDate);
+    const breakdown = await getExpenseBreakdown(startDate, endDate, req.userId!);
 
     // If type is specified, filter appropriately
     // For now, getExpenseBreakdown returns expenses only

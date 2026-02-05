@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer, index } from 'drizzle-orm/sqlite-core
 
 export const creditCardTransactions = sqliteTable('credit_card_transactions', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   accountId: text('account_id').notNull(),
   date: text('date').notNull(),
   description: text('description').notNull(),
@@ -31,6 +32,7 @@ export type NewCreditCardTransaction = typeof creditCardTransactions.$inferInser
 // Credit Card Statements - billing cycle metadata
 export const creditCardStatements = sqliteTable('credit_card_statements', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   accountId: text('account_id').notNull(),
   statementDate: text('statement_date').notNull(),
   billingPeriodStart: text('billing_period_start').notNull(),
@@ -59,6 +61,7 @@ export type NewCreditCardStatement = typeof creditCardStatements.$inferInsert;
 // Card Holders - track main and add-on card holders
 export const cardHolders = sqliteTable('card_holders', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   accountId: text('account_id').notNull(),
   name: text('name').notNull(),
   isPrimary: integer('is_primary', { mode: 'boolean' }).default(false),

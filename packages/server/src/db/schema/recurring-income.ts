@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const recurringIncome = sqliteTable('recurring_income', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(), // e.g., "Salary - Company Name"
   category: text('category').notNull(), // salary, rental, dividend, interest, freelance, other
 
@@ -44,6 +45,7 @@ export const recurringIncome = sqliteTable('recurring_income', {
 // Track actual income received
 export const incomeReceipts = sqliteTable('income_receipts', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   incomeId: text('income_id').notNull(),
   receiptDate: text('receipt_date').notNull(),
   amount: real('amount').notNull(),

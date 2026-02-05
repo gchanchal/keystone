@@ -141,11 +141,12 @@ function createTransactionSignature(
 }
 
 // Get upload history
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const allUploads = await db
       .select()
       .from(uploads)
+      .where(eq(uploads.userId, req.userId!))
       .orderBy(desc(uploads.createdAt));
 
     res.json(allUploads);
@@ -272,6 +273,7 @@ router.post('/bank-statement/preview', upload.single('file'), async (req, res) =
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -457,6 +459,7 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -716,6 +719,7 @@ router.post('/credit-card/preview', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -981,6 +985,7 @@ router.post('/etrade/preview', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -1147,6 +1152,7 @@ router.post('/home-loan/preview', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -1370,6 +1376,7 @@ router.post('/cams/preview', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const uploadRecord = {
       id: uuidv4(),
+      userId: req.userId!,
       filename: req.file.filename,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -1599,7 +1606,7 @@ router.delete('/:id', async (req, res) => {
     const uploadRecord = await db
       .select()
       .from(uploads)
-      .where(eq(uploads.id, uploadId))
+      .where(and(eq(uploads.id, uploadId), eq(uploads.userId, req.userId!)))
       .limit(1);
 
     if (uploadRecord[0]) {
@@ -1637,7 +1644,7 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Delete upload record
-    await db.delete(uploads).where(eq(uploads.id, uploadId));
+    await db.delete(uploads).where(and(eq(uploads.id, uploadId), eq(uploads.userId, req.userId!)));
 
     res.json({ success: true, message: 'Upload record deleted. Transactions preserved.' });
   } catch (error) {

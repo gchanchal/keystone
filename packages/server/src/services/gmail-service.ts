@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { v4 as uuidv4 } from 'uuid';
 import { db, gmailConnections } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { GmailConnection, NewGmailConnection } from '../db/index.js';
 
 const SCOPES = [
@@ -338,7 +338,12 @@ export async function saveConnection(
 /**
  * Get all Gmail connections
  */
-export async function getConnections(): Promise<GmailConnection[]> {
+export async function getConnections(userId?: string): Promise<GmailConnection[]> {
+  if (userId) {
+    return db.select().from(gmailConnections).where(
+      and(eq(gmailConnections.isActive, true), eq(gmailConnections.userId, userId))
+    );
+  }
   return db.select().from(gmailConnections).where(eq(gmailConnections.isActive, true));
 }
 

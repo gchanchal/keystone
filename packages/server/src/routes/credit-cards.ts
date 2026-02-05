@@ -6,12 +6,12 @@ import { eq, desc, and, gte, lte, sql, isNotNull, like, or } from 'drizzle-orm';
 const router = Router();
 
 // Get all credit card accounts
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const creditCardAccounts = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.accountType, 'credit_card'))
+      .where(and(eq(accounts.accountType, 'credit_card'), eq(accounts.userId, req.userId!)))
       .orderBy(desc(accounts.createdAt));
 
     res.json(creditCardAccounts);
@@ -32,7 +32,7 @@ router.get('/summary', async (req, res) => {
     let accountsQuery = db
       .select()
       .from(accounts)
-      .where(eq(accounts.accountType, 'credit_card'));
+      .where(and(eq(accounts.accountType, 'credit_card'), eq(accounts.userId, req.userId!)));
 
     const ccAccounts = await accountsQuery;
 

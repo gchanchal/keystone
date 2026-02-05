@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, accounts } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -21,9 +21,12 @@ const accountSchema = z.object({
 });
 
 // Get all accounts
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const allAccounts = await db.select().from(accounts);
+    const allAccounts = await db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.userId, req.userId!));
     res.json(allAccounts);
   } catch (error) {
     console.error('Error fetching accounts:', error);
@@ -37,7 +40,7 @@ router.get('/:id', async (req, res) => {
     const account = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.id, req.params.id))
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)))
       .limit(1);
 
     if (!account[0]) {
@@ -59,6 +62,7 @@ router.post('/', async (req, res) => {
 
     const newAccount = {
       id: uuidv4(),
+      userId: req.userId!,
       ...data,
       currentBalance: data.openingBalance,
       isActive: true,
@@ -86,12 +90,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(accounts)
       .set({ ...data, updatedAt: now })
-      .where(eq(accounts.id, req.params.id));
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.id, req.params.id))
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)))
       .limit(1);
 
     if (!updated[0]) {
@@ -116,7 +120,7 @@ router.delete('/:id', async (req, res) => {
     await db
       .update(accounts)
       .set({ isActive: false, updatedAt: now })
-      .where(eq(accounts.id, req.params.id));
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
 
     res.json({ success: true });
   } catch (error) {
@@ -134,12 +138,12 @@ router.patch('/:id/balance', async (req, res) => {
     await db
       .update(accounts)
       .set({ currentBalance: balance, updatedAt: now })
-      .where(eq(accounts.id, req.params.id));
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.id, req.params.id))
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);

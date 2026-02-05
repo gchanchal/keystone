@@ -78,12 +78,12 @@ const investmentSchema = z.object({
 });
 
 // Get all investments
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const allInvestments = await db
       .select()
       .from(investments)
-      .where(eq(investments.isActive, true))
+      .where(and(eq(investments.isActive, true), eq(investments.userId, req.userId!)))
       .orderBy(desc(investments.createdAt));
 
     res.json(allInvestments);
@@ -94,12 +94,12 @@ router.get('/', async (_req, res) => {
 });
 
 // Get investment summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
     const allInvestments = await db
       .select()
       .from(investments)
-      .where(eq(investments.isActive, true));
+      .where(and(eq(investments.isActive, true), eq(investments.userId, req.userId!)));
 
     const totalInvested = allInvestments.reduce(
       (sum, inv) => sum + inv.purchasePrice * (inv.quantity || 1),
@@ -144,7 +144,7 @@ router.get('/summary', async (_req, res) => {
 });
 
 // Get live quotes for US stocks (for real-time ticker)
-router.get('/live-quotes', async (_req, res) => {
+router.get('/live-quotes', async (req, res) => {
   try {
     // Get all active US stock investments with symbols
     const stockInvestments = await db
@@ -153,7 +153,8 @@ router.get('/live-quotes', async (_req, res) => {
       .where(and(
         eq(investments.isActive, true),
         eq(investments.type, 'stocks'),
-        eq(investments.country, 'US')
+        eq(investments.country, 'US'),
+        eq(investments.userId, req.userId!)
       ));
 
     const quotes: Record<string, {
@@ -196,7 +197,7 @@ router.get('/:id', async (req, res) => {
     const investment = await db
       .select()
       .from(investments)
-      .where(eq(investments.id, req.params.id))
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)))
       .limit(1);
 
     if (!investment[0]) {
@@ -230,6 +231,7 @@ router.post('/', async (req, res) => {
     const newInvestment = {
       id: uuidv4(),
       ...data,
+      userId: req.userId!,
       currentPrice: data.currentPrice || data.purchasePrice,
       currentValue,
       lastUpdated: now,
@@ -270,7 +272,7 @@ router.put('/:id', async (req, res) => {
     const current = await db
       .select()
       .from(investments)
-      .where(eq(investments.id, req.params.id))
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)))
       .limit(1);
 
     if (!current[0]) {
@@ -289,12 +291,12 @@ router.put('/:id', async (req, res) => {
         lastUpdated: now,
         updatedAt: now,
       })
-      .where(eq(investments.id, req.params.id));
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(investments)
-      .where(eq(investments.id, req.params.id))
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -317,7 +319,7 @@ router.patch('/:id/price', async (req, res) => {
     const current = await db
       .select()
       .from(investments)
-      .where(eq(investments.id, req.params.id))
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)))
       .limit(1);
 
     if (!current[0]) {
@@ -335,7 +337,7 @@ router.patch('/:id/price', async (req, res) => {
         lastUpdated: now,
         updatedAt: now,
       })
-      .where(eq(investments.id, req.params.id));
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)));
 
     // Add history entry
     await db.insert(investmentHistory).values({
@@ -350,7 +352,7 @@ router.patch('/:id/price', async (req, res) => {
     const updated = await db
       .select()
       .from(investments)
-      .where(eq(investments.id, req.params.id))
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -371,7 +373,7 @@ router.delete('/:id', async (req, res) => {
     await db
       .update(investments)
       .set({ isActive: false, updatedAt: now })
-      .where(eq(investments.id, req.params.id));
+      .where(and(eq(investments.id, req.params.id), eq(investments.userId, req.userId!)));
 
     res.json({ success: true });
   } catch (error) {
@@ -381,7 +383,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Sync prices for all US stocks with symbols
-router.post('/sync-prices', async (_req, res) => {
+router.post('/sync-prices', async (req, res) => {
   try {
     // Get all active US stock investments with symbols
     const stockInvestments = await db
@@ -390,7 +392,8 @@ router.post('/sync-prices', async (_req, res) => {
       .where(and(
         eq(investments.isActive, true),
         eq(investments.type, 'stocks'),
-        eq(investments.country, 'US')
+        eq(investments.country, 'US'),
+        eq(investments.userId, req.userId!)
       ));
 
     const now = new Date().toISOString();

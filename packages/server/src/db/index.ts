@@ -1,9 +1,10 @@
-import Database from 'better-sqlite3';
+import Database, { Database as DatabaseType } from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import * as usersSchema from './schema/users.js';
 import * as accountsSchema from './schema/accounts.js';
 import * as transactionsSchema from './schema/transactions.js';
 import * as vyaparSchema from './schema/vyapar.js';
@@ -31,11 +32,12 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const sqlite = new Database(dbPath);
+const sqlite: DatabaseType = new Database(dbPath);
 sqlite.pragma('journal_mode = WAL');
 
 export const db = drizzle(sqlite, {
   schema: {
+    ...usersSchema,
     ...accountsSchema,
     ...transactionsSchema,
     ...vyaparSchema,
@@ -56,6 +58,22 @@ export const db = drizzle(sqlite, {
 // Initialize tables
 export function initializeDatabase() {
   sqlite.exec(`
+    -- Users table for authentication
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT,
+      picture TEXT,
+      google_id TEXT NOT NULL UNIQUE,
+      is_active INTEGER DEFAULT 1,
+      last_login_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -716,6 +734,73 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add user_id column to all data tables for multi-user support
+  const userIdMigrations = [
+    'ALTER TABLE accounts ADD COLUMN user_id TEXT',
+    'ALTER TABLE bank_transactions ADD COLUMN user_id TEXT',
+    'ALTER TABLE vyapar_transactions ADD COLUMN user_id TEXT',
+    'ALTER TABLE vyapar_item_details ADD COLUMN user_id TEXT',
+    'ALTER TABLE credit_card_transactions ADD COLUMN user_id TEXT',
+    'ALTER TABLE credit_card_statements ADD COLUMN user_id TEXT',
+    'ALTER TABLE card_holders ADD COLUMN user_id TEXT',
+    'ALTER TABLE investments ADD COLUMN user_id TEXT',
+    'ALTER TABLE investment_history ADD COLUMN user_id TEXT',
+    'ALTER TABLE loans ADD COLUMN user_id TEXT',
+    'ALTER TABLE loan_payments ADD COLUMN user_id TEXT',
+    'ALTER TABLE loan_disbursements ADD COLUMN user_id TEXT',
+    'ALTER TABLE loan_schedule ADD COLUMN user_id TEXT',
+    'ALTER TABLE loan_given_details ADD COLUMN user_id TEXT',
+    'ALTER TABLE uploads ADD COLUMN user_id TEXT',
+    'ALTER TABLE categories ADD COLUMN user_id TEXT',
+    'ALTER TABLE reconciliation_matches ADD COLUMN user_id TEXT',
+    'ALTER TABLE mutual_fund_folios ADD COLUMN user_id TEXT',
+    'ALTER TABLE mutual_fund_holdings ADD COLUMN user_id TEXT',
+    'ALTER TABLE mutual_fund_transactions ADD COLUMN user_id TEXT',
+    'ALTER TABLE mutual_fund_nav_history ADD COLUMN user_id TEXT',
+    'ALTER TABLE assets ADD COLUMN user_id TEXT',
+    'ALTER TABLE policies ADD COLUMN user_id TEXT',
+    'ALTER TABLE policy_payments ADD COLUMN user_id TEXT',
+    'ALTER TABLE fixed_expenses ADD COLUMN user_id TEXT',
+    'ALTER TABLE fixed_expense_payments ADD COLUMN user_id TEXT',
+    'ALTER TABLE recurring_income ADD COLUMN user_id TEXT',
+    'ALTER TABLE income_receipts ADD COLUMN user_id TEXT',
+    'ALTER TABLE gmail_connections ADD COLUMN user_id TEXT',
+    'ALTER TABLE gmail_sync_state ADD COLUMN user_id TEXT',
+    'ALTER TABLE processed_emails ADD COLUMN user_id TEXT',
+  ];
+  for (const migration of userIdMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
+  // Create indexes for user_id columns
+  const userIdIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_bank_transactions_user_id ON bank_transactions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vyapar_transactions_user_id ON vyapar_transactions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_credit_card_transactions_user_id ON credit_card_transactions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_investments_user_id ON investments(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_loans_user_id ON loans(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_uploads_user_id ON uploads(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_mutual_fund_folios_user_id ON mutual_fund_folios(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_assets_user_id ON assets(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_policies_user_id ON policies(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_fixed_expenses_user_id ON fixed_expenses(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_recurring_income_user_id ON recurring_income(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_gmail_connections_user_id ON gmail_connections(user_id)',
+  ];
+  for (const idx of userIdIndexes) {
+    try {
+      sqlite.exec(idx);
+    } catch (e) {
+      // Index might already exist, ignore
+    }
+  }
+
   // Seed default categories if none exist
   const categoryCount = sqlite.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
   if (categoryCount.count === 0) {
@@ -735,6 +820,7 @@ export function initializeDatabase() {
 }
 
 // Export schema
+export * from './schema/users.js';
 export * from './schema/accounts.js';
 export * from './schema/transactions.js';
 export * from './schema/vyapar.js';
@@ -749,3 +835,6 @@ export * from './schema/assets.js';
 export * from './schema/fixed-expenses.js';
 export * from './schema/recurring-income.js';
 export * from './schema/gmail-integration.js';
+
+// Export sqlite for direct queries
+export { sqlite };

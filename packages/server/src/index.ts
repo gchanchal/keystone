@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -25,6 +26,8 @@ import recurringIncomeRouter from './routes/recurring-income.js';
 import creditCardsRouter from './routes/credit-cards.js';
 import gmailRouter from './routes/gmail.js';
 import adminRouter from './routes/admin.js';
+import authRouter from './routes/auth.js';
+import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,26 +51,30 @@ app.use(cors({
   credentials: true,
 }));
 app.use(compression());
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// API Routes
-app.use('/api/accounts', accountsRouter);
-app.use('/api/transactions', transactionsRouter);
-app.use('/api/reconciliation', reconciliationRouter);
-app.use('/api/uploads', uploadsRouter);
-app.use('/api/investments', investmentsRouter);
-app.use('/api/loans', loansRouter);
-app.use('/api/dashboard', dashboardRouter);
-app.use('/api/reports', reportsRouter);
-app.use('/api/categories', categoriesRouter);
-app.use('/api/mutual-funds', mutualFundsRouter);
-app.use('/api/assets', assetsRouter);
-app.use('/api/fixed-expenses', fixedExpensesRouter);
-app.use('/api/recurring-income', recurringIncomeRouter);
-app.use('/api/credit-cards', creditCardsRouter);
-app.use('/api/gmail', gmailRouter);
-app.use('/api/admin', adminRouter);
+// Auth routes (public)
+app.use('/api/auth', authRouter);
+
+// Protected API Routes - require authentication
+app.use('/api/accounts', requireAuth, accountsRouter);
+app.use('/api/transactions', requireAuth, transactionsRouter);
+app.use('/api/reconciliation', requireAuth, reconciliationRouter);
+app.use('/api/uploads', requireAuth, uploadsRouter);
+app.use('/api/investments', requireAuth, investmentsRouter);
+app.use('/api/loans', requireAuth, loansRouter);
+app.use('/api/dashboard', requireAuth, dashboardRouter);
+app.use('/api/reports', requireAuth, reportsRouter);
+app.use('/api/categories', requireAuth, categoriesRouter);
+app.use('/api/mutual-funds', requireAuth, mutualFundsRouter);
+app.use('/api/assets', requireAuth, assetsRouter);
+app.use('/api/fixed-expenses', requireAuth, fixedExpensesRouter);
+app.use('/api/recurring-income', requireAuth, recurringIncomeRouter);
+app.use('/api/credit-cards', requireAuth, creditCardsRouter);
+app.use('/api/gmail', requireAuth, gmailRouter);
+app.use('/api/admin', requireAuth, adminRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

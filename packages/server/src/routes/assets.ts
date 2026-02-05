@@ -5,7 +5,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { db, assets, policies, policyPayments, loans } from '../db/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { extractPolicyFromPdf } from '../utils/policyPdfParser.js';
 
 // Configure multer for PDF uploads
@@ -62,11 +62,12 @@ const assetSchema = z.object({
 });
 
 // Get all assets
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const allAssets = await db
       .select()
       .from(assets)
+      .where(eq(assets.userId, req.userId!))
       .orderBy(desc(assets.currentValue));
 
     // Get linked loan details for each asset
@@ -92,9 +93,9 @@ router.get('/', async (_req, res) => {
 });
 
 // Get assets summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
-    const allAssets = await db.select().from(assets);
+    const allAssets = await db.select().from(assets).where(eq(assets.userId, req.userId!));
 
     const totalPurchaseValue = allAssets.reduce((sum, a) => sum + a.purchaseValue, 0);
     const totalCurrentValue = allAssets.reduce((sum, a) => sum + (a.currentValue || a.purchaseValue), 0);
@@ -168,11 +169,12 @@ const policySchema = z.object({
 });
 
 // Get all policies
-router.get('/policies', async (_req, res) => {
+router.get('/policies', async (req, res) => {
   try {
     const allPolicies = await db
       .select()
       .from(policies)
+      .where(eq(policies.userId, req.userId!))
       .orderBy(desc(policies.createdAt));
 
     res.json(allPolicies);
@@ -183,9 +185,9 @@ router.get('/policies', async (_req, res) => {
 });
 
 // Get policies summary
-router.get('/policies/summary', async (_req, res) => {
+router.get('/policies/summary', async (req, res) => {
   try {
-    const allPolicies = await db.select().from(policies);
+    const allPolicies = await db.select().from(policies).where(eq(policies.userId, req.userId!));
     const activePolicies = allPolicies.filter((p) => p.status === 'active');
 
     const totalCoverage = activePolicies.reduce(
@@ -259,7 +261,7 @@ router.get('/policies/:id', async (req, res) => {
     const [policy] = await db
       .select()
       .from(policies)
-      .where(eq(policies.id, req.params.id))
+      .where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)))
       .limit(1);
 
     if (!policy) {
@@ -289,6 +291,7 @@ router.post('/policies', async (req, res) => {
     const newPolicy = {
       id: uuidv4(),
       ...data,
+      userId: req.userId!,
       totalPremiumPaid: 0,
       createdAt: now,
       updatedAt: now,
@@ -314,12 +317,12 @@ router.put('/policies/:id', async (req, res) => {
     await db
       .update(policies)
       .set({ ...data, updatedAt: now })
-      .where(eq(policies.id, req.params.id));
+      .where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)));
 
     const [updated] = await db
       .select()
       .from(policies)
-      .where(eq(policies.id, req.params.id))
+      .where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)))
       .limit(1);
 
     res.json(updated);
@@ -338,7 +341,7 @@ router.delete('/policies/:id', async (req, res) => {
     // Delete payments first
     await db.delete(policyPayments).where(eq(policyPayments.policyId, req.params.id));
     // Delete policy
-    await db.delete(policies).where(eq(policies.id, req.params.id));
+    await db.delete(policies).where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting policy:', error);
@@ -378,7 +381,7 @@ router.post('/policies/:id/payments', async (req, res) => {
     const [policy] = await db
       .select()
       .from(policies)
-      .where(eq(policies.id, req.params.id))
+      .where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)))
       .limit(1);
 
     if (policy) {
@@ -388,7 +391,7 @@ router.post('/policies/:id/payments', async (req, res) => {
           totalPremiumPaid: (policy.totalPremiumPaid || 0) + amount,
           updatedAt: now,
         })
-        .where(eq(policies.id, req.params.id));
+        .where(and(eq(policies.id, req.params.id), eq(policies.userId, req.userId!)));
     }
 
     res.status(201).json(newPayment);
@@ -425,7 +428,7 @@ router.delete('/policies/:policyId/payments/:paymentId', async (req, res) => {
     const [policy] = await db
       .select()
       .from(policies)
-      .where(eq(policies.id, policyId))
+      .where(and(eq(policies.id, policyId), eq(policies.userId, req.userId!)))
       .limit(1);
 
     if (policy) {
@@ -435,7 +438,7 @@ router.delete('/policies/:policyId/payments/:paymentId', async (req, res) => {
           totalPremiumPaid: Math.max(0, (policy.totalPremiumPaid || 0) - payment.amount),
           updatedAt: now,
         })
-        .where(eq(policies.id, policyId));
+        .where(and(eq(policies.id, policyId), eq(policies.userId, req.userId!)));
     }
 
     res.json({ success: true });
@@ -453,7 +456,7 @@ router.get('/:id', async (req, res) => {
     const [asset] = await db
       .select()
       .from(assets)
-      .where(eq(assets.id, req.params.id))
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)))
       .limit(1);
 
     if (!asset) {
@@ -530,6 +533,7 @@ router.post('/', async (req, res) => {
     const newAsset = {
       id: uuidv4(),
       ...assetData,
+      userId: req.userId!,
       linkedLoanId,
       currentValue: assetData.currentValue || assetData.purchaseValue,
       createdAt: now,
@@ -581,7 +585,7 @@ router.put('/:id', async (req, res) => {
     const [existingAsset] = await db
       .select()
       .from(assets)
-      .where(eq(assets.id, req.params.id))
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)))
       .limit(1);
 
     if (!existingAsset) {
@@ -634,12 +638,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(assets)
       .set({ ...assetData, linkedLoanId, updatedAt: now })
-      .where(eq(assets.id, req.params.id));
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)));
 
     const [updated] = await db
       .select()
       .from(assets)
-      .where(eq(assets.id, req.params.id))
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)))
       .limit(1);
 
     // Fetch the linked loan to return with the asset
@@ -662,7 +666,7 @@ router.put('/:id', async (req, res) => {
 // Delete asset
 router.delete('/:id', async (req, res) => {
   try {
-    await db.delete(assets).where(eq(assets.id, req.params.id));
+    await db.delete(assets).where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting asset:', error);
@@ -679,12 +683,12 @@ router.patch('/:id/link-loan', async (req, res) => {
     await db
       .update(assets)
       .set({ linkedLoanId: loanId, updatedAt: now })
-      .where(eq(assets.id, req.params.id));
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)));
 
     const [updated] = await db
       .select()
       .from(assets)
-      .where(eq(assets.id, req.params.id))
+      .where(and(eq(assets.id, req.params.id), eq(assets.userId, req.userId!)))
       .limit(1);
 
     res.json(updated);

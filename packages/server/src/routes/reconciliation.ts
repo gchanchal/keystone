@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db, bankTransactions, vyaparTransactions } from '../db/index.js';
-import { eq, and, between } from 'drizzle-orm';
+import { eq, and, between, sql } from 'drizzle-orm';
 import {
   autoReconcile,
   applyMatches,
@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
     const endDate = `${endMonth}-31`;
 
     // Get bank transactions
-    const bankConditions = [between(bankTransactions.date, startDate, endDate)];
+    const bankConditions = [between(bankTransactions.date, startDate, endDate), eq(bankTransactions.userId, req.userId!)];
     if (accountId) {
       bankConditions.push(eq(bankTransactions.accountId, accountId));
     }
@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
     const vyaparTxns = await db
       .select()
       .from(vyaparTransactions)
-      .where(between(vyaparTransactions.date, startDate, endDate));
+      .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)));
 
     // Separate matched and unmatched
     const matchedBank = bankTxns.filter(t => t.isReconciled);
@@ -98,7 +98,7 @@ router.post('/auto-match', async (req, res) => {
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
-    const matches = await autoReconcile(startDate, endDate, accountIds);
+    const matches = await autoReconcile(startDate, endDate, accountIds, req.userId!);
 
     if (apply && matches.length > 0) {
       const appliedCount = await applyMatches(matches);
@@ -277,7 +277,7 @@ router.get('/export', async (req, res) => {
     const endDate = `${endMonth}-31`;
 
     // Get bank transactions
-    const bankConditions = [between(bankTransactions.date, startDate, endDate)];
+    const bankConditions = [between(bankTransactions.date, startDate, endDate), eq(bankTransactions.userId, req.userId!)];
     if (accountId) {
       bankConditions.push(eq(bankTransactions.accountId, accountId));
     }
@@ -290,7 +290,7 @@ router.get('/export', async (req, res) => {
     const vyaparTxns = await db
       .select()
       .from(vyaparTransactions)
-      .where(between(vyaparTransactions.date, startDate, endDate));
+      .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)));
 
     // Build matched pairs
     const matches: Array<{

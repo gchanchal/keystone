@@ -113,16 +113,14 @@ router.get('/', async (req, res) => {
       })
       .parse(req.query);
 
-    const conditions = [];
+    const conditions = [eq(loans.userId, req.userId!)];
     if (type) conditions.push(eq(loans.type, type));
     if (loanType) conditions.push(eq(loans.loanType, loanType));
     if (status) conditions.push(eq(loans.status, status));
 
     let query = db.select().from(loans).orderBy(desc(loans.createdAt));
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as typeof query;
-    }
+    query = query.where(and(...conditions)) as typeof query;
 
     const allLoans = await query;
     res.json(allLoans);
@@ -217,9 +215,9 @@ function getUpcomingPaymentDates(expense: any, monthsAhead: number = 12): { mont
 }
 
 // Get loan summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
-    const allLoans = await db.select().from(loans);
+    const allLoans = await db.select().from(loans).where(eq(loans.userId, req.userId!));
 
     const givenLoans = allLoans.filter(l => l.type === 'given');
     const takenLoans = allLoans.filter(l => l.type === 'taken');
@@ -271,7 +269,7 @@ router.get('/summary', async (_req, res) => {
       }));
 
     // Get active fixed expenses
-    const allFixedExpenses = await db.select().from(fixedExpenses);
+    const allFixedExpenses = await db.select().from(fixedExpenses).where(eq(fixedExpenses.userId, req.userId!));
     const activeFixedExpenses = allFixedExpenses.filter((e) => e.status === 'active');
 
     // Calculate monthly fixed expenses with paid/pending status
@@ -392,7 +390,7 @@ router.get('/:id', async (req, res) => {
     const loan = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     if (!loan[0]) {
@@ -444,6 +442,7 @@ router.post('/', async (req, res) => {
     const newLoan = {
       id: uuidv4(),
       ...data,
+      userId: req.userId!,
       status: 'active',
       outstandingAmount: data.principalAmount,
       createdAt: now,
@@ -470,12 +469,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(loans)
       .set({ ...data, updatedAt: now })
-      .where(eq(loans.id, req.params.id));
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -498,7 +497,7 @@ router.post('/:id/payments', async (req, res) => {
     const loan = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     if (!loan[0]) {
@@ -535,7 +534,7 @@ router.post('/:id/payments', async (req, res) => {
         status: newStatus,
         updatedAt: now,
       })
-      .where(eq(loans.id, req.params.id));
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     res.status(201).json({
       payment: newPayment,
@@ -572,7 +571,7 @@ router.delete('/:id/payments/:paymentId', async (req, res) => {
     const loan = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, loanId))
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)))
       .limit(1);
 
     if (!loan[0]) {
@@ -593,7 +592,7 @@ router.delete('/:id/payments/:paymentId', async (req, res) => {
         status: 'active',
         updatedAt: now,
       })
-      .where(eq(loans.id, loanId));
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
 
     res.json({ success: true, newOutstanding });
   } catch (error) {
@@ -611,12 +610,12 @@ router.post('/:id/mark-paid', async (req, res) => {
     await db
       .update(loans)
       .set({ lastPaidDate: today, updatedAt: now })
-      .where(eq(loans.id, req.params.id));
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -634,12 +633,12 @@ router.post('/:id/mark-unpaid', async (req, res) => {
     await db
       .update(loans)
       .set({ lastPaidDate: null, updatedAt: now })
-      .where(eq(loans.id, req.params.id));
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -663,12 +662,12 @@ router.patch('/:id/status', async (req, res) => {
     await db
       .update(loans)
       .set({ status, updatedAt: now })
-      .where(eq(loans.id, req.params.id));
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     const updated = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, req.params.id))
+      .where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)))
       .limit(1);
 
     res.json(updated[0]);
@@ -691,7 +690,7 @@ router.delete('/:id', async (req, res) => {
     // Delete loan given details
     await db.delete(loanGivenDetails).where(eq(loanGivenDetails.loanId, req.params.id));
     // Delete loan
-    await db.delete(loans).where(eq(loans.id, req.params.id));
+    await db.delete(loans).where(and(eq(loans.id, req.params.id), eq(loans.userId, req.userId!)));
 
     res.json({ success: true });
   } catch (error) {
@@ -876,7 +875,7 @@ router.post('/:id/schedule/upload', async (req, res) => {
     const loan = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, loanId))
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)))
       .limit(1);
 
     if (!loan[0]) {
@@ -927,7 +926,7 @@ router.post('/:id/schedule/import', async (req, res) => {
           emiAmount: schedule[Math.floor(schedule.length / 2)]?.installmentAmount,
           updatedAt: now,
         })
-        .where(eq(loans.id, loanId));
+        .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
     }
 
     res.json({
@@ -1176,7 +1175,7 @@ router.get('/:id/given-details', async (req, res) => {
         status: totals.netOutstanding <= 0 ? 'closed' : 'active',
         updatedAt: now,
       })
-      .where(eq(loans.id, loanId));
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
 
     res.json({
       details,
@@ -1234,7 +1233,7 @@ router.post('/:id/given-details', async (req, res) => {
     const loan = await db
       .select()
       .from(loans)
-      .where(eq(loans.id, loanId))
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)))
       .limit(1);
 
     if (!loan[0]) {
@@ -1274,7 +1273,7 @@ router.post('/:id/given-details', async (req, res) => {
         status: totals.netOutstanding <= 0 ? 'closed' : 'active',
         updatedAt: now,
       })
-      .where(eq(loans.id, loanId));
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
 
     res.status(201).json({
       detail: newDetail,
@@ -1322,7 +1321,7 @@ router.put('/:id/given-details/:detailId', async (req, res) => {
         status: totals.netOutstanding <= 0 ? 'closed' : 'active',
         updatedAt: now,
       })
-      .where(eq(loans.id, loanId));
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
 
     const updated = await db
       .select()
@@ -1372,7 +1371,7 @@ router.delete('/:id/given-details/:detailId', async (req, res) => {
         status: totals.netOutstanding <= 0 ? 'closed' : 'active',
         updatedAt: now,
       })
-      .where(eq(loans.id, loanId));
+      .where(and(eq(loans.id, loanId), eq(loans.userId, req.userId!)));
 
     res.json({
       success: true,

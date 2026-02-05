@@ -5,6 +5,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Send cookies with requests
 });
 
 // Response interceptor for error handling
@@ -13,9 +14,23 @@ api.interceptors.response.use(
   (error) => {
     const message = error.response?.data?.error || error.message || 'An error occurred';
     console.error('API Error:', message);
+
+    // Redirect to login on 401 (unless already on auth routes)
+    if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login?error=session_expired';
+    }
+
     return Promise.reject(error);
   }
 );
+
+// Auth API
+export const authApi = {
+  getStatus: () => api.get('/auth/status').then((r) => r.data),
+  getMe: () => api.get('/auth/me').then((r) => r.data),
+  logout: () => api.post('/auth/logout').then((r) => r.data),
+  getLoginUrl: () => '/api/auth/google',
+};
 
 // Dashboard
 export const dashboardApi = {

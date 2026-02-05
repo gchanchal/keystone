@@ -36,20 +36,28 @@ export interface MonthlyPL {
   }>;
 }
 
-export async function getDashboardStats(month?: string): Promise<DashboardStats> {
+export async function getDashboardStats(month?: string, userId?: string): Promise<DashboardStats> {
   const now = month ? parseISO(month + '-01') : new Date();
   const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
   const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd');
 
   // Get total balance from all accounts
-  const accountsData = await db.select().from(accounts).where(eq(accounts.isActive, true));
+  const accountsData = await db.select().from(accounts).where(
+    userId
+      ? and(eq(accounts.isActive, true), eq(accounts.userId, userId))
+      : eq(accounts.isActive, true)
+  );
   const totalBalance = accountsData.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
 
   // Get monthly transactions
   const monthlyTxns = await db
     .select()
     .from(bankTransactions)
-    .where(between(bankTransactions.date, monthStart, monthEnd));
+    .where(
+      userId
+        ? and(between(bankTransactions.date, monthStart, monthEnd), eq(bankTransactions.userId, userId))
+        : between(bankTransactions.date, monthStart, monthEnd)
+    );
 
   const monthlyIncome = monthlyTxns
     .filter(t => t.transactionType === 'credit')
@@ -63,12 +71,20 @@ export async function getDashboardStats(month?: string): Promise<DashboardStats>
   const unreconciledBank = await db
     .select({ count: sql<number>`count(*)` })
     .from(bankTransactions)
-    .where(eq(bankTransactions.isReconciled, false));
+    .where(
+      userId
+        ? and(eq(bankTransactions.isReconciled, false), eq(bankTransactions.userId, userId))
+        : eq(bankTransactions.isReconciled, false)
+    );
 
   const unreconciledVyapar = await db
     .select({ count: sql<number>`count(*)` })
     .from(vyaparTransactions)
-    .where(eq(vyaparTransactions.isReconciled, false));
+    .where(
+      userId
+        ? and(eq(vyaparTransactions.isReconciled, false), eq(vyaparTransactions.userId, userId))
+        : eq(vyaparTransactions.isReconciled, false)
+    );
 
   const unreconciledCount =
     (unreconciledBank[0]?.count || 0) + (unreconciledVyapar[0]?.count || 0);
@@ -82,7 +98,7 @@ export async function getDashboardStats(month?: string): Promise<DashboardStats>
   };
 }
 
-export async function getCashFlowData(months = 6): Promise<CashFlowData[]> {
+export async function getCashFlowData(months = 6, userId?: string): Promise<CashFlowData[]> {
   const result: CashFlowData[] = [];
   const now = new Date();
 
@@ -95,7 +111,11 @@ export async function getCashFlowData(months = 6): Promise<CashFlowData[]> {
     const txns = await db
       .select()
       .from(bankTransactions)
-      .where(between(bankTransactions.date, monthStart, monthEnd));
+      .where(
+        userId
+          ? and(between(bankTransactions.date, monthStart, monthEnd), eq(bankTransactions.userId, userId))
+          : between(bankTransactions.date, monthStart, monthEnd)
+      );
 
     const income = txns
       .filter(t => t.transactionType === 'credit')
@@ -111,7 +131,7 @@ export async function getCashFlowData(months = 6): Promise<CashFlowData[]> {
   return result;
 }
 
-export async function getExpenseBreakdown(startDate: string, endDate: string): Promise<ExpenseBreakdown[]> {
+export async function getExpenseBreakdown(startDate: string, endDate: string, userId?: string): Promise<ExpenseBreakdown[]> {
   const txns = await db
     .select({
       amount: bankTransactions.amount,
@@ -119,10 +139,16 @@ export async function getExpenseBreakdown(startDate: string, endDate: string): P
     })
     .from(bankTransactions)
     .where(
-      and(
-        eq(bankTransactions.transactionType, 'debit'),
-        between(bankTransactions.date, startDate, endDate)
-      )
+      userId
+        ? and(
+            eq(bankTransactions.transactionType, 'debit'),
+            between(bankTransactions.date, startDate, endDate),
+            eq(bankTransactions.userId, userId)
+          )
+        : and(
+            eq(bankTransactions.transactionType, 'debit'),
+            between(bankTransactions.date, startDate, endDate)
+          )
     );
 
   const allCategories = await db.select().from(categories);
@@ -172,7 +198,15 @@ export async function getExpenseBreakdown(startDate: string, endDate: string): P
   return result;
 }
 
-export async function getRecentTransactions(limit = 10) {
+export async function getRecentTransactions(limit = 10, userId?: string) {
+  if (userId) {
+    return db
+      .select()
+      .from(bankTransactions)
+      .where(eq(bankTransactions.userId, userId))
+      .orderBy(desc(bankTransactions.date), desc(bankTransactions.createdAt))
+      .limit(limit);
+  }
   return db
     .select()
     .from(bankTransactions)
@@ -180,7 +214,7 @@ export async function getRecentTransactions(limit = 10) {
     .limit(limit);
 }
 
-export async function getMonthlyPL(month: string): Promise<MonthlyPL> {
+export async function getMonthlyPL(month: string, userId?: string): Promise<MonthlyPL> {
   const date = parseISO(month + '-01');
   const monthStart = format(startOfMonth(date), 'yyyy-MM-dd');
   const monthEnd = format(endOfMonth(date), 'yyyy-MM-dd');
@@ -189,7 +223,11 @@ export async function getMonthlyPL(month: string): Promise<MonthlyPL> {
   const txns = await db
     .select()
     .from(bankTransactions)
-    .where(between(bankTransactions.date, monthStart, monthEnd));
+    .where(
+      userId
+        ? and(between(bankTransactions.date, monthStart, monthEnd), eq(bankTransactions.userId, userId))
+        : between(bankTransactions.date, monthStart, monthEnd)
+    );
 
   const allCategories = await db.select().from(categories);
   const categoryMap = new Map(allCategories.map(c => [c.id, c]));
@@ -250,12 +288,17 @@ export async function getMonthlyPL(month: string): Promise<MonthlyPL> {
 export async function getTransactionTrends(
   startDate: string,
   endDate: string,
-  granularity: 'daily' | 'weekly' | 'monthly' = 'daily'
+  granularity: 'daily' | 'weekly' | 'monthly' = 'daily',
+  userId?: string
 ) {
   const txns = await db
     .select()
     .from(bankTransactions)
-    .where(between(bankTransactions.date, startDate, endDate));
+    .where(
+      userId
+        ? and(between(bankTransactions.date, startDate, endDate), eq(bankTransactions.userId, userId))
+        : between(bankTransactions.date, startDate, endDate)
+    );
 
   // Group transactions by date
   const dateGroups = new Map<string, { income: number; expense: number; count: number }>();
@@ -310,17 +353,21 @@ export async function getCategoryTrends(
   startDate: string,
   endDate: string,
   granularity: 'daily' | 'weekly' | 'monthly' = 'monthly',
-  type: 'expense' | 'income' | 'all' = 'expense'
+  type: 'expense' | 'income' | 'all' = 'expense',
+  userId?: string
 ) {
+  const whereConditions = [between(bankTransactions.date, startDate, endDate)];
+  if (type !== 'all') {
+    whereConditions.push(eq(bankTransactions.transactionType, type === 'expense' ? 'debit' : 'credit'));
+  }
+  if (userId) {
+    whereConditions.push(eq(bankTransactions.userId, userId));
+  }
+
   const txns = await db
     .select()
     .from(bankTransactions)
-    .where(
-      and(
-        between(bankTransactions.date, startDate, endDate),
-        type === 'all' ? undefined : eq(bankTransactions.transactionType, type === 'expense' ? 'debit' : 'credit')
-      )
-    );
+    .where(and(...whereConditions));
 
   const allCategories = await db.select().from(categories);
   const categoryMap = new Map(allCategories.map(c => [c.id, c]));
@@ -388,11 +435,15 @@ export async function getCategoryTrends(
 }
 
 // Get Vyapar transaction summary
-export async function getVyaparSummary(startDate: string, endDate: string) {
+export async function getVyaparSummary(startDate: string, endDate: string, userId?: string) {
   const txns = await db
     .select()
     .from(vyaparTransactions)
-    .where(between(vyaparTransactions.date, startDate, endDate));
+    .where(
+      userId
+        ? and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, userId))
+        : between(vyaparTransactions.date, startDate, endDate)
+    );
 
   const summary = {
     // Income from Sales (payment received)
@@ -487,12 +538,17 @@ export async function getVyaparSummary(startDate: string, endDate: string) {
 export async function getVyaparTrends(
   startDate: string,
   endDate: string,
-  granularity: 'daily' | 'weekly' | 'monthly' = 'daily'
+  granularity: 'daily' | 'weekly' | 'monthly' = 'daily',
+  userId?: string
 ) {
   const txns = await db
     .select()
     .from(vyaparTransactions)
-    .where(between(vyaparTransactions.date, startDate, endDate));
+    .where(
+      userId
+        ? and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, userId))
+        : between(vyaparTransactions.date, startDate, endDate)
+    );
 
   // Filter only Sale, Sale Order, and Expense
   const filteredTxns = txns.filter(t =>
@@ -576,11 +632,15 @@ export async function getVyaparTrends(
   return result;
 }
 
-export async function getGSTSummary(startDate: string, endDate: string) {
+export async function getGSTSummary(startDate: string, endDate: string, userId?: string) {
   const vyaparTxns = await db
     .select()
     .from(vyaparTransactions)
-    .where(between(vyaparTransactions.date, startDate, endDate));
+    .where(
+      userId
+        ? and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, userId))
+        : between(vyaparTransactions.date, startDate, endDate)
+    );
 
   const sales = vyaparTxns
     .filter(t => t.transactionType === 'Sale' || t.transactionType === 'Sale Order')

@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const fixedExpenses = sqliteTable('fixed_expenses', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(), // e.g., "School Fees - Ryan International"
   category: text('category').notNull(), // rent, school_fees, utilities, subscription, insurance, other
 
@@ -44,6 +45,7 @@ export const fixedExpenses = sqliteTable('fixed_expenses', {
 // Track actual payments made for fixed expenses
 export const fixedExpensePayments = sqliteTable('fixed_expense_payments', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   expenseId: text('expense_id').notNull(),
   paymentDate: text('payment_date').notNull(),
   amount: real('amount').notNull(),

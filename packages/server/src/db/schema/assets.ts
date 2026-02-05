@@ -3,6 +3,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 // Physical Assets - Houses, Land, Vehicles, etc.
 export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
 
   // Basic info
   name: text('name').notNull(), // e.g., "Flat in Gurgaon", "Plot in Noida"
@@ -52,6 +53,7 @@ export type NewAsset = typeof assets.$inferInsert;
 // Insurance Policies
 export const policies = sqliteTable('policies', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
 
   // Basic info
   name: text('name').notNull(), // e.g., "LIC Term Plan", "HDFC Health Insurance"
@@ -110,6 +112,7 @@ export type NewPolicy = typeof policies.$inferInsert;
 // Policy premium payments tracking
 export const policyPayments = sqliteTable('policy_payments', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   policyId: text('policy_id').notNull(),
 
   paymentDate: text('payment_date').notNull(),

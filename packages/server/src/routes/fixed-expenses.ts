@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, fixedExpenses, fixedExpensePayments } from '../db/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -27,11 +27,12 @@ const fixedExpenseSchema = z.object({
 });
 
 // Get all fixed expenses
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const expenses = await db
       .select()
       .from(fixedExpenses)
+      .where(eq(fixedExpenses.userId, req.userId!))
       .orderBy(desc(fixedExpenses.createdAt));
 
     res.json(expenses);
@@ -42,9 +43,9 @@ router.get('/', async (_req, res) => {
 });
 
 // Get fixed expenses summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
-    const expenses = await db.select().from(fixedExpenses);
+    const expenses = await db.select().from(fixedExpenses).where(eq(fixedExpenses.userId, req.userId!));
     const activeExpenses = expenses.filter((e) => e.status === 'active');
 
     // Calculate monthly total (normalize all frequencies to monthly)
@@ -131,7 +132,7 @@ router.get('/:id', async (req, res) => {
     const [expense] = await db
       .select()
       .from(fixedExpenses)
-      .where(eq(fixedExpenses.id, req.params.id))
+      .where(and(eq(fixedExpenses.id, req.params.id), eq(fixedExpenses.userId, req.userId!)))
       .limit(1);
 
     if (!expense) {
@@ -180,6 +181,7 @@ router.post('/', async (req, res) => {
 
     const newExpense = {
       id: uuidv4(),
+      userId: req.userId!,
       name: data.name,
       category: data.category,
       amount: data.amount,
@@ -227,12 +229,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(fixedExpenses)
       .set(updateData)
-      .where(eq(fixedExpenses.id, req.params.id));
+      .where(and(eq(fixedExpenses.id, req.params.id), eq(fixedExpenses.userId, req.userId!)));
 
     const [updated] = await db
       .select()
       .from(fixedExpenses)
-      .where(eq(fixedExpenses.id, req.params.id))
+      .where(and(eq(fixedExpenses.id, req.params.id), eq(fixedExpenses.userId, req.userId!)))
       .limit(1);
 
     res.json(updated);
@@ -251,7 +253,7 @@ router.delete('/:id', async (req, res) => {
     // Delete payments first
     await db.delete(fixedExpensePayments).where(eq(fixedExpensePayments.expenseId, req.params.id));
     // Delete expense
-    await db.delete(fixedExpenses).where(eq(fixedExpenses.id, req.params.id));
+    await db.delete(fixedExpenses).where(and(eq(fixedExpenses.id, req.params.id), eq(fixedExpenses.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting fixed expense:', error);
@@ -293,7 +295,7 @@ router.post('/:id/payments', async (req, res) => {
     await db
       .update(fixedExpenses)
       .set({ lastPaidDate: paymentDate, updatedAt: now })
-      .where(eq(fixedExpenses.id, req.params.id));
+      .where(and(eq(fixedExpenses.id, req.params.id), eq(fixedExpenses.userId, req.userId!)));
 
     res.status(201).json(newPayment);
   } catch (error) {

@@ -2,6 +2,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const vyaparTransactions = sqliteTable('vyapar_transactions', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   date: text('date').notNull(),
   invoiceNumber: text('invoice_number'),
   transactionType: text('transaction_type').notNull(), // Sale, Payment-In, Sale Order, Purchase, Payment-Out, Expense
@@ -21,6 +22,7 @@ export const vyaparTransactions = sqliteTable('vyapar_transactions', {
 // Item details from Vyapar - links to transactions via invoice number
 export const vyaparItemDetails = sqliteTable('vyapar_item_details', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   date: text('date').notNull(),
   invoiceNumber: text('invoice_number'),
   partyName: text('party_name'),

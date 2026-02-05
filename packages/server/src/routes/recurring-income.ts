@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, recurringIncome, incomeReceipts } from '../db/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -25,11 +25,12 @@ const recurringIncomeSchema = z.object({
 });
 
 // Get all recurring income
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
     const incomes = await db
       .select()
       .from(recurringIncome)
+      .where(eq(recurringIncome.userId, req.userId!))
       .orderBy(desc(recurringIncome.createdAt));
 
     res.json(incomes);
@@ -40,9 +41,9 @@ router.get('/', async (_req, res) => {
 });
 
 // Get recurring income summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
-    const incomes = await db.select().from(recurringIncome);
+    const incomes = await db.select().from(recurringIncome).where(eq(recurringIncome.userId, req.userId!));
     const activeIncomes = incomes.filter((i) => i.status === 'active');
 
     // Calculate monthly total (normalize all frequencies to monthly)
@@ -129,7 +130,7 @@ router.get('/:id', async (req, res) => {
     const [income] = await db
       .select()
       .from(recurringIncome)
-      .where(eq(recurringIncome.id, req.params.id))
+      .where(and(eq(recurringIncome.id, req.params.id), eq(recurringIncome.userId, req.userId!)))
       .limit(1);
 
     if (!income) {
@@ -178,6 +179,7 @@ router.post('/', async (req, res) => {
 
     const newIncome = {
       id: uuidv4(),
+      userId: req.userId!,
       name: data.name,
       category: data.category,
       amount: data.amount,
@@ -225,12 +227,12 @@ router.put('/:id', async (req, res) => {
     await db
       .update(recurringIncome)
       .set(updateData)
-      .where(eq(recurringIncome.id, req.params.id));
+      .where(and(eq(recurringIncome.id, req.params.id), eq(recurringIncome.userId, req.userId!)));
 
     const [updated] = await db
       .select()
       .from(recurringIncome)
-      .where(eq(recurringIncome.id, req.params.id))
+      .where(and(eq(recurringIncome.id, req.params.id), eq(recurringIncome.userId, req.userId!)))
       .limit(1);
 
     res.json(updated);
@@ -249,7 +251,7 @@ router.delete('/:id', async (req, res) => {
     // Delete receipts first
     await db.delete(incomeReceipts).where(eq(incomeReceipts.incomeId, req.params.id));
     // Delete income
-    await db.delete(recurringIncome).where(eq(recurringIncome.id, req.params.id));
+    await db.delete(recurringIncome).where(and(eq(recurringIncome.id, req.params.id), eq(recurringIncome.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting recurring income:', error);
@@ -291,7 +293,7 @@ router.post('/:id/receipts', async (req, res) => {
     await db
       .update(recurringIncome)
       .set({ lastReceivedDate: receiptDate, updatedAt: now })
-      .where(eq(recurringIncome.id, req.params.id));
+      .where(and(eq(recurringIncome.id, req.params.id), eq(recurringIncome.userId, req.userId!)));
 
     res.status(201).json(newReceipt);
   } catch (error) {
