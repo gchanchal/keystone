@@ -344,6 +344,7 @@ router.post('/bank-statement/confirm', async (req, res) => {
     // Convert and insert transactions
     const dbTransactions = transactionsToImport.map((t: any) => ({
       id: uuidv4(),
+      userId: req.userId!,
       accountId,
       date: t.date,
       valueDate: t.valueDate || null,
@@ -534,6 +535,7 @@ router.post('/vyapar/confirm', async (req, res) => {
 
     const dbTransactions = transactionsToImport.map((t: any) => ({
       id: uuidv4(),
+      userId: req.userId!,
       date: t.date,
       invoiceNumber: t.invoiceNumber || null,
       transactionType: t.transactionType,
@@ -597,6 +599,7 @@ router.post('/vyapar/confirm', async (req, res) => {
           // New item - insert it
           const dbItem = {
             id: uuidv4(),
+            userId: req.userId!,
             date: item.date,
             invoiceNumber: item.invoiceNumber || null,
             partyName: item.partyName || null,
@@ -849,6 +852,7 @@ router.post('/credit-card/confirm', async (req, res) => {
         // Insert new statement
         await db.insert(creditCardStatements).values({
           id: statementId,
+          userId: req.userId!,
           accountId,
           statementDate: statementMetadata.statementDate,
           billingPeriodStart: statementMetadata.billingPeriodStart || statementMetadata.statementDate,
@@ -889,6 +893,7 @@ router.post('/credit-card/confirm', async (req, res) => {
         if (!existingHolder[0]) {
           await db.insert(cardHolders).values({
             id: uuidv4(),
+            userId: req.userId!,
             accountId,
             name: holder.name,
             isPrimary: holder.isPrimary || false,
@@ -907,6 +912,7 @@ router.post('/credit-card/confirm', async (req, res) => {
 
     const dbTransactions = transactionsToImport.map((t: any) => ({
       id: uuidv4(),
+      userId: req.userId!,
       accountId,
       date: t.date,
       description: t.description,
