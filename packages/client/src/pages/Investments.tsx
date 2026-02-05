@@ -525,7 +525,7 @@ export function Investments() {
       notes: asset.notes || '',
       hasLoan: !!linkedLoan,
       loanProvider: linkedLoan?.partyName || '',
-      loanType: linkedLoan?.loanType || 'home',
+      loanType: (linkedLoan?.loanType as 'home' | 'car' | 'personal' | 'business') || 'home',
       principalAmount: linkedLoan?.principalAmount || 0,
       outstandingAmount: linkedLoan?.outstandingAmount || 0,
       interestRate: linkedLoan?.interestRate || 0,

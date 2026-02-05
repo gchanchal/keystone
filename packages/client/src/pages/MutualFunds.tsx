@@ -196,7 +196,7 @@ export function MutualFunds() {
 
   const equityDebtPieData = Object.entries(equityDebtData).map(([name, value]) => ({
     name,
-    value,
+    value: value as number,
     color: name === 'Equity' ? '#22c55e' : name === 'Debt' ? '#3b82f6' : '#f59e0b',
   }));
 
