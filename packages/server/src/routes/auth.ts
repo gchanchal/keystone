@@ -142,4 +142,24 @@ router.get('/config', (req, res) => {
   });
 });
 
+/**
+ * GET /api/auth/debug
+ * Debug OAuth configuration (shows redirect URI being used)
+ */
+router.get('/debug', (req, res) => {
+  const authRedirectUri = process.env.AUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/google/callback';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const gmailRedirectUri = process.env.GMAIL_REDIRECT_URI || 'http://localhost:3001/api/gmail/oauth/callback';
+
+  res.json({
+    configured: isAuthConfigured(),
+    authRedirectUri,
+    frontendUrl,
+    gmailRedirectUri,
+    hasClientId: !!process.env.GMAIL_CLIENT_ID,
+    hasClientSecret: !!process.env.GMAIL_CLIENT_SECRET,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+  });
+});
+
 export default router;
