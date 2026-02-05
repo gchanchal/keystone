@@ -7,6 +7,15 @@ import { v4 as uuidv4 } from 'uuid';
 // MFAPI base URL for fetching live NAV
 const MFAPI_BASE = 'https://api.mfapi.in/mf';
 
+interface MFAPISearchResult {
+  schemeCode?: number;
+  schemeName?: string;
+}
+
+interface MFAPISchemeData {
+  data?: Array<{ nav: string; date: string }>;
+}
+
 // ISIN to scheme code mapping (MFAPI uses scheme codes)
 // We'll fetch this dynamically or use a search
 async function getSchemeCodeFromISIN(isin: string): Promise<string | null> {
@@ -15,7 +24,7 @@ async function getSchemeCodeFromISIN(isin: string): Promise<string | null> {
     const response = await fetch(`${MFAPI_BASE}/search?q=${isin}`);
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = await response.json() as MFAPISearchResult[];
     if (data && data.length > 0) {
       return data[0].schemeCode?.toString() || null;
     }
@@ -26,18 +35,21 @@ async function getSchemeCodeFromISIN(isin: string): Promise<string | null> {
   }
 }
 
-// Fetch latest NAV for a scheme
-async function fetchLatestNAV(schemeCode: string): Promise<{ nav: number; date: string } | null> {
+// Fetch latest NAV for a scheme with previous day's NAV for day change calculation
+async function fetchLatestNAV(schemeCode: string): Promise<{ nav: number; date: string; previousNav?: number } | null> {
   try {
-    const response = await fetch(`${MFAPI_BASE}/${schemeCode}/latest`);
+    // Fetch historical data to get latest and previous NAV
+    const response = await fetch(`${MFAPI_BASE}/${schemeCode}`);
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = await response.json() as MFAPISchemeData;
     if (data && data.data && data.data.length > 0) {
       const latest = data.data[0];
+      const previous = data.data.length > 1 ? data.data[1] : null;
       return {
         nav: parseFloat(latest.nav),
         date: latest.date, // Format: DD-MM-YYYY
+        previousNav: previous ? parseFloat(previous.nav) : undefined,
       };
     }
     return null;
@@ -66,6 +78,9 @@ router.get('/holdings', async (_req, res) => {
         currentValue: mutualFundHoldings.currentValue,
         nav: mutualFundHoldings.nav,
         navDate: mutualFundHoldings.navDate,
+        previousNav: mutualFundHoldings.previousNav,
+        dayChange: mutualFundHoldings.dayChange,
+        dayChangePercent: mutualFundHoldings.dayChangePercent,
         absoluteReturn: mutualFundHoldings.absoluteReturn,
         absoluteReturnPercent: mutualFundHoldings.absoluteReturnPercent,
         xirr: mutualFundHoldings.xirr,
@@ -96,6 +111,7 @@ router.get('/summary', async (_req, res) => {
       .select({
         totalCostValue: sql<number>`COALESCE(SUM(${mutualFundHoldings.costValue}), 0)`,
         totalCurrentValue: sql<number>`COALESCE(SUM(${mutualFundHoldings.currentValue}), 0)`,
+        totalDayChange: sql<number>`COALESCE(SUM(${mutualFundHoldings.dayChange}), 0)`,
         holdingsCount: sql<number>`COUNT(*)`,
       })
       .from(mutualFundHoldings)
@@ -126,11 +142,18 @@ router.get('/summary', async (_req, res) => {
       .groupBy(mutualFundFolios.amcName)
       .orderBy(desc(sql`COALESCE(SUM(${mutualFundHoldings.currentValue}), 0)`));
 
+    // Calculate day change percent
+    const totalDayChangePercent = summary.totalCurrentValue > 0 && summary.totalDayChange !== 0
+      ? (summary.totalDayChange / (summary.totalCurrentValue - summary.totalDayChange)) * 100
+      : 0;
+
     res.json({
       totalCostValue: summary.totalCostValue,
       totalCurrentValue: summary.totalCurrentValue,
       totalAbsoluteReturn,
       totalAbsoluteReturnPercent,
+      totalDayChange: summary.totalDayChange,
+      totalDayChangePercent,
       holdingsCount: summary.holdingsCount,
       folioCount: folioCount[0].count,
       byAmc,
@@ -318,10 +341,10 @@ router.post('/sync-nav', async (req, res) => {
 
           const response = await fetch(`${MFAPI_BASE}/search?q=${encodeURIComponent(searchTerm)}`);
           if (response.ok) {
-            const data = await response.json();
+            const data = await response.json() as MFAPISearchResult[];
             if (data && data.length > 0) {
               // Try to find best match
-              const match = data.find((d: any) =>
+              const match = data.find((d: MFAPISearchResult) =>
                 d.schemeName?.toLowerCase().includes('direct') === holding.schemeName.toLowerCase().includes('direct') &&
                 d.schemeName?.toLowerCase().includes('growth') === holding.schemeName.toLowerCase().includes('growth')
               ) || data[0];
@@ -351,12 +374,24 @@ router.post('/sync-nav', async (req, res) => {
           ? (absoluteReturn / holding.costValue) * 100
           : 0;
 
+        // Calculate day change (change in value based on NAV difference)
+        let dayChange: number | null = null;
+        let dayChangePercent: number | null = null;
+        if (navData.previousNav) {
+          const navDiff = navData.nav - navData.previousNav;
+          dayChange = holding.units * navDiff;
+          dayChangePercent = (navDiff / navData.previousNav) * 100;
+        }
+
         // Update the holding
         await db
           .update(mutualFundHoldings)
           .set({
             nav: navData.nav,
             navDate: navData.date,
+            previousNav: navData.previousNav || null,
+            dayChange,
+            dayChangePercent,
             currentValue,
             absoluteReturn,
             absoluteReturnPercent,

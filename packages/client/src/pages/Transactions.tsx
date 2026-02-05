@@ -337,6 +337,14 @@ function BankTransactionTable({
     },
   });
 
+  // Create bank lookup from accounts
+  const accountToBankMap = new Map<string, string>(
+    accounts.map((a: Account) => [a.id, a.bankName])
+  );
+
+  // Get unique bank names for filter
+  const uniqueBanks = [...new Set(accounts.map((a: Account) => a.bankName))].filter(Boolean);
+
   const columns: ColumnDef<BankTransaction>[] = [
     {
       id: 'date',
@@ -375,7 +383,39 @@ function BankTransactionTable({
       header: 'Account',
       accessorKey: (row) => accountMap.get(row.accountId) || '-',
       filterType: 'select',
-      filterOptions: accounts.map((a: Account) => ({ label: a.name, value: a.name })),
+      filterOptions: accounts
+        .filter((a: Account) => a.accountType === 'savings' || a.accountType === 'current')
+        .map((a: Account) => ({ label: a.name, value: a.name })),
+    },
+    {
+      id: 'bank',
+      header: 'Bank',
+      accessorKey: (row) => accountToBankMap.get(row.accountId) || '-',
+      cell: (row) => (
+        <Badge variant="outline" className="text-xs">
+          {accountToBankMap.get(row.accountId) || '-'}
+        </Badge>
+      ),
+      filterType: 'select',
+      filterOptions: uniqueBanks.map((bank) => ({ label: bank, value: bank })),
+    },
+    {
+      id: 'source',
+      header: 'Source',
+      accessorKey: (row) => (row.notes?.includes('[Gmail Sync]') ? 'Gmail Sync' : 'Manual/Upload'),
+      cell: (row) => (
+        <Badge
+          variant={row.notes?.includes('[Gmail Sync]') ? 'default' : 'secondary'}
+          className="text-xs"
+        >
+          {row.notes?.includes('[Gmail Sync]') ? 'Gmail' : 'Upload'}
+        </Badge>
+      ),
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Gmail Sync', value: 'Gmail Sync' },
+        { label: 'Manual/Upload', value: 'Manual/Upload' },
+      ],
     },
     {
       id: 'category',
@@ -950,6 +990,18 @@ function CreditCardTransactionTable({
     },
   });
 
+  // Create bank lookup from accounts
+  const accountToBankMap = new Map<string, string>(
+    accounts.map((a: Account) => [a.id, a.bankName])
+  );
+
+  // Get unique bank names for credit cards
+  const uniqueCCBanks = [...new Set(
+    accounts
+      .filter((a: Account) => a.accountType === 'credit_card')
+      .map((a: Account) => a.bankName)
+  )].filter(Boolean);
+
   const columns: ColumnDef<CreditCardTransaction>[] = [
     {
       id: 'date',
@@ -976,6 +1028,36 @@ function CreditCardTransactionTable({
       filterOptions: accounts
         .filter((a: Account) => a.accountType === 'credit_card')
         .map((a: Account) => ({ label: a.name, value: a.name })),
+    },
+    {
+      id: 'bank',
+      header: 'Bank',
+      accessorKey: (row) => accountToBankMap.get(row.accountId) || '-',
+      cell: (row) => (
+        <Badge variant="outline" className="text-xs">
+          {accountToBankMap.get(row.accountId) || '-'}
+        </Badge>
+      ),
+      filterType: 'select',
+      filterOptions: uniqueCCBanks.map((bank) => ({ label: bank, value: bank })),
+    },
+    {
+      id: 'source',
+      header: 'Source',
+      accessorKey: (row) => (row.notes?.includes('[Gmail Sync]') ? 'Gmail Sync' : 'Manual/Upload'),
+      cell: (row) => (
+        <Badge
+          variant={row.notes?.includes('[Gmail Sync]') ? 'default' : 'secondary'}
+          className="text-xs"
+        >
+          {row.notes?.includes('[Gmail Sync]') ? 'Gmail' : 'Upload'}
+        </Badge>
+      ),
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Gmail Sync', value: 'Gmail Sync' },
+        { label: 'Manual/Upload', value: 'Manual/Upload' },
+      ],
     },
     {
       id: 'category',

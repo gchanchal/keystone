@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Moon, Sun, Monitor, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Moon, Sun, Monitor, Plus, Pencil, Trash2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -73,6 +73,7 @@ export function Settings() {
   const [deleteCount, setDeleteCount] = useState<number | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [categoriesExpanded, setCategoriesExpanded] = useState(false);
 
   const months = getLast12Months();
 
@@ -270,111 +271,6 @@ export function Settings() {
         </CardContent>
       </Card>
 
-      {/* Category Management */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Categories</CardTitle>
-            <CardDescription>Manage transaction categories</CardDescription>
-          </div>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Category
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Income Categories */}
-            <div>
-              <h3 className="mb-4 font-semibold text-green-500">Income Categories</h3>
-              <div className="space-y-2">
-                {incomeCategories.map((category: Category) => (
-                  <div
-                    key={category.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-4 w-4 rounded-full"
-                        style={{ backgroundColor: category.color || '#22c55e' }}
-                      />
-                      <span>{category.name}</span>
-                      {category.isSystem && (
-                        <Badge variant="secondary" className="text-xs">
-                          System
-                        </Badge>
-                      )}
-                    </div>
-                    {!category.isSystem && (
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(category)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteMutation.mutate(category.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Expense Categories */}
-            <div>
-              <h3 className="mb-4 font-semibold text-red-500">Expense Categories</h3>
-              <div className="space-y-2">
-                {expenseCategories.map((category: Category) => (
-                  <div
-                    key={category.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-4 w-4 rounded-full"
-                        style={{ backgroundColor: category.color || '#ef4444' }}
-                      />
-                      <span>{category.name}</span>
-                      {category.isSystem && (
-                        <Badge variant="secondary" className="text-xs">
-                          System
-                        </Badge>
-                      )}
-                    </div>
-                    {!category.isSystem && (
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(category)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteMutation.mutate(category.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Gmail Integration */}
       <GmailSettings />
 
@@ -483,6 +379,127 @@ export function Settings() {
             prevent data loss.
           </p>
         </CardContent>
+      </Card>
+
+      {/* Category Management - Collapsible */}
+      <Card>
+        <CardHeader
+          className="flex flex-row items-center justify-between cursor-pointer"
+          onClick={() => setCategoriesExpanded(!categoriesExpanded)}
+        >
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              Categories
+              {categoriesExpanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </CardTitle>
+            <CardDescription>
+              Manage transaction categories ({incomeCategories.length + expenseCategories.length} total)
+            </CardDescription>
+          </div>
+          {categoriesExpanded && (
+            <Button onClick={(e) => { e.stopPropagation(); setDialogOpen(true); }}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Category
+            </Button>
+          )}
+        </CardHeader>
+        {categoriesExpanded && (
+          <CardContent>
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Income Categories */}
+              <div>
+                <h3 className="mb-4 font-semibold text-green-500">Income Categories</h3>
+                <div className="space-y-2">
+                  {incomeCategories.map((category: Category) => (
+                    <div
+                      key={category.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="h-4 w-4 rounded-full"
+                          style={{ backgroundColor: category.color || '#22c55e' }}
+                        />
+                        <span>{category.name}</span>
+                        {category.isSystem && (
+                          <Badge variant="secondary" className="text-xs">
+                            System
+                          </Badge>
+                        )}
+                      </div>
+                      {!category.isSystem && (
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(category)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteMutation.mutate(category.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Expense Categories */}
+              <div>
+                <h3 className="mb-4 font-semibold text-red-500">Expense Categories</h3>
+                <div className="space-y-2">
+                  {expenseCategories.map((category: Category) => (
+                    <div
+                      key={category.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="h-4 w-4 rounded-full"
+                          style={{ backgroundColor: category.color || '#ef4444' }}
+                        />
+                        <span>{category.name}</span>
+                        {category.isSystem && (
+                          <Badge variant="secondary" className="text-xs">
+                            System
+                          </Badge>
+                        )}
+                      </div>
+                      {!category.isSystem && (
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(category)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteMutation.mutate(category.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* Add/Edit Category Dialog */}

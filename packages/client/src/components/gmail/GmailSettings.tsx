@@ -314,16 +314,16 @@ export function GmailSettings() {
                   <div className="space-y-2">
                     <Label>Start Date (Optional)</Label>
                     <Select
-                      value={syncOptions.afterDate}
+                      value={syncOptions.afterDate || 'all'}
                       onValueChange={(v) =>
-                        setSyncOptions({ ...syncOptions, afterDate: v })
+                        setSyncOptions({ ...syncOptions, afterDate: v === 'all' ? '' : v })
                       }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select start date" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All time</SelectItem>
+                        <SelectItem value="all">All time</SelectItem>
                         <SelectItem value={format(subMonths(new Date(), 1), 'yyyy-MM-dd')}>
                           Last 1 month
                         </SelectItem>

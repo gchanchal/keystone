@@ -346,6 +346,7 @@ async function saveTransaction(
 ): Promise<string> {
   const now = new Date().toISOString();
   const id = uuidv4();
+  const gmailNote = `[Gmail Sync] ${parsed.bank}`;
 
   if (parsed.sourceType === 'credit_card') {
     await db.insert(creditCardTransactions).values({
@@ -355,6 +356,7 @@ async function saveTransaction(
       description: parsed.merchantOrDescription,
       amount: parsed.amount,
       transactionType: parsed.transactionType,
+      notes: gmailNote,
       createdAt: now,
       updatedAt: now,
     });
@@ -366,6 +368,7 @@ async function saveTransaction(
       narration: parsed.merchantOrDescription,
       transactionType: parsed.transactionType,
       amount: parsed.amount,
+      notes: gmailNote,
       createdAt: now,
       updatedAt: now,
     });

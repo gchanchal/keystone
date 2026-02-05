@@ -63,6 +63,9 @@ interface MutualFundHolding {
   currentValue: number | null;
   nav: number | null;
   navDate: string | null;
+  previousNav: number | null;
+  dayChange: number | null;
+  dayChangePercent: number | null;
   absoluteReturn: number | null;
   absoluteReturnPercent: number | null;
   xirr: number | null;
@@ -79,6 +82,8 @@ interface MutualFundSummary {
   totalCurrentValue: number;
   totalAbsoluteReturn: number;
   totalAbsoluteReturnPercent: number;
+  totalDayChange: number;
+  totalDayChangePercent: number;
   holdingsCount: number;
   folioCount: number;
   byAmc: Array<{
@@ -214,6 +219,7 @@ export function MutualFunds() {
             <th className="px-4 py-3 text-left text-sm font-medium">Scheme</th>
             <th className="px-4 py-3 text-right text-sm font-medium">Units</th>
             <th className="px-4 py-3 text-right text-sm font-medium">NAV</th>
+            <th className="px-4 py-3 text-right text-sm font-medium">Day +/-</th>
             <th className="px-4 py-3 text-right text-sm font-medium">Cost</th>
             <th className="px-4 py-3 text-right text-sm font-medium">Current</th>
             <th className="px-4 py-3 text-right text-sm font-medium">Return</th>
@@ -248,6 +254,20 @@ export function MutualFunds() {
                       <p className="text-xs text-muted-foreground">{h.navDate}</p>
                     )}
                   </div>
+                </td>
+                <td className="px-4 py-3 text-right text-sm">
+                  {h.dayChange !== null && h.dayChangePercent !== null ? (
+                    <div className={h.dayChange >= 0 ? 'text-green-500' : 'text-red-500'}>
+                      <p className="font-medium">
+                        {h.dayChange >= 0 ? '+' : ''}{formatCurrency(h.dayChange)}
+                      </p>
+                      <p className="text-xs">
+                        {h.dayChangePercent >= 0 ? '+' : ''}{h.dayChangePercent.toFixed(2)}%
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm">
                   {formatCurrency(h.costValue)}
@@ -342,7 +362,7 @@ export function MutualFunds() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-muted-foreground">Total Invested</p>
@@ -356,6 +376,23 @@ export function MutualFunds() {
             <p className="text-sm text-muted-foreground">Current Value</p>
             <p className="text-2xl font-bold">
               {formatCurrency(summary?.totalCurrentValue || 0)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm text-muted-foreground">Day +/-</p>
+            <p className={`text-2xl font-bold ${
+              (summary?.totalDayChange || 0) >= 0 ? 'text-green-500' : 'text-red-500'
+            }`}>
+              {(summary?.totalDayChange || 0) >= 0 ? '+' : ''}
+              {formatCurrency(summary?.totalDayChange || 0)}
+            </p>
+            <p className={`text-sm ${
+              (summary?.totalDayChangePercent || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+            }`}>
+              {(summary?.totalDayChangePercent || 0) >= 0 ? '+' : ''}
+              {(summary?.totalDayChangePercent || 0).toFixed(2)}%
             </p>
           </CardContent>
         </Card>
