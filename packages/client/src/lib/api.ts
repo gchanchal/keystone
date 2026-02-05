@@ -1,0 +1,370 @@
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.error || error.message || 'An error occurred';
+    console.error('API Error:', message);
+    return Promise.reject(error);
+  }
+);
+
+// Dashboard
+export const dashboardApi = {
+  getDashboard: (month?: string) =>
+    api.get('/dashboard', { params: { month } }).then((r) => r.data),
+  getStats: (month?: string) =>
+    api.get('/dashboard/stats', { params: { month } }).then((r) => r.data),
+  getCashFlow: (months?: number) =>
+    api.get('/dashboard/cash-flow', { params: { months } }).then((r) => r.data),
+  getExpenseBreakdown: (startDate: string, endDate: string) =>
+    api.get('/dashboard/expense-breakdown', { params: { startDate, endDate } }).then((r) => r.data),
+  getTrends: (startDate: string, endDate: string, granularity?: 'daily' | 'weekly' | 'monthly') =>
+    api.get('/dashboard/trends', { params: { startDate, endDate, granularity } }).then((r) => r.data),
+  getVyaparTrends: (startDate: string, endDate: string, granularity?: 'daily' | 'weekly' | 'monthly') =>
+    api.get('/dashboard/vyapar-trends', { params: { startDate, endDate, granularity } }).then((r) => r.data),
+  getCategoryTrends: (startDate: string, endDate: string, granularity?: 'daily' | 'weekly' | 'monthly', type?: 'expense' | 'income' | 'all') =>
+    api.get('/dashboard/category-trends', { params: { startDate, endDate, granularity, type } }).then((r) => r.data),
+  getVyaparSummary: (startDate: string, endDate: string) =>
+    api.get('/dashboard/vyapar-summary', { params: { startDate, endDate } }).then((r) => r.data),
+  getRecentTransactions: (limit?: number) =>
+    api.get('/dashboard/recent-transactions', { params: { limit } }).then((r) => r.data),
+};
+
+// Accounts
+export const accountsApi = {
+  getAll: () => api.get('/accounts').then((r) => r.data),
+  getById: (id: string) => api.get(`/accounts/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/accounts', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/accounts/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/accounts/${id}`).then((r) => r.data),
+  updateBalance: (id: string, balance: number) =>
+    api.patch(`/accounts/${id}/balance`, { balance }).then((r) => r.data),
+};
+
+// Transactions
+export const transactionsApi = {
+  getBank: (params?: Record<string, any>) =>
+    api.get('/transactions/bank', { params }).then((r) => r.data),
+  getVyapar: (params?: Record<string, any>) =>
+    api.get('/transactions/vyapar', { params }).then((r) => r.data),
+  getCreditCard: (params?: Record<string, any>) =>
+    api.get('/transactions/credit-card', { params }).then((r) => r.data),
+  createBank: (data: any) => api.post('/transactions/bank', data).then((r) => r.data),
+  updateBank: (id: string, data: any) =>
+    api.put(`/transactions/bank/${id}`, data).then((r) => r.data),
+  deleteBank: (id: string) => api.delete(`/transactions/bank/${id}`).then((r) => r.data),
+  bulkUpdateCategory: (ids: string[], categoryId: string | null) =>
+    api.patch('/transactions/bank/bulk-category', { ids, categoryId }).then((r) => r.data),
+  updateBankCategory: (id: string, categoryId: string | null) =>
+    api.patch(`/transactions/bank/${id}/category`, { categoryId }).then((r) => r.data),
+  updateCreditCardCategory: (id: string, categoryId: string | null) =>
+    api.patch(`/transactions/credit-card/${id}/category`, { categoryId }).then((r) => r.data),
+  getCategories: () => api.get('/transactions/categories').then((r) => r.data),
+  getVyaparItems: (params?: Record<string, any>) =>
+    api.get('/transactions/vyapar-items', { params }).then((r) => r.data),
+  getVyaparItemCategories: (params?: Record<string, any>) =>
+    api.get('/transactions/vyapar-items/categories', { params }).then((r) => r.data),
+  updateVyaparItemCategory: (id: string, category: string | null) =>
+    api.patch(`/transactions/vyapar-items/${id}/category`, { category }).then((r) => r.data),
+  autoCategorizeVyaparItems: (rules: Array<{ pattern: string; category: string; caseSensitive?: boolean }>, onlyUncategorized = true) =>
+    api.post('/transactions/vyapar-items/auto-categorize', { rules, onlyUncategorized }).then((r) => r.data),
+  // Bulk delete operations
+  bulkDeleteBank: (params: { accountId?: string; startDate?: string; endDate?: string; deleteAll?: boolean }) =>
+    api.post('/transactions/bank/bulk-delete', params).then((r) => r.data),
+  bulkDeleteVyapar: (params: { startDate?: string; endDate?: string; transactionType?: string; deleteAll?: boolean }) =>
+    api.post('/transactions/vyapar/bulk-delete', params).then((r) => r.data),
+  bulkDeleteCreditCard: (params: { accountId?: string; startDate?: string; endDate?: string; deleteAll?: boolean }) =>
+    api.post('/transactions/credit-card/bulk-delete', params).then((r) => r.data),
+  getCounts: (params: { type: 'bank' | 'vyapar' | 'credit-card'; accountId?: string; startDate?: string; endDate?: string }) =>
+    api.get('/transactions/counts', { params }).then((r) => r.data),
+};
+
+// Reconciliation
+export const reconciliationApi = {
+  getData: (startMonth: string, endMonth: string, accountId?: string) =>
+    api.get('/reconciliation', { params: { startMonth, endMonth, accountId } }).then((r) => r.data),
+  autoMatch: (startMonth: string, endMonth: string, accountIds?: string[], apply = false) =>
+    api.post('/reconciliation/auto-match', { startMonth, endMonth, accountIds, apply }).then((r) => r.data),
+  applyMatches: (matches: Array<{ bankTransactionId: string; vyaparTransactionId: string }>) =>
+    api.post('/reconciliation/apply-matches', { matches }).then((r) => r.data),
+  manualMatch: (bankTransactionId: string, vyaparTransactionId: string) =>
+    api.post('/reconciliation/manual-match', { bankTransactionId, vyaparTransactionId }).then((r) => r.data),
+  multiMatch: (bankTransactionIds: string[], vyaparTransactionIds: string[]) =>
+    api.post('/reconciliation/multi-match', { bankTransactionIds, vyaparTransactionIds }).then((r) => r.data),
+  unmatch: (bankTransactionId: string) =>
+    api.post('/reconciliation/unmatch', { bankTransactionId }).then((r) => r.data),
+  unmatchGroup: (matchGroupId: string) =>
+    api.post('/reconciliation/unmatch-group', { matchGroupId }).then((r) => r.data),
+  getMatchGroup: (matchGroupId: string) =>
+    api.get(`/reconciliation/match-group/${matchGroupId}`).then((r) => r.data),
+  exportReport: (startMonth: string, endMonth: string, accountId?: string) =>
+    api.get('/reconciliation/export', {
+      params: { startMonth, endMonth, accountId },
+      responseType: 'blob',
+    }).then((r) => r.data),
+};
+
+// Uploads
+export const uploadsApi = {
+  getAll: () => api.get('/uploads').then((r) => r.data),
+  detectFileType: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/uploads/detect', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  previewBankStatement: (file: File, bankName: string, accountId: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bankName', bankName);
+    formData.append('accountId', accountId);
+    return api.post('/uploads/bank-statement/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmBankStatement: (uploadId: string, accountId: string, transactions: any[]) =>
+    api.post('/uploads/bank-statement/confirm', { uploadId, accountId, transactions }).then((r) => r.data),
+  previewVyapar: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/uploads/vyapar/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmVyapar: (uploadId: string, transactions: any[], itemDetails?: any[]) =>
+    api.post('/uploads/vyapar/confirm', { uploadId, transactions, itemDetails }).then((r) => r.data),
+  previewCreditCard: (file: File, accountId: string, bankHint?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('accountId', accountId);
+    if (bankHint) formData.append('bankHint', bankHint);
+    return api.post('/uploads/credit-card/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmCreditCard: (uploadId: string, accountId: string, transactions: any[]) =>
+    api.post('/uploads/credit-card/confirm', { uploadId, accountId, transactions }).then((r) => r.data),
+  previewETrade: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/uploads/etrade/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmETrade: (uploadId: string, holdings: any[]) =>
+    api.post('/uploads/etrade/confirm', { uploadId, holdings }).then((r) => r.data),
+  previewHomeLoan: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/uploads/home-loan/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmHomeLoan: (uploadId: string, loan: any, payments: any[], disbursements: any[]) =>
+    api.post('/uploads/home-loan/confirm', { uploadId, loan, payments, disbursements }).then((r) => r.data),
+  previewCAMS: (file: File, password: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', password);
+    return api.post('/uploads/cams/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+  confirmCAMS: (uploadId: string, investorName: string, email: string | null, panNumber: string | null, holdings: any[]) =>
+    api.post('/uploads/cams/confirm', { uploadId, investorName, email, panNumber, holdings }).then((r) => r.data),
+  delete: (id: string) => api.delete(`/uploads/${id}`).then((r) => r.data),
+};
+
+// Investments
+export const investmentsApi = {
+  getAll: () => api.get('/investments').then((r) => r.data),
+  getSummary: () => api.get('/investments/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/investments/${id}`).then((r) => r.data),
+  getLiveQuotes: () => api.get('/investments/live-quotes').then((r) => r.data),
+  create: (data: any) => api.post('/investments', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/investments/${id}`, data).then((r) => r.data),
+  updatePrice: (id: string, price: number) =>
+    api.patch(`/investments/${id}/price`, { price }).then((r) => r.data),
+  syncPrices: () => api.post('/investments/sync-prices').then((r) => r.data),
+  delete: (id: string) => api.delete(`/investments/${id}`).then((r) => r.data),
+};
+
+// Loans
+export const loansApi = {
+  getAll: (params?: { type?: string; status?: string }) =>
+    api.get('/loans', { params }).then((r) => r.data),
+  getSummary: () => api.get('/loans/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/loans/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/loans', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/loans/${id}`, data).then((r) => r.data),
+  addPayment: (loanId: string, data: any) =>
+    api.post(`/loans/${loanId}/payments`, data).then((r) => r.data),
+  deletePayment: (loanId: string, paymentId: string) =>
+    api.delete(`/loans/${loanId}/payments/${paymentId}`).then((r) => r.data),
+  updateStatus: (id: string, status: string) =>
+    api.patch(`/loans/${id}/status`, { status }).then((r) => r.data),
+  markAsPaid: (id: string) =>
+    api.post(`/loans/${id}/mark-paid`).then((r) => r.data),
+  markAsUnpaid: (id: string) =>
+    api.post(`/loans/${id}/mark-unpaid`).then((r) => r.data),
+  delete: (id: string) => api.delete(`/loans/${id}`).then((r) => r.data),
+  // Exchange rate
+  getExchangeRate: () =>
+    api.get('/loans/exchange-rate/usd-inr').then((r) => r.data),
+  // Loan Given Details
+  getGivenDetails: (loanId: string) =>
+    api.get(`/loans/${loanId}/given-details`).then((r) => r.data),
+  addGivenDetail: (loanId: string, data: any) =>
+    api.post(`/loans/${loanId}/given-details`, data).then((r) => r.data),
+  updateGivenDetail: (loanId: string, detailId: string, data: any) =>
+    api.put(`/loans/${loanId}/given-details/${detailId}`, data).then((r) => r.data),
+  deleteGivenDetail: (loanId: string, detailId: string) =>
+    api.delete(`/loans/${loanId}/given-details/${detailId}`).then((r) => r.data),
+};
+
+// Reports
+export const reportsApi = {
+  getPL: (month: string) => api.get('/reports/pl', { params: { month } }).then((r) => r.data),
+  exportPL: (month: string, format: 'xlsx' | 'csv' = 'xlsx') =>
+    api.get('/reports/pl/export', {
+      params: { month, format },
+      responseType: 'blob',
+    }).then((r) => r.data),
+  getGST: (startDate: string, endDate: string) =>
+    api.get('/reports/gst', { params: { startDate, endDate } }).then((r) => r.data),
+  getCategoryBreakdown: (startDate: string, endDate: string, type?: string) =>
+    api.get('/reports/category-breakdown', { params: { startDate, endDate, type } }).then((r) => r.data),
+  exportTransactions: (params: {
+    startDate: string;
+    endDate: string;
+    type?: string;
+    format?: 'xlsx' | 'csv';
+    accountId?: string;
+  }) =>
+    api.get('/reports/transactions/export', {
+      params,
+      responseType: 'blob',
+    }).then((r) => r.data),
+};
+
+// Categories
+export const categoriesApi = {
+  getAll: () => api.get('/categories').then((r) => r.data),
+  create: (data: any) => api.post('/categories', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/categories/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/categories/${id}`).then((r) => r.data),
+};
+
+// Mutual Funds
+export const mutualFundsApi = {
+  getHoldings: () => api.get('/mutual-funds/holdings').then((r) => r.data),
+  getSummary: () => api.get('/mutual-funds/summary').then((r) => r.data),
+  getFolios: () => api.get('/mutual-funds/folios').then((r) => r.data),
+  getFolioHoldings: (folioId: string) => api.get(`/mutual-funds/folios/${folioId}/holdings`).then((r) => r.data),
+  updateNAV: (id: string, nav: number, navDate?: string) =>
+    api.patch(`/mutual-funds/${id}/nav`, { nav, navDate }).then((r) => r.data),
+  syncNAV: () => api.post('/mutual-funds/sync-nav').then((r) => r.data),
+  delete: (id: string) => api.delete(`/mutual-funds/${id}`).then((r) => r.data),
+  deleteFolio: (folioId: string) => api.delete(`/mutual-funds/folios/${folioId}`).then((r) => r.data),
+};
+
+// Assets (Physical properties)
+export const assetsApi = {
+  getAll: () => api.get('/assets').then((r) => r.data),
+  getSummary: () => api.get('/assets/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/assets/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/assets', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/assets/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/assets/${id}`).then((r) => r.data),
+  linkLoan: (id: string, loanId: string | null) =>
+    api.patch(`/assets/${id}/link-loan`, { loanId }).then((r) => r.data),
+};
+
+// Policies (Insurance)
+export const policiesApi = {
+  getAll: () => api.get('/assets/policies').then((r) => r.data),
+  getSummary: () => api.get('/assets/policies/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/assets/policies/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/assets/policies', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/assets/policies/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/assets/policies/${id}`).then((r) => r.data),
+  addPayment: (policyId: string, data: any) =>
+    api.post(`/assets/policies/${policyId}/payments`, data).then((r) => r.data),
+  deletePayment: (policyId: string, paymentId: string) =>
+    api.delete(`/assets/policies/${policyId}/payments/${paymentId}`).then((r) => r.data),
+  extractFromPdf: (file: File, password?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (password) {
+      formData.append('password', password);
+    }
+    return api.post('/assets/policies/extract', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+};
+
+// Fixed Expenses (recurring expenses like rent, school fees)
+export const fixedExpensesApi = {
+  getAll: () => api.get('/fixed-expenses').then((r) => r.data),
+  getSummary: () => api.get('/fixed-expenses/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/fixed-expenses/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/fixed-expenses', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/fixed-expenses/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/fixed-expenses/${id}`).then((r) => r.data),
+  addPayment: (expenseId: string, data: any) =>
+    api.post(`/fixed-expenses/${expenseId}/payments`, data).then((r) => r.data),
+};
+
+// Recurring Income
+export const recurringIncomeApi = {
+  getAll: () => api.get('/recurring-income').then((r) => r.data),
+  getSummary: () => api.get('/recurring-income/summary').then((r) => r.data),
+  getById: (id: string) => api.get(`/recurring-income/${id}`).then((r) => r.data),
+  create: (data: any) => api.post('/recurring-income', data).then((r) => r.data),
+  update: (id: string, data: any) => api.put(`/recurring-income/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/recurring-income/${id}`).then((r) => r.data),
+  addReceipt: (incomeId: string, data: any) =>
+    api.post(`/recurring-income/${incomeId}/receipts`, data).then((r) => r.data),
+};
+
+// Credit Cards
+export const creditCardsApi = {
+  getAll: () => api.get('/credit-cards').then((r) => r.data),
+  getSummary: (accountId?: string) =>
+    api.get('/credit-cards/summary', { params: { accountId } }).then((r) => r.data),
+  getTransactions: (
+    accountId: string,
+    params?: {
+      startDate?: string;
+      endDate?: string;
+      cardHolder?: string;
+      category?: string;
+      emiOnly?: boolean;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ) =>
+    api.get(`/credit-cards/${accountId}/transactions`, { params }).then((r) => r.data),
+  getStatements: (accountId: string, limit?: number) =>
+    api.get(`/credit-cards/${accountId}/statements`, { params: { limit } }).then((r) => r.data),
+  getCardHolders: (accountId: string) =>
+    api.get(`/credit-cards/${accountId}/card-holders`).then((r) => r.data),
+  getAnalytics: (params?: { accountId?: string; startDate?: string; endDate?: string }) =>
+    api.get('/credit-cards/analytics', { params }).then((r) => r.data),
+  updateTransactionCategory: (accountId: string, transactionId: string, categoryId: string | null) =>
+    api.patch(`/credit-cards/${accountId}/transactions/${transactionId}/category`, { categoryId }).then((r) => r.data),
+};
+
+export default api;
