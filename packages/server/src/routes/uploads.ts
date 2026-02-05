@@ -384,7 +384,7 @@ router.post('/bank-statement/confirm', async (req, res) => {
       await db
         .update(accounts)
         .set({ currentBalance: sortedTransactions[0].balance, updatedAt: now })
-        .where(eq(accounts.id, accountId));
+        .where(and(eq(accounts.id, accountId), eq(accounts.userId, req.userId!)));
     }
 
     // Update upload status
@@ -941,7 +941,7 @@ router.post('/credit-card/confirm', async (req, res) => {
       await db
         .update(accounts)
         .set({ currentBalance: -statementMetadata.totalDue, updatedAt: now })
-        .where(eq(accounts.id, accountId));
+        .where(and(eq(accounts.id, accountId), eq(accounts.userId, req.userId!)));
     }
 
     await db
