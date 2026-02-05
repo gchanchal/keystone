@@ -367,4 +367,45 @@ export const creditCardsApi = {
     api.patch(`/credit-cards/${accountId}/transactions/${transactionId}/category`, { categoryId }).then((r) => r.data),
 };
 
+// Gmail Integration
+export const gmailApi = {
+  // Check if Gmail OAuth is configured
+  getConfig: () => api.get('/gmail/config').then((r) => r.data),
+
+  // Get OAuth authorization URL
+  getAuthUrl: () => api.get('/gmail/auth/url').then((r) => r.data),
+
+  // Get all connected accounts
+  getConnections: () => api.get('/gmail/connections').then((r) => r.data),
+
+  // Get a single connection
+  getConnection: (id: string) => api.get(`/gmail/connections/${id}`).then((r) => r.data),
+
+  // Disconnect a Gmail account
+  disconnect: (id: string) => api.delete(`/gmail/connections/${id}`).then((r) => r.data),
+
+  // Trigger email sync
+  sync: (data: {
+    connectionId: string;
+    syncType: 'historical' | 'incremental';
+    afterDate?: string;
+    beforeDate?: string;
+    banks?: string[];
+    maxEmails?: number;
+  }) => api.post('/gmail/sync', data).then((r) => r.data),
+
+  // Get sync state by ID
+  getSyncState: (syncId: string) => api.get(`/gmail/sync/${syncId}`).then((r) => r.data),
+
+  // Get sync history for a connection
+  getSyncHistory: (connectionId: string, limit?: number) =>
+    api.get(`/gmail/connections/${connectionId}/sync-history`, { params: { limit } }).then((r) => r.data),
+
+  // Get processed emails for a connection
+  getProcessedEmails: (
+    connectionId: string,
+    params?: { status?: 'success' | 'failed' | 'skipped'; limit?: number; offset?: number }
+  ) => api.get(`/gmail/connections/${connectionId}/emails`, { params }).then((r) => r.data),
+};
+
 export default api;

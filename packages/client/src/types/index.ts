@@ -413,3 +413,59 @@ export interface PolicyPayment {
   notes: string | null;
   createdAt: string;
 }
+
+// Gmail Integration Types
+export interface GmailConnection {
+  id: string;
+  email: string;
+  isActive: boolean;
+  lastSyncAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GmailSyncState {
+  id: string;
+  connectionId: string;
+  syncType: 'historical' | 'incremental';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  lastHistoryId: string | null;
+  processedCount: number;
+  matchedCount: number;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface ProcessedEmail {
+  id: string;
+  gmailMessageId: string;
+  fromAddress: string;
+  subject: string | null;
+  receivedAt: string;
+  bankName: string | null;
+  parseStatus: 'success' | 'failed' | 'skipped';
+  transactionId: string | null;
+  transactionType: 'bank' | 'credit_card' | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+export interface SyncResult {
+  syncId: string;
+  status: 'completed' | 'failed';
+  processedCount: number;
+  matchedCount: number;
+  newTransactions: number;
+  duplicates: number;
+  errors: number;
+  errorMessage?: string;
+}
+
+export interface GmailConfig {
+  configured: boolean;
+  supportedBanks: string[];
+}
+
+export type SupportedBank = 'HDFC' | 'ICICI' | 'Kotak' | 'Axis';

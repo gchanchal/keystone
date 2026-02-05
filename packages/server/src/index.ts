@@ -22,6 +22,7 @@ import assetsRouter from './routes/assets.js';
 import fixedExpensesRouter from './routes/fixed-expenses.js';
 import recurringIncomeRouter from './routes/recurring-income.js';
 import creditCardsRouter from './routes/credit-cards.js';
+import gmailRouter from './routes/gmail.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ app.use('/api/assets', assetsRouter);
 app.use('/api/fixed-expenses', fixedExpensesRouter);
 app.use('/api/recurring-income', recurringIncomeRouter);
 app.use('/api/credit-cards', creditCardsRouter);
+app.use('/api/gmail', gmailRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

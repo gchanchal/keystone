@@ -17,6 +17,7 @@ import * as mutualFundsSchema from './schema/mutual-funds.js';
 import * as assetsSchema from './schema/assets.js';
 import * as fixedExpensesSchema from './schema/fixed-expenses.js';
 import * as recurringIncomeSchema from './schema/recurring-income.js';
+import * as gmailIntegrationSchema from './schema/gmail-integration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, '../../../data/finsync.db');
@@ -46,6 +47,7 @@ export const db = drizzle(sqlite, {
     ...assetsSchema,
     ...fixedExpensesSchema,
     ...recurringIncomeSchema,
+    ...gmailIntegrationSchema,
   },
 });
 
@@ -599,6 +601,59 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_recurring_income_category ON recurring_income(category);
     CREATE INDEX IF NOT EXISTS idx_recurring_income_status ON recurring_income(status);
     CREATE INDEX IF NOT EXISTS idx_income_receipts_income ON income_receipts(income_id);
+
+    -- Gmail Integration tables
+    CREATE TABLE IF NOT EXISTS gmail_connections (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      token_expiry TEXT NOT NULL,
+      scope TEXT,
+      is_active INTEGER DEFAULT 1,
+      last_sync_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS gmail_sync_state (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      sync_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      last_history_id TEXT,
+      processed_count INTEGER DEFAULT 0,
+      matched_count INTEGER DEFAULT 0,
+      error_message TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS processed_emails (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      gmail_message_id TEXT NOT NULL UNIQUE,
+      thread_id TEXT,
+      from_address TEXT NOT NULL,
+      subject TEXT,
+      received_at TEXT NOT NULL,
+      bank_name TEXT,
+      parse_status TEXT NOT NULL,
+      transaction_id TEXT,
+      transaction_type TEXT,
+      raw_content TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gmail_connections_email ON gmail_connections(email);
+    CREATE INDEX IF NOT EXISTS idx_gmail_connections_active ON gmail_connections(is_active);
+    CREATE INDEX IF NOT EXISTS idx_gmail_sync_state_connection ON gmail_sync_state(connection_id);
+    CREATE INDEX IF NOT EXISTS idx_gmail_sync_state_status ON gmail_sync_state(status);
+    CREATE INDEX IF NOT EXISTS idx_processed_emails_connection ON processed_emails(connection_id);
+    CREATE INDEX IF NOT EXISTS idx_processed_emails_message_id ON processed_emails(gmail_message_id);
+    CREATE INDEX IF NOT EXISTS idx_processed_emails_status ON processed_emails(parse_status);
   `);
 
   // Add currency column if it doesn't exist (migration for existing DBs)
@@ -676,3 +731,4 @@ export * from './schema/mutual-funds.js';
 export * from './schema/assets.js';
 export * from './schema/fixed-expenses.js';
 export * from './schema/recurring-income.js';
+export * from './schema/gmail-integration.js';
