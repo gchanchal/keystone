@@ -77,7 +77,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../../data/uploads')));
 
 // Serve static files from client build in production
 if (isProduction) {
-  const clientBuildPath = path.join(__dirname, '../../../client/dist');
+  const clientBuildPath = path.join(__dirname, '../../client/dist');
   app.use(express.static(clientBuildPath));
 
   // Handle client-side routing - serve index.html for non-API routes
