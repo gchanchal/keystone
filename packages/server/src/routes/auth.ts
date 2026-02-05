@@ -164,10 +164,18 @@ router.get('/debug', (req, res) => {
 });
 
 /**
- * POST /api/auth/migrate-orphaned-data
+ * GET/POST /api/auth/migrate-orphaned-data
  * Migrate orphaned data (records with null user_id) to current user
  */
+router.get('/migrate-orphaned-data', requireAuth, (req, res) => {
+  migrateOrphanedDataHandler(req, res);
+});
+
 router.post('/migrate-orphaned-data', requireAuth, (req, res) => {
+  migrateOrphanedDataHandler(req, res);
+});
+
+function migrateOrphanedDataHandler(req: any, res: any) {
   try {
     const userId = req.userId!;
     const results: Record<string, number> = {};
@@ -226,6 +234,6 @@ router.post('/migrate-orphaned-data', requireAuth, (req, res) => {
     console.error('Error migrating orphaned data:', error);
     res.status(500).json({ error: 'Failed to migrate data' });
   }
-});
+}
 
 export default router;
