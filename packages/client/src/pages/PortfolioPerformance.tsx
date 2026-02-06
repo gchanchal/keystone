@@ -65,7 +65,7 @@ interface StockTrendsData {
 export function PortfolioPerformance() {
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly'>('daily');
-  const { formatAmount, exchangeRate } = useCurrency();
+  const { formatAmount, exchangeRate, convert, currency } = useCurrency();
 
   // Fetch all investments for current value calculation (matching Investments page)
   const { data: investmentsData = [] } = useQuery({
@@ -172,26 +172,26 @@ export function PortfolioPerformance() {
     }
   }, [isInitialized]);
 
-  // Chart data
+  // Chart data (apply currency conversion - all backend data is in INR)
   const netWorthChartData = performance?.labels.map((label, idx) => ({
     name: label,
-    'Net Worth': performance.netWorth[idx],
-    'Investments': performance.totalInvestments[idx],
+    'Net Worth': convert(performance.netWorth[idx], 'INR'),
+    'Investments': convert(performance.totalInvestments[idx], 'INR'),
   })) || [];
 
   const investmentTrendsData = performance?.labels.map((label, idx) => ({
     name: label,
-    'US Stocks': performance.usStocksValue[idx],
-    'India Stocks': performance.indiaStocksValue[idx],
-    'Mutual Funds': performance.mutualFundsValue[idx],
+    'US Stocks': convert(performance.usStocksValue[idx], 'INR'),
+    'India Stocks': convert(performance.indiaStocksValue[idx], 'INR'),
+    'Mutual Funds': convert(performance.mutualFundsValue[idx], 'INR'),
   })) || [];
 
   // Stock trends chart data (30-day historical based on current holdings)
   const stockTrendsChartData = stockTrends?.labels.map((label, idx) => ({
     name: label,
-    'Total': stockTrends.totalValue[idx],
-    'US Stocks': stockTrends.usStocksValue[idx],
-    'India Stocks': stockTrends.indiaStocksValue[idx],
+    'Total': convert(stockTrends.totalValue[idx], 'INR'),
+    'US Stocks': convert(stockTrends.usStocksValue[idx], 'INR'),
+    'India Stocks': convert(stockTrends.indiaStocksValue[idx], 'INR'),
   })) || [];
 
   // Calculate period change
