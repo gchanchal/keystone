@@ -26,12 +26,12 @@ import { ServerStatus } from './ServerStatus';
 // Personal section items
 const personalItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/accounts', icon: Building2, label: 'Accounts' },
-  { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
-  { to: '/credit-cards', icon: CreditCard, label: 'Credit Cards' },
+  { to: '/performance', icon: LineChart, label: 'Performance' },
   { to: '/investments', icon: TrendingUp, label: 'Investments' },
-  { to: '/portfolio', icon: LineChart, label: 'Portfolio Performance' },
   { to: '/loans', icon: HandCoins, label: 'Expenses & Income' },
+  { to: '/credit-cards', icon: CreditCard, label: 'Credit Cards' },
+  { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
+  { to: '/accounts', icon: Building2, label: 'Accounts' },
 ];
 
 // GearUp Mods section items
@@ -56,7 +56,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
 
   // Determine which section is active based on current path
-  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/portfolio', '/loans'].some(
+  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/performance', '/loans'].some(
     path => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
   );
   const isGearupPath = ['/gearup', '/reconciliation', '/reports'].some(

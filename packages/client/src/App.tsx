@@ -45,7 +45,7 @@ function App() {
           <Route path="loans" element={<Loans />} />
           <Route path="loans/:id/details" element={<LoanGivenDetails />} />
           <Route path="reports" element={<Reports />} />
-          <Route path="portfolio" element={<PortfolioPerformance />} />
+          <Route path="performance" element={<PortfolioPerformance />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

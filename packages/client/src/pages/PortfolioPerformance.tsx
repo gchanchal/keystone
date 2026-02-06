@@ -211,7 +211,7 @@ export function PortfolioPerformance() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Portfolio Performance</h1>
+          <h1 className="text-2xl font-bold">Performance</h1>
           <p className="text-muted-foreground">
             Track your investment trends over time
           </p>
