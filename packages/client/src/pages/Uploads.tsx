@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Upload,
   FileSpreadsheet,
@@ -37,6 +38,7 @@ import { Input } from '@/components/ui/input';
 import { uploadsApi, accountsApi } from '@/lib/api';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import type { Upload as UploadType, Account } from '@/types';
+import { SmartImportProgress } from '@/components/SmartImportProgress';
 
 type UploadStep = 'select' | 'detecting' | 'configure' | 'preview' | 'confirm';
 
@@ -58,6 +60,7 @@ const BANK_DISPLAY_NAMES: Record<string, string> = {
 
 export function Uploads() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [uploadStep, setUploadStep] = useState<UploadStep>('select');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -70,6 +73,10 @@ export function Uploads() {
   const [detection, setDetection] = useState<DetectionResult | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
 
+  // Smart import state
+  const [isSmartImporting, setIsSmartImporting] = useState(false);
+  const [smartImportResult, setSmartImportResult] = useState<any>(null);
+
   // New account creation state
   const [showCreateAccount, setShowCreateAccount] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
@@ -81,6 +88,12 @@ export function Uploads() {
   // CAMS password state
   const [pdfPassword, setPdfPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  // Smart import password dialog state
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [smartImportPassword, setSmartImportPassword] = useState('');
+  const [smartImportPasswordError, setSmartImportPasswordError] = useState('');
+  const [pendingSmartImportFile, setPendingSmartImportFile] = useState<File | null>(null);
 
   const { data: uploads = [], isLoading } = useQuery({
     queryKey: ['uploads'],
@@ -149,6 +162,52 @@ export function Uploads() {
       const result = await uploadsApi.detectFileType(file);
       setDetection(result.detection);
 
+      // If file needs password, show password dialog immediately
+      if (result.needsPassword) {
+        setUploadStep('select'); // Reset step
+        setPendingSmartImportFile(file);
+        setShowPasswordDialog(true);
+        setSmartImportPasswordError('');
+        return;
+      }
+
+      // For bank statements with high confidence, use smart import
+      if (result.uploadType === 'bank_statement' && result.detection?.confidence === 'high') {
+        // Use smart import - no dialogs, just progress
+        setIsSmartImporting(true);
+        setUploadStep('select'); // Reset step so we don't show configure dialog
+
+        try {
+          const importResult = await uploadsApi.smartImport(file);
+          setSmartImportResult(importResult);
+
+          // Invalidate queries to refresh data
+          queryClient.invalidateQueries({ queryKey: ['uploads'] });
+          queryClient.invalidateQueries({ queryKey: ['accounts'] });
+          queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        } catch (importError: any) {
+          console.error('Smart import failed:', importError);
+
+          // Check if password is needed
+          if (importError?.response?.data?.needsPassword) {
+            setIsSmartImporting(false);
+            setPendingSmartImportFile(file);
+            setShowPasswordDialog(true);
+            setSmartImportPasswordError('');
+            return;
+          }
+
+          // Fall back to manual flow on error
+          setIsSmartImporting(false);
+          setUploadType(result.uploadType);
+          if (result.bankName) {
+            setBankName(result.bankName);
+          }
+          setUploadStep('configure');
+        }
+        return;
+      }
+
       // Auto-fill based on detection
       if (result.uploadType) {
         setUploadType(result.uploadType);
@@ -195,7 +254,7 @@ export function Uploads() {
       // Fall back to manual configuration
       setUploadStep('configure');
     }
-  }, [findAccountForBank]);
+  }, [findAccountForBank, queryClient]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -329,7 +388,59 @@ export function Uploads() {
     setNoMatchingAccount(false);
     setPdfPassword('');
     setPasswordError('');
+    setIsSmartImporting(false);
+    setSmartImportResult(null);
+    setShowPasswordDialog(false);
+    setSmartImportPassword('');
+    setSmartImportPasswordError('');
+    setPendingSmartImportFile(null);
   };
+
+  // Handle password submission for smart import
+  const handleSmartImportWithPassword = async () => {
+    if (!pendingSmartImportFile || !smartImportPassword) return;
+
+    setSmartImportPasswordError('');
+    setShowPasswordDialog(false);
+    setIsSmartImporting(true);
+
+    try {
+      const importResult = await uploadsApi.smartImport(pendingSmartImportFile, smartImportPassword);
+      setSmartImportResult(importResult);
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['uploads'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+
+      // Clear password state
+      setPendingSmartImportFile(null);
+      setSmartImportPassword('');
+    } catch (importError: any) {
+      console.error('Smart import with password failed:', importError);
+
+      // Check if password is wrong
+      if (importError?.response?.data?.needsPassword) {
+        setIsSmartImporting(false);
+        setShowPasswordDialog(true);
+        setSmartImportPasswordError('Incorrect password. Please try again.');
+        return;
+      }
+
+      // Other error - fall back to manual flow
+      setIsSmartImporting(false);
+      setPendingSmartImportFile(null);
+      setSmartImportPassword('');
+      setUploadStep('configure');
+    }
+  };
+
+  // Memoized callback to prevent effect re-runs in SmartImportProgress
+  const handleSmartImportComplete = useCallback((accountId: string) => {
+    console.log('Smart import complete, navigating to account:', accountId);
+    // Use window.location for reliable navigation
+    window.location.href = `/accounts?highlight=${accountId}`;
+  }, []);
 
   const handleCreateAccount = async () => {
     if (!newAccountName) return;
@@ -972,6 +1083,79 @@ export function Uploads() {
               disabled={isCreatingAccount || !newAccountName}
             >
               {isCreatingAccount ? 'Creating...' : 'Create Account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Smart Import Progress */}
+      <SmartImportProgress
+        isOpen={isSmartImporting}
+        result={smartImportResult}
+        onComplete={handleSmartImportComplete}
+      />
+
+      {/* Password Dialog for Protected PDFs */}
+      <Dialog open={showPasswordDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowPasswordDialog(false);
+          setPendingSmartImportFile(null);
+          setSmartImportPassword('');
+          setSmartImportPasswordError('');
+          resetUpload();
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Password Required</DialogTitle>
+            <DialogDescription>
+              This PDF is password protected. Please enter the password to continue.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>PDF Password</Label>
+              <Input
+                type="password"
+                value={smartImportPassword}
+                onChange={(e) => {
+                  setSmartImportPassword(e.target.value);
+                  setSmartImportPasswordError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && smartImportPassword) {
+                    handleSmartImportWithPassword();
+                  }
+                }}
+                placeholder="Enter PDF password"
+                autoFocus
+              />
+              {smartImportPasswordError && (
+                <p className="text-sm text-destructive">{smartImportPasswordError}</p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Common password formats: PAN number (first 5 letters in caps + DOB as DDMMYYYY),
+              or customer ID, or date of birth.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowPasswordDialog(false);
+              setPendingSmartImportFile(null);
+              setSmartImportPassword('');
+              setSmartImportPasswordError('');
+              resetUpload();
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSmartImportWithPassword}
+              disabled={!smartImportPassword}
+            >
+              Unlock & Import
             </Button>
           </DialogFooter>
         </DialogContent>

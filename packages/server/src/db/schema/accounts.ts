@@ -10,7 +10,17 @@ export const accounts = sqliteTable('accounts', {
   currency: text('currency').default('INR'),
   openingBalance: real('opening_balance').default(0),
   currentBalance: real('current_balance').default(0),
+  // Sweep balance: money in linked FD via auto-sweep (still part of actual balance)
+  sweepBalance: real('sweep_balance').default(0),
+  // Linked FD account number for sweep transfers
+  linkedFdAccount: text('linked_fd_account'),
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  // Additional bank account metadata
+  ifscCode: text('ifsc_code'),
+  branchName: text('branch_name'),
+  accountHolderName: text('account_holder_name'),
+  address: text('address'), // Account holder's address from statement
+  accountStatus: text('account_status'), // Individual, Joint, Corporate, etc.
   // Credit card specific fields
   cardName: text('card_name'), // e.g., "Regalia", "Infinia", "Amazon Pay"
   cardNetwork: text('card_network'), // Visa, Mastercard, RuPay, Amex, Diners

@@ -138,6 +138,18 @@ export const uploadsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data);
   },
+  // Smart import: auto-detect bank, create account, import transactions
+  // Supports password for encrypted PDFs
+  smartImport: (file: File, password?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (password) {
+      formData.append('password', password);
+    }
+    return api.post('/uploads/smart-import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
   previewBankStatement: (file: File, bankName: string, accountId: string) => {
     const formData = new FormData();
     formData.append('file', file);

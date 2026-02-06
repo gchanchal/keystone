@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, accounts } from '../db/index.js';
+import { db, accounts, bankTransactions } from '../db/index.js';
 import { eq, and } from 'drizzle-orm';
 
 const router = Router();
@@ -13,6 +13,12 @@ const accountSchema = z.object({
   accountType: z.enum(['savings', 'current', 'credit_card', 'loan']),
   currency: z.string().default('INR'),
   openingBalance: z.number().default(0),
+  // Bank account metadata
+  ifscCode: z.string().optional().nullable(),
+  branchName: z.string().optional().nullable(),
+  accountHolderName: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  accountStatus: z.string().optional().nullable(),
   // Credit card specific fields
   cardName: z.string().optional().nullable(),
   cardNetwork: z.string().optional().nullable(),
@@ -20,13 +26,22 @@ const accountSchema = z.object({
   cardImage: z.string().optional().nullable(),
 });
 
-// Get all accounts
+// Get all accounts (only active by default)
 router.get('/', async (req, res) => {
   try {
+    const includeInactive = req.query.includeInactive === 'true';
+    console.log(`[Accounts] Fetching accounts for userId=${req.userId}, includeInactive=${includeInactive}`);
+
     const allAccounts = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.userId, req.userId!));
+      .where(
+        includeInactive
+          ? eq(accounts.userId, req.userId!)
+          : and(eq(accounts.userId, req.userId!), eq(accounts.isActive, true))
+      );
+
+    console.log(`[Accounts] Found ${allAccounts.length} accounts`);
     res.json(allAccounts);
   } catch (error) {
     console.error('Error fetching accounts:', error);
@@ -112,34 +127,41 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Delete account (soft delete)
+// Delete account (hard delete with cascade)
 router.delete('/:id', async (req, res) => {
   try {
-    const now = new Date().toISOString();
+    const accountId = req.params.id;
+    const userId = req.userId!;
 
+    // First verify the account belongs to this user
+    const accountToDelete = await db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
+      .limit(1);
+
+    if (!accountToDelete[0]) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    // Delete all related transactions first (cascade)
+    const deletedTransactions = await db
+      .delete(bankTransactions)
+      .where(eq(bankTransactions.accountId, accountId));
+
+    console.log(`[Accounts] Deleted transactions for account ${accountId}`);
+
+    // Then delete the account
     await db
-      .update(accounts)
-      .set({ isActive: false, updatedAt: now })
-      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
+      .delete(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)));
 
-    res.json({ success: true });
+    console.log(`[Accounts] Permanently deleted account ${accountId}`);
+
+    res.json({ success: true, message: 'Account and all related transactions permanently deleted' });
   } catch (error) {
     console.error('Error deleting account:', error);
     res.status(500).json({ error: 'Failed to delete account' });
-  }
-});
-
-// Hard delete account (permanent)
-router.delete('/:id/permanent', async (req, res) => {
-  try {
-    await db
-      .delete(accounts)
-      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
-
-    res.json({ success: true, message: 'Account permanently deleted' });
-  } catch (error) {
-    console.error('Error permanently deleting account:', error);
-    res.status(500).json({ error: 'Failed to permanently delete account' });
   }
 });
 

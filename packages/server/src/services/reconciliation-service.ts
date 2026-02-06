@@ -239,6 +239,15 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
   const now = new Date().toISOString();
 
   for (const match of matches) {
+    // Fetch bank transaction to get fingerprint data
+    const bankTxn = await db
+      .select()
+      .from(bankTransactions)
+      .where(eq(bankTransactions.id, match.bankTransactionId))
+      .limit(1);
+
+    if (!bankTxn[0]) continue;
+
     // Update bank transaction
     await db
       .update(bankTransactions)
@@ -250,12 +259,17 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
       })
       .where(eq(bankTransactions.id, match.bankTransactionId));
 
-    // Update vyapar transaction
+    // Update vyapar transaction with fingerprint for auto-restore
     await db
       .update(vyaparTransactions)
       .set({
         isReconciled: true,
         reconciledWithId: match.bankTransactionId,
+        // Store fingerprint for auto-restore after account deletion/re-add
+        matchedBankDate: bankTxn[0].date,
+        matchedBankAmount: bankTxn[0].amount,
+        matchedBankNarration: bankTxn[0].narration?.substring(0, 100), // First 100 chars
+        matchedBankAccountId: bankTxn[0].accountId,
         updatedAt: now,
       })
       .where(eq(vyaparTransactions.id, match.vyaparTransactionId));
@@ -272,6 +286,15 @@ export async function manualMatch(
 ): Promise<boolean> {
   const now = new Date().toISOString();
 
+  // Fetch bank transaction to get fingerprint data
+  const bankTxn = await db
+    .select()
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, bankTransactionId))
+    .limit(1);
+
+  if (!bankTxn[0]) return false;
+
   await db
     .update(bankTransactions)
     .set({
@@ -287,6 +310,11 @@ export async function manualMatch(
     .set({
       isReconciled: true,
       reconciledWithId: bankTransactionId,
+      // Store fingerprint for auto-restore after account deletion/re-add
+      matchedBankDate: bankTxn[0].date,
+      matchedBankAmount: bankTxn[0].amount,
+      matchedBankNarration: bankTxn[0].narration?.substring(0, 100),
+      matchedBankAccountId: bankTxn[0].accountId,
       updatedAt: now,
     })
     .where(eq(vyaparTransactions.id, vyaparTransactionId));
@@ -352,6 +380,15 @@ export async function multiMatch(
   const now = new Date().toISOString();
   const matchGroupId = uuidv4();
 
+  // Fetch all bank transactions for fingerprinting
+  const bankTxns = await db
+    .select()
+    .from(bankTransactions)
+    .where(inArray(bankTransactions.id, bankTransactionIds));
+
+  // Use first bank transaction for fingerprint (representative of the group)
+  const primaryBankTxn = bankTxns[0];
+
   // Create match records for all transactions in this group
   for (const bankId of bankTransactionIds) {
     await db.insert(reconciliationMatches).values({
@@ -383,12 +420,17 @@ export async function multiMatch(
       createdAt: now,
     });
 
-    // Mark vyapar transaction as reconciled
+    // Mark vyapar transaction as reconciled with fingerprint for auto-restore
     await db
       .update(vyaparTransactions)
       .set({
         isReconciled: true,
         reconciledWithId: matchGroupId, // Store group ID for reference
+        // Store fingerprint from first bank transaction for auto-restore hint
+        matchedBankDate: primaryBankTxn?.date,
+        matchedBankAmount: primaryBankTxn?.amount,
+        matchedBankNarration: primaryBankTxn?.narration?.substring(0, 100),
+        matchedBankAccountId: primaryBankTxn?.accountId,
         updatedAt: now,
       })
       .where(eq(vyaparTransactions.id, vyaparId));

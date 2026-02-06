@@ -3,6 +3,14 @@
  */
 
 import * as XLSX from 'xlsx';
+import { execSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface DetectionResult {
   fileType: 'bank_statement' | 'vyapar_report' | 'credit_card' | 'credit_card_infinia' | 'etrade_portfolio' | 'cams_statement' | 'home_loan_statement' | 'unknown';
@@ -14,11 +22,13 @@ export interface DetectionResult {
 
 /**
  * Detect the type of file and bank from the content
+ * @param password - Optional password for encrypted PDFs
  */
 export async function detectFileType(
   buffer: Buffer,
   filename: string,
-  mimeType: string
+  mimeType: string,
+  password?: string
 ): Promise<DetectionResult> {
   const ext = filename.toLowerCase().split('.').pop();
 
@@ -47,7 +57,7 @@ export async function detectFileType(
         needsPassword: true,
       };
     }
-    return detectPDFType(buffer, filename);
+    return detectPDFType(buffer, filename, password);
   }
 
   // Check for Excel files
@@ -79,17 +89,98 @@ function detectCAMSFromFilename(filename: string): boolean {
   return patterns.some(p => p.test(filename));
 }
 
-async function detectPDFType(buffer: Buffer, filename?: string): Promise<DetectionResult> {
+/**
+ * Use Python pdfplumber to detect bank from password-protected PDFs
+ */
+async function detectWithPython(buffer: Buffer, password?: string): Promise<DetectionResult | null> {
+  const tempDir = os.tmpdir();
+  const tempFile = path.join(tempDir, `detect-${Date.now()}.pdf`);
+
+  try {
+    // Write buffer to temp file
+    fs.writeFileSync(tempFile, buffer);
+
+    const scriptPath = path.join(__dirname, 'pdf_detector.py');
+    const args = password ? `"${tempFile}" "${password}"` : `"${tempFile}"`;
+    const result = execSync(`python3 "${scriptPath}" ${args}`, {
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    const parsed = JSON.parse(result.trim());
+
+    if (parsed.error === 'password_error') {
+      return {
+        fileType: 'unknown',
+        bankName: null,
+        confidence: 'low',
+        details: 'Incorrect password',
+        needsPassword: true,
+      };
+    }
+
+    if (parsed.error) {
+      return null; // Fall back to pdf-parse
+    }
+
+    return {
+      fileType: parsed.fileType as any,
+      bankName: parsed.bank,
+      confidence: parsed.confidence as any,
+      details: parsed.details,
+    };
+  } catch (error: any) {
+    console.error('Python detector error:', error?.message);
+    return null;
+  } finally {
+    // Clean up temp file
+    try {
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    } catch {}
+  }
+}
+
+async function detectPDFType(buffer: Buffer, filename?: string, password?: string): Promise<DetectionResult> {
+  // For password-protected PDFs, use Python detector (pdfplumber handles passwords correctly)
+  if (password) {
+    const pythonResult = await detectWithPython(buffer, password);
+    if (pythonResult) {
+      return pythonResult;
+    }
+    // If Python detection failed, continue with pdf-parse as fallback
+  }
+
   try {
     const pdfParse = (await import('pdf-parse')).default;
     let data;
     let text = '';
 
     try {
-      data = await pdfParse(buffer);
+      // Try parsing with password if provided
+      // Note: pdf-parse types don't include password, but pdfjs supports it
+      const options = password ? { password } : {};
+      data = await pdfParse(buffer, options as any);
       text = data.text.toLowerCase();
     } catch (parseError: any) {
       // If parsing fails, it might be password protected
+      const errorMsg = parseError?.message?.toLowerCase() || '';
+      const isPasswordError = errorMsg.includes('password') ||
+                              errorMsg.includes('encrypt') ||
+                              errorMsg.includes('protected');
+
+      // If we tried with a password and it still failed, password is wrong
+      if (password && isPasswordError) {
+        return {
+          fileType: 'unknown',
+          bankName: null,
+          confidence: 'low',
+          details: 'Incorrect password',
+          needsPassword: true,
+        };
+      }
+
       // Check filename for hints
       if (filename && detectCAMSFromFilename(filename)) {
         return {
@@ -101,9 +192,8 @@ async function detectPDFType(buffer: Buffer, filename?: string): Promise<Detecti
         };
       }
 
-      // Check if error message suggests password protection
-      const errorMsg = parseError?.message || '';
-      if (errorMsg.includes('encrypt') || errorMsg.includes('password')) {
+      // Check if error message suggests password protection (use existing errorMsg)
+      if (isPasswordError) {
         return {
           fileType: 'unknown',
           bankName: null,

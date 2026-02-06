@@ -14,6 +14,11 @@ export const vyaparTransactions = sqliteTable('vyapar_transactions', {
   description: text('description'),
   isReconciled: integer('is_reconciled', { mode: 'boolean' }).default(false),
   reconciledWithId: text('reconciled_with_id'),
+  // Fingerprint of matched bank transaction - survives account deletion for auto-restore
+  matchedBankDate: text('matched_bank_date'),
+  matchedBankAmount: real('matched_bank_amount'),
+  matchedBankNarration: text('matched_bank_narration'),
+  matchedBankAccountId: text('matched_bank_account_id'),
   uploadId: text('upload_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

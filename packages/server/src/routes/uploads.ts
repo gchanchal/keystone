@@ -13,12 +13,20 @@ import {
 } from '../parsers/hdfc-parser.js';
 import {
   parseKotakStatement,
+  parseKotakStatementFull,
   convertToDBTransactions as convertKotak,
+  type KotakStatementData,
 } from '../parsers/kotak-parser.js';
 import {
   parseICICIStatement,
+  parseICICIStatementFull,
   convertToDBTransactions as convertICICI,
+  type ICICIStatementData,
 } from '../parsers/icici-parser.js';
+import {
+  parseHDFCPDFStatementFull,
+  type HDFCStatementData,
+} from '../parsers/hdfc-pdf-parser.js';
 import {
   parseVyaparReport,
   parseVyaparItemDetails,
@@ -1599,6 +1607,387 @@ router.post('/cams/confirm', async (req, res) => {
     }
     console.error('Error confirming CAMS import:', error);
     res.status(500).json({ error: 'Failed to import mutual fund holdings' });
+  }
+});
+
+/**
+ * POST /api/uploads/smart-import
+ * Smart import: Auto-detect bank, extract metadata, create account if needed, import transactions
+ * No confirmation required - fully automatic
+ */
+router.post('/smart-import', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const buffer = fs.readFileSync(filePath);
+    const now = new Date().toISOString();
+    const password = req.body?.password as string | undefined;
+
+    // Step 1: Detect file type and bank (with password if provided)
+    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password);
+
+    // Check if PDF needs password
+    if (detection.needsPassword && !password) {
+      return res.status(401).json({
+        error: 'Password required',
+        needsPassword: true,
+        detected: detection,
+        message: 'This PDF is password protected. Please provide the password.',
+      });
+    }
+
+    if (detection.fileType !== 'bank_statement') {
+      return res.status(400).json({
+        error: 'Only bank statements are supported for smart import',
+        detected: detection,
+      });
+    }
+
+    if (!detection.bankName) {
+      return res.status(400).json({
+        error: 'Could not detect bank. Please use manual upload.',
+        detected: detection,
+      });
+    }
+
+    // Step 2: Parse statement with full metadata based on detected bank
+    let metadata: any;
+    let transactions: any[] = [];
+    let sweepTransactions: any[] = [];
+    let sweepBalance = 0;
+    let actualBalance = 0;
+
+    switch (detection.bankName) {
+      case 'kotak': {
+        const kotakData = await parseKotakStatementFull(buffer, password);
+        metadata = kotakData.metadata;
+        transactions = kotakData.transactions;
+        sweepTransactions = kotakData.sweepTransactions;
+        sweepBalance = kotakData.sweepBalance;
+        actualBalance = kotakData.actualBalance;
+        break;
+      }
+      case 'icici': {
+        const iciciData = await parseICICIStatementFull(buffer, password);
+        metadata = iciciData.metadata;
+        transactions = iciciData.transactions;
+        actualBalance = metadata.closingBalance || 0;
+        break;
+      }
+      case 'hdfc': {
+        // Check if this is a PDF (HDFC PDF parser) or XLS (existing HDFC parser)
+        const ext = req.file.originalname.toLowerCase().split('.').pop();
+        if (ext === 'pdf') {
+          const hdfcData = await parseHDFCPDFStatementFull(buffer, password);
+          metadata = hdfcData.metadata;
+          transactions = hdfcData.transactions;
+          actualBalance = hdfcData.actualBalance;
+        } else {
+          // Use existing XLS parser
+          const xlsTransactions = parseHDFCStatement(buffer);
+          transactions = xlsTransactions.map(t => ({
+            date: t.date,
+            description: t.narration || '',
+            reference: t.reference,
+            amount: t.amount,
+            transactionType: t.transactionType as 'credit' | 'debit',
+            balance: t.balance,
+          }));
+          // For XLS, we need to build basic metadata
+          metadata = {
+            accountNumber: null,
+            accountType: 'savings',
+            bankName: 'HDFC Bank',
+            currency: 'INR',
+            closingBalance: transactions.length > 0 ? transactions[transactions.length - 1].balance : null,
+          };
+          actualBalance = metadata.closingBalance || 0;
+        }
+        break;
+      }
+      default:
+        return res.status(400).json({
+          error: `Smart import not yet supported for ${detection.bankName}. Please use manual upload.`,
+        });
+    }
+
+    if (!metadata.accountNumber) {
+      return res.status(400).json({
+        error: 'Could not extract account number from statement',
+        metadata,
+      });
+    }
+
+    // Step 3: Find or create account
+    console.log(`[SmartImport] Looking for account with userId=${req.userId}, accountNumber=${metadata.accountNumber}`);
+
+    let account = null;
+    const existingAccounts = await db
+      .select()
+      .from(accounts)
+      .where(and(
+        eq(accounts.userId, req.userId!),
+        eq(accounts.accountNumber, metadata.accountNumber)
+      ))
+      .limit(1);
+
+    let accountCreated = false;
+
+    if (existingAccounts[0]) {
+      account = existingAccounts[0];
+      console.log(`[SmartImport] Found existing account: ${account.id} (${account.accountNumber})`);
+    } else {
+      // Create new account
+      const accountId = uuidv4();
+      // Use account holder name if available, otherwise use bank + account type + last 4 digits
+      const accountName = metadata.accountHolderName
+        ? metadata.accountHolderName
+        : `${metadata.bankName} ${metadata.accountType || 'Savings'} ****${metadata.accountNumber.slice(-4)}`;
+
+      console.log(`[SmartImport] Creating new account: id=${accountId}, userId=${req.userId}, name=${accountName}`);
+
+      const newAccount = {
+        id: accountId,
+        userId: req.userId!,
+        name: accountName,
+        bankName: metadata.bankName,
+        accountNumber: metadata.accountNumber,
+        accountType: metadata.accountType || 'savings',
+        currency: metadata.currency || 'INR',
+        openingBalance: metadata.openingBalance || 0,
+        currentBalance: actualBalance,
+        sweepBalance: sweepBalance,
+        linkedFdAccount: sweepTransactions.length > 0 ? (sweepTransactions[0] as any).sweepAccountNumber : null,
+        ifscCode: metadata.ifscCode || null,
+        branchName: metadata.branch || null,
+        accountHolderName: metadata.accountHolderName || null,
+        address: metadata.address || null,
+        accountStatus: metadata.accountStatus || null,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      try {
+        await db.insert(accounts).values(newAccount);
+        console.log(`[SmartImport] Successfully inserted account: ${accountId}`);
+      } catch (insertError) {
+        console.error(`[SmartImport] Failed to insert account:`, insertError);
+        throw insertError;
+      }
+
+      account = newAccount;
+      accountCreated = true;
+    }
+
+    // Step 4: Create upload record
+    const uploadId = uuidv4();
+    const uploadRecord = {
+      id: uploadId,
+      userId: req.userId!,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadType: 'bank_statement',
+      bankName: detection.bankName,
+      accountId: account.id,
+      status: 'processing',
+      transactionCount: 0,
+      errorMessage: null,
+      createdAt: now,
+      processedAt: null,
+    };
+    await db.insert(uploads).values(uploadRecord);
+
+    // Step 5: Check for duplicate transactions
+    const existingTxns = await db
+      .select({
+        date: bankTransactions.date,
+        amount: bankTransactions.amount,
+        reference: bankTransactions.reference,
+        narration: bankTransactions.narration,
+      })
+      .from(bankTransactions)
+      .where(eq(bankTransactions.accountId, account.id));
+
+    const existingSignatures = new Set<string>();
+    for (const txn of existingTxns) {
+      const signature = createTransactionSignature(txn.date, txn.amount, txn.reference, txn.narration);
+      existingSignatures.add(signature);
+    }
+
+    // Step 6: Import non-duplicate transactions
+    let importedCount = 0;
+    let duplicateCount = 0;
+
+    for (const txn of transactions) {
+      const signature = createTransactionSignature(txn.date, txn.amount, txn.reference, txn.description);
+
+      if (existingSignatures.has(signature)) {
+        duplicateCount++;
+        continue;
+      }
+
+      const dbTxn = {
+        id: uuidv4(),
+        userId: req.userId!,
+        accountId: account.id,
+        date: txn.date,
+        valueDate: null,
+        narration: txn.description,
+        reference: txn.reference || null,
+        transactionType: txn.transactionType,
+        amount: txn.amount,
+        balance: txn.balance,
+        categoryId: null,
+        notes: txn.sweepAdjustment ? `Actual balance (incl. sweep): ₹${txn.balance?.toLocaleString('en-IN')}` : null,
+        isReconciled: false,
+        reconciledWithId: null,
+        reconciledWithType: null,
+        uploadId,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await db.insert(bankTransactions).values(dbTxn);
+      importedCount++;
+    }
+
+    // Step 7: Update account balance
+    await db
+      .update(accounts)
+      .set({
+        currentBalance: actualBalance,
+        sweepBalance: sweepBalance,
+        updatedAt: now,
+      })
+      .where(eq(accounts.id, account.id));
+
+    // Step 8: Mark upload as completed
+    await db
+      .update(uploads)
+      .set({
+        status: 'completed',
+        transactionCount: importedCount,
+        processedAt: now,
+      })
+      .where(eq(uploads.id, uploadId));
+
+    // Step 9: Auto-restore reconciliation for Vyapar transactions with matching fingerprints
+    let restoredCount = 0;
+    try {
+      // Find unreconciled Vyapar transactions that have fingerprints matching this account
+      const vyaparWithFingerprints = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(and(
+          eq(vyaparTransactions.isReconciled, false),
+          eq(vyaparTransactions.matchedBankAccountId, account.id),
+          sql`${vyaparTransactions.matchedBankDate} IS NOT NULL`
+        ));
+
+      // Get newly imported bank transactions for this account
+      const newBankTxns = await db
+        .select()
+        .from(bankTransactions)
+        .where(and(
+          eq(bankTransactions.accountId, account.id),
+          eq(bankTransactions.isReconciled, false)
+        ));
+
+      // Try to match fingerprints
+      for (const vyapar of vyaparWithFingerprints) {
+        if (!vyapar.matchedBankDate || vyapar.matchedBankAmount === null) continue;
+
+        // Find a matching bank transaction by fingerprint
+        const matchingBank = newBankTxns.find(bank =>
+          bank.date === vyapar.matchedBankDate &&
+          Math.abs(bank.amount - (vyapar.matchedBankAmount || 0)) < 0.01 &&
+          (!vyapar.matchedBankNarration ||
+           bank.narration?.substring(0, 50) === vyapar.matchedBankNarration?.substring(0, 50))
+        );
+
+        if (matchingBank) {
+          // Restore the match
+          await db
+            .update(bankTransactions)
+            .set({
+              isReconciled: true,
+              reconciledWithId: vyapar.id,
+              reconciledWithType: 'vyapar',
+              updatedAt: now,
+            })
+            .where(eq(bankTransactions.id, matchingBank.id));
+
+          await db
+            .update(vyaparTransactions)
+            .set({
+              isReconciled: true,
+              reconciledWithId: matchingBank.id,
+              updatedAt: now,
+            })
+            .where(eq(vyaparTransactions.id, vyapar.id));
+
+          restoredCount++;
+
+          // Remove from newBankTxns to prevent double matching
+          const idx = newBankTxns.indexOf(matchingBank);
+          if (idx > -1) newBankTxns.splice(idx, 1);
+        }
+      }
+
+      if (restoredCount > 0) {
+        console.log(`[SmartImport] Auto-restored ${restoredCount} reconciliation matches`);
+      }
+    } catch (restoreError) {
+      console.error('[SmartImport] Error during auto-restore:', restoreError);
+      // Don't fail the import for restore errors
+    }
+
+    // Return summary
+    res.json({
+      success: true,
+      accountCreated,
+      account: {
+        id: account.id,
+        name: account.name,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        accountType: account.accountType,
+        ifscCode: metadata.ifscCode,
+        branch: metadata.branch,
+        accountHolderName: metadata.accountHolderName,
+        address: metadata.address,
+      },
+      metadata,
+      transactions: {
+        total: transactions.length,
+        imported: importedCount,
+        duplicates: duplicateCount,
+        reconciliationRestored: restoredCount,
+      },
+      sweep: {
+        count: sweepTransactions.length,
+        balance: sweepBalance,
+        linkedFdAccount: sweepTransactions.length > 0 ? (sweepTransactions[0] as any).sweepAccountNumber : null,
+      },
+      balance: {
+        shown: metadata.closingBalance,
+        actual: actualBalance,
+        sweep: sweepBalance,
+      },
+      uploadId,
+    });
+  } catch (error: any) {
+    console.error('Smart import error:', error);
+    res.status(500).json({
+      error: 'Failed to process statement',
+      details: error?.message,
+    });
   }
 });
 

@@ -13,10 +13,122 @@ export interface ParsedKotakTransaction {
   amount: number;
   transactionType: 'credit' | 'debit';
   balance: number | null;
+  shownBalance?: number | null;
+  sweepAdjustment?: number;
   suspicious?: boolean;
   suspiciousReason?: string;
   amountCorrected?: boolean;
   originalAmount?: number;
+}
+
+export interface KotakAccountMetadata {
+  accountNumber: string | null;
+  accountType: string | null;
+  accountHolderName: string | null;
+  bankName: string;
+  branch: string | null;
+  ifscCode: string | null;
+  micrCode: string | null;
+  currency: string;
+  statementPeriod: {
+    from: string | null;
+    to: string | null;
+  };
+  openingBalance: number | null;
+  closingBalance: number | null;
+}
+
+export interface KotakStatementData {
+  metadata: KotakAccountMetadata;
+  transactions: ParsedKotakTransaction[];
+  sweepTransactions: ParsedKotakTransaction[];
+  sweepBalance: number;
+  actualBalance: number;
+}
+
+/**
+ * Parse Kotak statement and return full data including metadata and sweep handling
+ * @param password - Optional password for encrypted PDFs
+ */
+export async function parseKotakStatementFull(buffer: Buffer, password?: string): Promise<KotakStatementData> {
+  const fs = await import('fs');
+  const os = await import('os');
+  const tempFile = path.join(os.tmpdir(), `kotak-${Date.now()}.pdf`);
+
+  try {
+    fs.writeFileSync(tempFile, buffer);
+
+    const pythonScript = path.join(__dirname, 'kotak_pdf_parser.py');
+    const venvPython = path.join(process.cwd(), '..', '..', '.venv', 'bin', 'python3');
+    const pythonCmd = fs.existsSync(venvPython) ? venvPython : 'python3';
+
+    // Pass password as second argument if provided
+    const passwordArg = password ? ` "${password}"` : '';
+    const result = execSync(`${pythonCmd} "${pythonScript}" "${tempFile}"${passwordArg}`, {
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 60000,
+    });
+
+    const parsed = JSON.parse(result);
+
+    if (parsed.success) {
+      console.log(`Parsed ${parsed.count} Kotak transactions, ${parsed.sweepCount} sweep transactions`);
+
+      const transactions = (parsed.transactions || []).map((t: any) => ({
+        date: t.date,
+        description: t.description || '',
+        reference: t.reference || null,
+        amount: t.amount,
+        transactionType: t.transactionType,
+        balance: t.balance,
+        shownBalance: t.shownBalance,
+        sweepAdjustment: t.sweepAdjustment,
+        suspicious: t.suspicious,
+        suspiciousReason: t.suspiciousReason,
+        amountCorrected: t.amountCorrected,
+        originalAmount: t.originalAmount,
+      }));
+
+      const sweepTransactions = (parsed.sweepTransactions || []).map((t: any) => ({
+        date: t.date,
+        description: t.description || '',
+        reference: t.reference || null,
+        amount: t.amount,
+        transactionType: t.transactionType,
+        balance: t.balance,
+        isSweep: true,
+        sweepType: t.sweepType,
+        sweepAccountNumber: t.sweepAccountNumber,
+      }));
+
+      return {
+        metadata: parsed.metadata || {
+          accountNumber: null,
+          accountType: null,
+          accountHolderName: null,
+          bankName: 'Kotak Mahindra Bank',
+          branch: null,
+          ifscCode: null,
+          micrCode: null,
+          currency: 'INR',
+          statementPeriod: { from: null, to: null },
+          openingBalance: null,
+          closingBalance: null,
+        },
+        transactions,
+        sweepTransactions,
+        sweepBalance: parsed.sweepBalance || 0,
+        actualBalance: parsed.actualBalance || 0,
+      };
+    }
+
+    throw new Error(parsed.error || 'Unknown parsing error');
+  } finally {
+    try {
+      fs.unlinkSync(tempFile);
+    } catch {}
+  }
 }
 
 export async function parseKotakStatement(buffer: Buffer): Promise<ParsedKotakTransaction[]> {
@@ -53,6 +165,8 @@ export async function parseKotakStatement(buffer: Buffer): Promise<ParsedKotakTr
           amount: t.amount,
           transactionType: t.transactionType,
           balance: t.balance,
+          shownBalance: t.shownBalance,
+          sweepAdjustment: t.sweepAdjustment,
           suspicious: t.suspicious,
           suspiciousReason: t.suspiciousReason,
           amountCorrected: t.amountCorrected,

@@ -22,6 +22,12 @@ export interface Account {
   openingBalance: number;
   currentBalance: number;
   isActive: boolean;
+  // Bank account metadata
+  ifscCode: string | null;
+  branchName: string | null;
+  accountHolderName: string | null;
+  address: string | null;
+  accountStatus: string | null;
   // Credit card specific fields
   cardName: string | null;
   cardNetwork: string | null;
