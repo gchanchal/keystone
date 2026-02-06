@@ -6,6 +6,7 @@ import {
   getLatestSnapshot,
   createSeedSnapshot,
   getPerformanceData,
+  getStockTrends,
 } from '../services/portfolio-service.js';
 
 const router = Router();
@@ -147,6 +148,23 @@ router.get('/performance', async (req, res) => {
   } catch (error) {
     console.error('Error getting performance data:', error);
     res.status(500).json({ error: 'Failed to get performance data' });
+  }
+});
+
+/**
+ * GET /api/portfolio/stock-trends
+ * Get historical stock performance based on current holdings
+ * Uses Yahoo Finance to fetch 30-day price history
+ * Query params: days (default 30)
+ */
+router.get('/stock-trends', async (req, res) => {
+  try {
+    const { days = '30' } = req.query;
+    const data = await getStockTrends(req.userId!, parseInt(days as string));
+    res.json(data);
+  } catch (error) {
+    console.error('Error getting stock trends:', error);
+    res.status(500).json({ error: 'Failed to get stock trends' });
   }
 });
 

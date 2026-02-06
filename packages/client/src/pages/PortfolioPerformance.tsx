@@ -48,6 +48,20 @@ interface PerformanceData {
   mutualFundsValue: number[];
 }
 
+interface StockTrendsData {
+  labels: string[];
+  totalValue: number[];
+  usStocksValue: number[];
+  indiaStocksValue: number[];
+  stocks: Array<{
+    symbol: string;
+    name: string;
+    country: string;
+    quantity: number;
+    values: number[];
+  }>;
+}
+
 export function PortfolioPerformance() {
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly'>('daily');
@@ -121,6 +135,12 @@ export function PortfolioPerformance() {
     queryFn: () => portfolioApi.getSnapshots({ limit: 90 }),
   });
 
+  // Fetch stock trends (30-day historical performance)
+  const { data: stockTrends, isLoading: stockTrendsLoading } = useQuery<StockTrendsData>({
+    queryKey: ['portfolio', 'stock-trends'],
+    queryFn: () => portfolioApi.getStockTrends(30),
+  });
+
   // Fetch latest snapshot for change indicator
   const { data: latestSnapshot } = useQuery<PortfolioSnapshot>({
     queryKey: ['portfolio', 'latest'],
@@ -164,6 +184,14 @@ export function PortfolioPerformance() {
     'US Stocks': performance.usStocksValue[idx],
     'India Stocks': performance.indiaStocksValue[idx],
     'Mutual Funds': performance.mutualFundsValue[idx],
+  })) || [];
+
+  // Stock trends chart data (30-day historical based on current holdings)
+  const stockTrendsChartData = stockTrends?.labels.map((label, idx) => ({
+    name: label,
+    'Total': stockTrends.totalValue[idx],
+    'US Stocks': stockTrends.usStocksValue[idx],
+    'India Stocks': stockTrends.indiaStocksValue[idx],
   })) || [];
 
   // Calculate period change
@@ -321,6 +349,40 @@ export function PortfolioPerformance() {
               <TrendingUp className="h-12 w-12 mb-4 opacity-50" />
               <p className="font-medium">Building history...</p>
               <p className="text-sm">Investment category trends will appear as data accumulates</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Stock Performance Trends - 30-day historical based on current holdings */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Stock Performance (Last 30 Days)</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Based on current holdings quantity × historical ticker prices
+          </p>
+        </CardHeader>
+        <CardContent>
+          {stockTrendsLoading ? (
+            <div className="flex items-center justify-center h-72">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : stockTrendsChartData.length > 0 ? (
+            <AreaChart
+              data={stockTrendsChartData}
+              xKey="name"
+              yKeys={[
+                { key: 'Total', color: '#3b82f6', name: 'Total Stocks' },
+                { key: 'US Stocks', color: '#10b981', name: 'US Stocks' },
+                { key: 'India Stocks', color: '#6366f1', name: 'India Stocks' },
+              ]}
+              height={300}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-72 text-muted-foreground">
+              <TrendingUp className="h-12 w-12 mb-4 opacity-50" />
+              <p className="font-medium">No stocks found</p>
+              <p className="text-sm">Add stocks to see their historical performance trend</p>
             </div>
           )}
         </CardContent>

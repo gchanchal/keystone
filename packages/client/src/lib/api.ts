@@ -447,6 +447,10 @@ export const portfolioApi = {
 
   // Get asset allocation for pie chart
   getAllocation: () => api.get('/portfolio/allocation').then((r) => r.data),
+
+  // Get stock trends - historical performance based on current holdings
+  getStockTrends: (days: number = 30) =>
+    api.get('/portfolio/stock-trends', { params: { days } }).then((r) => r.data),
 };
 
 export default api;

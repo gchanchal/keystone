@@ -479,6 +479,203 @@ export async function createSeedSnapshot(userId: string): Promise<PortfolioSnaps
 /**
  * Get aggregated performance data for charts
  */
+/**
+ * Fetch historical stock prices from Yahoo Finance
+ */
+async function fetchHistoricalPrices(
+  symbol: string,
+  days: number = 30
+): Promise<{ date: string; close: number }[]> {
+  try {
+    const endDate = Math.floor(Date.now() / 1000);
+    const startDate = endDate - days * 24 * 60 * 60;
+
+    // Yahoo Finance chart API
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${startDate}&period2=${endDate}&interval=1d`;
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch prices for ${symbol}: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json() as {
+      chart?: { result?: Array<{
+        timestamp?: number[];
+        indicators?: { quote?: Array<{ close?: (number | null)[] }> };
+      }> };
+    };
+    const result = data.chart?.result?.[0];
+
+    if (!result || !result.timestamp || !result.indicators?.quote?.[0]?.close) {
+      return [];
+    }
+
+    const timestamps = result.timestamp;
+    const closes = result.indicators.quote[0].close;
+
+    const prices: { date: string; close: number }[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const closePrice = closes[i];
+      if (closePrice !== null && closePrice !== undefined) {
+        const date = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+        prices.push({ date, close: closePrice });
+      }
+    }
+
+    return prices;
+  } catch (error) {
+    console.error(`Error fetching historical prices for ${symbol}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Get stock trends - historical performance based on current holdings
+ * Assumes same quantity held for past 30 days, uses historical ticker prices
+ */
+export async function getStockTrends(
+  userId: string,
+  days: number = 30
+): Promise<{
+  labels: string[];
+  totalValue: number[];
+  usStocksValue: number[];
+  indiaStocksValue: number[];
+  stocks: Array<{
+    symbol: string;
+    name: string;
+    country: string;
+    quantity: number;
+    values: number[];
+  }>;
+}> {
+  // Fetch exchange rate
+  const exchangeRate = await fetchUsdToInrRate();
+
+  // Get user's stock holdings
+  const stockHoldings = await db
+    .select()
+    .from(investments)
+    .where(and(
+      eq(investments.userId, userId),
+      eq(investments.type, 'stocks'),
+      eq(investments.isActive, true)
+    ));
+
+  if (stockHoldings.length === 0) {
+    return {
+      labels: [],
+      totalValue: [],
+      usStocksValue: [],
+      indiaStocksValue: [],
+      stocks: [],
+    };
+  }
+
+  // Fetch historical prices for each stock
+  const stockPricePromises = stockHoldings.map(async (stock) => {
+    // Convert symbol for Yahoo Finance
+    let yahooSymbol = stock.symbol || '';
+
+    // For Indian stocks, add .NS (NSE) or .BO (BSE) suffix if not present
+    if (stock.country === 'IN' && yahooSymbol && !yahooSymbol.includes('.')) {
+      yahooSymbol = `${yahooSymbol}.NS`;
+    }
+
+    const prices = await fetchHistoricalPrices(yahooSymbol, days);
+
+    return {
+      stock,
+      symbol: yahooSymbol,
+      prices,
+    };
+  });
+
+  const stockPrices = await Promise.all(stockPricePromises);
+
+  // Build date range (last N days)
+  const dates: string[] = [];
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+
+  // Calculate daily values for each stock
+  const stockResults = stockPrices.map(({ stock, symbol, prices }) => {
+    const quantity = stock.quantity || 0;
+    const priceMap = new Map(prices.map(p => [p.date, p.close]));
+
+    // Fill in values for each date (use last known price for missing dates)
+    let lastKnownPrice = stock.currentPrice || stock.purchasePrice || 0;
+    const values: number[] = [];
+
+    for (const date of dates) {
+      if (priceMap.has(date)) {
+        lastKnownPrice = priceMap.get(date)!;
+      }
+      values.push(lastKnownPrice * quantity);
+    }
+
+    return {
+      symbol: stock.symbol || '',
+      name: stock.name || stock.symbol || '',
+      country: stock.country || 'IN',
+      quantity,
+      values,
+    };
+  });
+
+  // Calculate totals per day
+  const totalValue: number[] = [];
+  const usStocksValue: number[] = [];
+  const indiaStocksValue: number[] = [];
+
+  for (let i = 0; i < dates.length; i++) {
+    let total = 0;
+    let usTotal = 0;
+    let indiaTotal = 0;
+
+    for (const stock of stockResults) {
+      const value = stock.values[i] || 0;
+      if (stock.country === 'US') {
+        // Convert to INR
+        const inrValue = value * exchangeRate;
+        usTotal += inrValue;
+        total += inrValue;
+      } else {
+        indiaTotal += value;
+        total += value;
+      }
+    }
+
+    totalValue.push(total);
+    usStocksValue.push(usTotal);
+    indiaStocksValue.push(indiaTotal);
+  }
+
+  // Format labels (short date format)
+  const labels = dates.map(d => {
+    const date = new Date(d);
+    return `${date.getDate()}/${date.getMonth() + 1}`;
+  });
+
+  return {
+    labels,
+    totalValue,
+    usStocksValue,
+    indiaStocksValue,
+    stocks: stockResults,
+  };
+}
+
 export async function getPerformanceData(
   userId: string,
   period: 'daily' | 'weekly' | 'monthly' | 'quarterly' = 'daily',
