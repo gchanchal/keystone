@@ -13,6 +13,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { authApi } from '@/lib/api';
+import { CurrencySwitcher } from '@/components/CurrencySwitcher';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -84,6 +85,8 @@ export function Header({ onMenuClick }: HeaderProps) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-2">
+        <CurrencySwitcher />
+
         <Button
           variant="ghost"
           size="icon"

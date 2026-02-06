@@ -15,8 +15,8 @@ export const portfolioSnapshots = sqliteTable('portfolio_snapshots', {
   // Assets - Bank Accounts
   bankBalance: real('bank_balance').default(0), // Sum of savings/current accounts
 
-  // Assets - Investments
-  usStocksValue: real('us_stocks_value').default(0), // US market stocks
+  // Assets - Investments (all values in INR)
+  usStocksValue: real('us_stocks_value').default(0), // US market stocks (converted to INR)
   indiaStocksValue: real('india_stocks_value').default(0), // Indian market stocks
   mutualFundsValue: real('mutual_funds_value').default(0), // All MF holdings
   fdValue: real('fd_value').default(0), // Fixed deposits
@@ -24,6 +24,7 @@ export const portfolioSnapshots = sqliteTable('portfolio_snapshots', {
   goldValue: real('gold_value').default(0), // Gold investments
   cryptoValue: real('crypto_value').default(0), // Crypto
   otherInvestmentsValue: real('other_investments_value').default(0), // Other investments
+  policiesValue: real('policies_value').default(0), // Insurance policies (premium paid)
 
   // Assets - Physical
   realEstateValue: real('real_estate_value').default(0), // Property value

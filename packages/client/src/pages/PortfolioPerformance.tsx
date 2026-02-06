@@ -1,18 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import {
   TrendingUp,
   TrendingDown,
-  DollarSign,
-  PiggyBank,
-  CreditCard,
-  Home,
-  Car,
-  Briefcase,
   RefreshCw,
   ArrowUpRight,
   ArrowDownRight,
+  Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,38 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LineChart } from '@/components/charts/LineChart';
-import { PieChart } from '@/components/charts/PieChart';
 import { AreaChart } from '@/components/charts/AreaChart';
-import { portfolioApi } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
-
-interface PortfolioSummary {
-  bankBalance: number;
-  usStocksValue: number;
-  indiaStocksValue: number;
-  mutualFundsValue: number;
-  fdValue: number;
-  ppfValue: number;
-  goldValue: number;
-  cryptoValue: number;
-  otherInvestmentsValue: number;
-  realEstateValue: number;
-  vehiclesValue: number;
-  otherAssetsValue: number;
-  loansGivenValue: number;
-  homeLoanOutstanding: number;
-  carLoanOutstanding: number;
-  personalLoanOutstanding: number;
-  otherLoansOutstanding: number;
-  creditCardDues: number;
-  totalAssets: number;
-  totalLiabilities: number;
-  netWorth: number;
-  totalInvestments: number;
-  totalPhysicalAssets: number;
-}
+import { LineChart } from '@/components/charts/LineChart';
+import { portfolioApi, investmentsApi, mutualFundsApi, assetsApi, policiesApi, loansApi } from '@/lib/api';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface PortfolioSnapshot {
   id: string;
@@ -64,14 +31,11 @@ interface PortfolioSnapshot {
   totalAssets: number;
   totalLiabilities: number;
   totalInvestments: number;
+  usStocksValue: number;
+  indiaStocksValue: number;
+  mutualFundsValue: number;
   dayChangeAmount: number;
   dayChangePercent: number;
-}
-
-interface AllocationData {
-  assets: { name: string; value: number; color: string }[];
-  liabilities: { name: string; value: number; color: string }[];
-  summary: { totalAssets: number; totalLiabilities: number; netWorth: number };
 }
 
 interface PerformanceData {
@@ -79,32 +43,73 @@ interface PerformanceData {
   netWorth: number[];
   totalInvestments: number[];
   totalLiabilities: number[];
-  bankBalance: number[];
+  usStocksValue: number[];
+  indiaStocksValue: number[];
+  mutualFundsValue: number[];
 }
 
 export function PortfolioPerformance() {
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly'>('daily');
+  const { formatAmount, exchangeRate } = useCurrency();
 
-  // Fetch portfolio summary
-  const { data: summary, isLoading: summaryLoading } = useQuery<PortfolioSummary>({
-    queryKey: ['portfolio', 'summary'],
-    queryFn: portfolioApi.getSummary,
+  // Fetch all investments for current value calculation (matching Investments page)
+  const { data: investmentsData = [] } = useQuery({
+    queryKey: ['investments-all'],
+    queryFn: () => investmentsApi.getAll(),
   });
 
-  // Fetch latest snapshot
-  const { data: latestSnapshot } = useQuery<PortfolioSnapshot>({
-    queryKey: ['portfolio', 'latest'],
-    queryFn: portfolioApi.getLatestSnapshot,
+  const { data: mutualFundsSummary } = useQuery({
+    queryKey: ['mutual-funds-summary'],
+    queryFn: () => mutualFundsApi.getSummary(),
   });
 
-  // Fetch allocation data
-  const { data: allocation } = useQuery<AllocationData>({
-    queryKey: ['portfolio', 'allocation'],
-    queryFn: portfolioApi.getAllocation,
+  const { data: assetsSummary } = useQuery({
+    queryKey: ['assets-summary'],
+    queryFn: () => assetsApi.getSummary(),
   });
 
-  // Fetch performance data
+  const { data: policiesSummary } = useQuery({
+    queryKey: ['policies-summary'],
+    queryFn: () => policiesApi.getSummary(),
+  });
+
+  const { data: loansSummary } = useQuery({
+    queryKey: ['loans-summary'],
+    queryFn: () => loansApi.getSummary(),
+  });
+
+  // Calculate investments by country (same as Investments page)
+  const investmentsByCountry = investmentsData.reduce(
+    (acc: { india: number; us: number }, inv: any) => {
+      const currentValue = inv.currentValue || (inv.quantity * inv.purchasePrice);
+      if (inv.country === 'US') {
+        acc.us += currentValue;
+      } else {
+        acc.india += currentValue;
+      }
+      return acc;
+    },
+    { india: 0, us: 0 }
+  );
+
+  // Convert US investments to INR
+  const usInvestmentsInINR = investmentsByCountry.us * exchangeRate;
+
+  // Total investments (matching Investments page exactly)
+  const totalFundsINR = investmentsByCountry.india + usInvestmentsInINR + (mutualFundsSummary?.totalCurrentValue || 0);
+  const totalAssetsINR = assetsSummary?.totalCurrentValue || 0;
+  const totalPoliciesINR = policiesSummary?.totalPremiumPaid || 0;
+  const totalInvestments = totalFundsINR + totalAssetsINR + totalPoliciesINR;
+
+  // Liabilities
+  const totalLiabilities = loansSummary?.taken?.outstanding || 0;
+  const loansGiven = loansSummary?.given?.outstanding || 0;
+
+  // Net Worth (Investments + Loans Given - Liabilities) - excluding bank balance as requested
+  const netWorth = totalInvestments + loansGiven - totalLiabilities;
+
+  // Fetch performance data for charts
   const { data: performance, isLoading: performanceLoading } = useQuery<PerformanceData>({
     queryKey: ['portfolio', 'performance', period],
     queryFn: () => portfolioApi.getPerformance({ period, limit: 30 }),
@@ -114,6 +119,12 @@ export function PortfolioPerformance() {
   const { data: snapshots = [] } = useQuery<PortfolioSnapshot[]>({
     queryKey: ['portfolio', 'snapshots'],
     queryFn: () => portfolioApi.getSnapshots({ limit: 90 }),
+  });
+
+  // Fetch latest snapshot for change indicator
+  const { data: latestSnapshot } = useQuery<PortfolioSnapshot>({
+    queryKey: ['portfolio', 'latest'],
+    queryFn: portfolioApi.getLatestSnapshot,
   });
 
   // Initialize mutation
@@ -132,35 +143,40 @@ export function PortfolioPerformance() {
     },
   });
 
-  // Check if initialized
   const isInitialized = snapshots.length > 0;
 
-  // Format performance data for charts
+  // Auto-initialize tracking if not yet started
+  useEffect(() => {
+    if (!isInitialized && !initializeMutation.isPending && !initializeMutation.isSuccess) {
+      initializeMutation.mutate();
+    }
+  }, [isInitialized]);
+
+  // Chart data
   const netWorthChartData = performance?.labels.map((label, idx) => ({
-    name: label,
-    value: performance.netWorth[idx],
-  })) || [];
-
-  const investmentChartData = performance?.labels.map((label, idx) => ({
-    name: label,
-    investments: performance.totalInvestments[idx],
-    liabilities: performance.totalLiabilities[idx],
-  })) || [];
-
-  const areaChartData = performance?.labels.map((label, idx) => ({
     name: label,
     'Net Worth': performance.netWorth[idx],
     'Investments': performance.totalInvestments[idx],
-    'Bank Balance': performance.bankBalance[idx],
   })) || [];
 
-  if (summaryLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  const investmentTrendsData = performance?.labels.map((label, idx) => ({
+    name: label,
+    'US Stocks': performance.usStocksValue[idx],
+    'India Stocks': performance.indiaStocksValue[idx],
+    'Mutual Funds': performance.mutualFundsValue[idx],
+  })) || [];
+
+  // Calculate period change
+  const getChangeFromSnapshots = () => {
+    if (snapshots.length < 2) return { amount: 0, percent: 0 };
+    const latest = snapshots[0];
+    const previous = snapshots[snapshots.length - 1];
+    const change = latest.netWorth - previous.netWorth;
+    const percent = previous.netWorth ? (change / previous.netWorth) * 100 : 0;
+    return { amount: change, percent };
+  };
+
+  const periodChange = getChangeFromSnapshots();
 
   return (
     <div className="space-y-6">
@@ -169,164 +185,10 @@ export function PortfolioPerformance() {
         <div>
           <h1 className="text-2xl font-bold">Portfolio Performance</h1>
           <p className="text-muted-foreground">
-            Track your net worth and portfolio changes over time
+            Track your investment trends over time
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!isInitialized ? (
-            <Button
-              onClick={() => initializeMutation.mutate()}
-              disabled={initializeMutation.isPending}
-            >
-              {initializeMutation.isPending ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <TrendingUp className="mr-2 h-4 w-4" />
-              )}
-              Initialize Tracking
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => captureMutation.mutate()}
-              disabled={captureMutation.isPending}
-            >
-              {captureMutation.isPending ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Capture Snapshot
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Net Worth */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Net Worth</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(summary?.netWorth || 0)}
-            </div>
-            {latestSnapshot && (
-              <div className={`flex items-center text-xs ${
-                latestSnapshot.dayChangeAmount >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {latestSnapshot.dayChangeAmount >= 0 ? (
-                  <ArrowUpRight className="h-3 w-3 mr-1" />
-                ) : (
-                  <ArrowDownRight className="h-3 w-3 mr-1" />
-                )}
-                {formatCurrency(Math.abs(latestSnapshot.dayChangeAmount))} (
-                {latestSnapshot.dayChangePercent.toFixed(2)}%)
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Total Assets */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
-            <PiggyBank className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(summary?.totalAssets || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Investments + Bank + Physical Assets
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Total Liabilities */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Liabilities</CardTitle>
-            <CreditCard className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {formatCurrency(summary?.totalLiabilities || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Loans + Credit Card Dues
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Total Investments */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Investments</CardTitle>
-            <Briefcase className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(summary?.totalInvestments || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Stocks + MF + FD + Others
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Investment Breakdown */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">US Stocks</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.usStocksValue || 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">India Stocks</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.indiaStocksValue || 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Mutual Funds</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.mutualFundsValue || 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Fixed Deposits</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.fdValue || 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Gold</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.goldValue || 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">PPF</div>
-            <div className="text-lg font-bold">{formatCurrency(summary?.ppfValue || 0)}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Section */}
-      <Tabs defaultValue="networth" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="networth">Net Worth Trend</TabsTrigger>
-            <TabsTrigger value="allocation">Asset Allocation</TabsTrigger>
-            <TabsTrigger value="breakdown">Detailed Breakdown</TabsTrigger>
-          </TabsList>
           <Select value={period} onValueChange={(v) => setPeriod(v as typeof period)}>
             <SelectTrigger className="w-32">
               <SelectValue />
@@ -338,214 +200,167 @@ export function PortfolioPerformance() {
               <SelectItem value="quarterly">Quarterly</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            onClick={() => captureMutation.mutate()}
+            disabled={captureMutation.isPending || initializeMutation.isPending}
+          >
+            {(captureMutation.isPending || initializeMutation.isPending) ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Snapshot
+          </Button>
         </div>
+      </div>
 
-        <TabsContent value="networth">
-          <Card>
-            <CardHeader>
-              <CardTitle>Net Worth Over Time</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {performanceLoading ? (
-                <div className="flex items-center justify-center h-64">
-                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : netWorthChartData.length > 0 ? (
-                <AreaChart
-                  data={areaChartData}
-                  xKey="name"
-                  yKeys={[
-                    { key: 'Net Worth', color: '#3b82f6', name: 'Net Worth' },
-                    { key: 'Investments', color: '#10b981', name: 'Investments' },
-                    { key: 'Bank Balance', color: '#f59e0b', name: 'Bank Balance' },
-                  ]}
-                  height={350}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                  <TrendingUp className="h-12 w-12 mb-4" />
-                  <p>No snapshot data available yet</p>
-                  <p className="text-sm">Click "Initialize Tracking" to start</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="allocation">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Asset Allocation</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {allocation?.assets && allocation.assets.length > 0 ? (
-                  <PieChart
-                    data={allocation.assets}
-                    height={300}
-                  />
+      {/* Summary Cards - Compact Row */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20">
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Net Worth</div>
+            <div className="text-2xl font-bold">{formatAmount(netWorth)}</div>
+            {latestSnapshot && latestSnapshot.dayChangeAmount !== 0 && (
+              <div className={`flex items-center text-xs mt-1 ${
+                latestSnapshot.dayChangeAmount >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {latestSnapshot.dayChangeAmount >= 0 ? (
+                  <ArrowUpRight className="h-3 w-3 mr-1" />
                 ) : (
-                  <div className="flex items-center justify-center h-64 text-muted-foreground">
-                    No assets to display
-                  </div>
+                  <ArrowDownRight className="h-3 w-3 mr-1" />
                 )}
-              </CardContent>
-            </Card>
+                {formatAmount(Math.abs(latestSnapshot.dayChangeAmount))} today
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Liabilities Breakdown</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {allocation?.liabilities && allocation.liabilities.length > 0 ? (
-                  <PieChart
-                    data={allocation.liabilities}
-                    height={300}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-64 text-muted-foreground">
-                    No liabilities - Great!
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Total Investments</div>
+            <div className="text-2xl font-bold text-green-600">{formatAmount(totalInvestments)}</div>
+            <div className="text-xs text-muted-foreground">Stocks + MF + Assets</div>
+          </CardContent>
+        </Card>
 
-        <TabsContent value="breakdown">
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Assets Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-green-600">Assets</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Bank Balance</span>
-                  <span className="font-medium">{formatCurrency(summary?.bankBalance || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">US Stocks</span>
-                  <span className="font-medium">{formatCurrency(summary?.usStocksValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">India Stocks</span>
-                  <span className="font-medium">{formatCurrency(summary?.indiaStocksValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Mutual Funds</span>
-                  <span className="font-medium">{formatCurrency(summary?.mutualFundsValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Fixed Deposits</span>
-                  <span className="font-medium">{formatCurrency(summary?.fdValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">PPF</span>
-                  <span className="font-medium">{formatCurrency(summary?.ppfValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Gold</span>
-                  <span className="font-medium">{formatCurrency(summary?.goldValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Crypto</span>
-                  <span className="font-medium">{formatCurrency(summary?.cryptoValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Real Estate</span>
-                  <span className="font-medium">{formatCurrency(summary?.realEstateValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Vehicles</span>
-                  <span className="font-medium">{formatCurrency(summary?.vehiclesValue || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Loans Given</span>
-                  <span className="font-medium">{formatCurrency(summary?.loansGivenValue || 0)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="font-medium">Total Assets</span>
-                  <span className="font-bold text-green-600">{formatCurrency(summary?.totalAssets || 0)}</span>
-                </div>
-              </CardContent>
-            </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Total Liabilities</div>
+            <div className="text-2xl font-bold text-red-600">{formatAmount(totalLiabilities)}</div>
+            <div className="text-xs text-muted-foreground">Loans outstanding</div>
+          </CardContent>
+        </Card>
 
-            {/* Liabilities Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-red-600">Liabilities</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Home Loan</span>
-                  <span className="font-medium">{formatCurrency(summary?.homeLoanOutstanding || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Car Loan</span>
-                  <span className="font-medium">{formatCurrency(summary?.carLoanOutstanding || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Personal Loan</span>
-                  <span className="font-medium">{formatCurrency(summary?.personalLoanOutstanding || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Other Loans</span>
-                  <span className="font-medium">{formatCurrency(summary?.otherLoansOutstanding || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Credit Card Dues</span>
-                  <span className="font-medium">{formatCurrency(summary?.creditCardDues || 0)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="font-medium">Total Liabilities</span>
-                  <span className="font-bold text-red-600">{formatCurrency(summary?.totalLiabilities || 0)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-4 mt-4">
-                  <span className="text-lg font-bold">Net Worth</span>
-                  <span className={`text-lg font-bold ${(summary?.netWorth || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency(summary?.netWorth || 0)}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Period Change</div>
+            <div className={`text-2xl font-bold ${periodChange.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {periodChange.amount >= 0 ? '+' : ''}{formatAmount(periodChange.amount)}
+            </div>
+            <div className={`text-xs ${periodChange.percent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {periodChange.percent >= 0 ? '+' : ''}{periodChange.percent.toFixed(2)}% overall
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Recent Snapshots */}
+      {/* Main Chart - Net Worth Trend */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Net Worth Trend</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {performanceLoading ? (
+            <div className="flex items-center justify-center h-72">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : netWorthChartData.length > 0 ? (
+            <AreaChart
+              data={netWorthChartData}
+              xKey="name"
+              yKeys={[
+                { key: 'Net Worth', color: '#3b82f6', name: 'Net Worth' },
+                { key: 'Investments', color: '#10b981', name: 'Investments' },
+              ]}
+              height={300}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-72 text-muted-foreground">
+              <Calendar className="h-12 w-12 mb-4 opacity-50" />
+              <p className="font-medium">Building history...</p>
+              <p className="text-sm">Snapshots are captured automatically. Check back tomorrow for trends.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Investment Breakdown Trends */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Investment Category Trends</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {performanceLoading ? (
+            <div className="flex items-center justify-center h-72">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : investmentTrendsData.length > 0 ? (
+            <AreaChart
+              data={investmentTrendsData}
+              xKey="name"
+              yKeys={[
+                { key: 'US Stocks', color: '#10b981', name: 'US Stocks' },
+                { key: 'India Stocks', color: '#6366f1', name: 'India Stocks' },
+                { key: 'Mutual Funds', color: '#f59e0b', name: 'Mutual Funds' },
+              ]}
+              height={300}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-72 text-muted-foreground">
+              <TrendingUp className="h-12 w-12 mb-4 opacity-50" />
+              <p className="font-medium">Building history...</p>
+              <p className="text-sm">Investment category trends will appear as data accumulates</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Recent History - Compact Table */}
       {snapshots.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Snapshots</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Snapshot History</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {snapshots.slice(0, 5).map((snapshot) => (
+            <div className="space-y-1">
+              {snapshots.slice(0, 10).map((snapshot, idx) => (
                 <div
                   key={snapshot.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                  className={`flex items-center justify-between py-2 px-3 rounded ${idx % 2 === 0 ? 'bg-muted/30' : ''}`}
                 >
-                  <div>
-                    <div className="font-medium">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium w-24">
                       {format(new Date(snapshot.snapshotDate), 'MMM dd, yyyy')}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {snapshot.snapshotTime}
-                    </div>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {snapshot.snapshotTime?.substring(0, 5)}
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold">{formatCurrency(snapshot.netWorth)}</div>
-                    <div className={`text-sm flex items-center justify-end ${
-                      snapshot.dayChangeAmount >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {snapshot.dayChangeAmount >= 0 ? (
-                        <TrendingUp className="h-3 w-3 mr-1" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3 mr-1" />
-                      )}
-                      {formatCurrency(Math.abs(snapshot.dayChangeAmount))}
-                    </div>
+                  <div className="flex items-center gap-6">
+                    <span className="font-semibold">{formatAmount(snapshot.netWorth)}</span>
+                    {snapshot.dayChangeAmount !== 0 && (
+                      <span className={`text-sm flex items-center w-28 justify-end ${
+                        snapshot.dayChangeAmount >= 0 ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {snapshot.dayChangeAmount >= 0 ? (
+                          <TrendingUp className="h-3 w-3 mr-1" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3 mr-1" />
+                        )}
+                        {formatAmount(Math.abs(snapshot.dayChangeAmount))}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

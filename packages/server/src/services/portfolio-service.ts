@@ -1,14 +1,46 @@
-import { db, portfolioSnapshots, accounts, investments, mutualFundHoldings, mutualFundFolios, loans, loanGivenDetails, assets, creditCardStatements } from '../db/index.js';
+import { db, portfolioSnapshots, accounts, investments, mutualFundHoldings, mutualFundFolios, loans, loanGivenDetails, assets, creditCardStatements, policies } from '../db/index.js';
 import { eq, and, desc, sql, isNull, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import type { PortfolioSnapshot, NewPortfolioSnapshot } from '../db/index.js';
 
-export interface PortfolioSummary {
-  // Bank accounts
-  bankBalance: number;
+// Cache for exchange rate
+let exchangeRateCache: { rate: number; timestamp: number } | null = null;
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
-  // Investments
-  usStocksValue: number;
+async function fetchUsdToInrRate(): Promise<number> {
+  if (exchangeRateCache && Date.now() - exchangeRateCache.timestamp < CACHE_DURATION) {
+    return exchangeRateCache.rate;
+  }
+
+  try {
+    const response = await fetch('https://www.google.com/finance/quote/USD-INR');
+    const html = await response.text();
+
+    const rateMatch = html.match(/data-last-price="([\d.]+)"/);
+    if (rateMatch && rateMatch[1]) {
+      const rate = parseFloat(rateMatch[1]);
+      exchangeRateCache = { rate, timestamp: Date.now() };
+      return rate;
+    }
+
+    const altMatch = html.match(/<div[^>]*class="[^"]*YMlKec[^"]*"[^>]*>([\d.]+)<\/div>/);
+    if (altMatch && altMatch[1]) {
+      const rate = parseFloat(altMatch[1]);
+      exchangeRateCache = { rate, timestamp: Date.now() };
+      return rate;
+    }
+
+    return exchangeRateCache?.rate || 83.5;
+  } catch (error) {
+    console.error('Error fetching exchange rate:', error);
+    return exchangeRateCache?.rate || 83.5;
+  }
+}
+
+export interface PortfolioSummary {
+  // Investments (Financial) - All values in INR
+  usStocksValue: number; // Converted to INR
+  usStocksValueUsd: number; // Original USD value
   indiaStocksValue: number;
   mutualFundsValue: number;
   fdValue: number;
@@ -16,6 +48,7 @@ export interface PortfolioSummary {
   goldValue: number;
   cryptoValue: number;
   otherInvestmentsValue: number;
+  policiesValue: number; // Insurance policies (premium paid)
 
   // Physical assets
   realEstateValue: number;
@@ -38,30 +71,27 @@ export interface PortfolioSummary {
   netWorth: number;
   totalInvestments: number;
   totalPhysicalAssets: number;
+
+  // Exchange rate used
+  exchangeRate: number;
 }
 
 /**
  * Calculate current portfolio summary for a user
+ * Note: Bank balance is NOT included - this tracks investments and assets only
+ * All values are returned in INR (US stocks are converted using exchange rate)
  */
 export async function calculatePortfolioSummary(userId: string): Promise<PortfolioSummary> {
-  // 1. Bank Balance - Sum of savings and current accounts
-  const accountsData = await db
-    .select()
-    .from(accounts)
-    .where(and(
-      eq(accounts.userId, userId),
-      eq(accounts.isActive, true),
-      or(eq(accounts.accountType, 'savings'), eq(accounts.accountType, 'current'))
-    ));
-  const bankBalance = accountsData.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+  // Fetch exchange rate first
+  const exchangeRate = await fetchUsdToInrRate();
 
-  // 2. Investments by type and country
+  // 1. Investments by type and country
   const investmentsData = await db
     .select()
     .from(investments)
     .where(and(eq(investments.userId, userId), eq(investments.isActive, true)));
 
-  let usStocksValue = 0;
+  let usStocksValueUsd = 0; // Keep USD value separate
   let indiaStocksValue = 0;
   let fdValue = 0;
   let ppfValue = 0;
@@ -70,12 +100,13 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
   let otherInvestmentsValue = 0;
 
   for (const inv of investmentsData) {
-    const value = inv.currentValue || ((inv.quantity || 0) * (inv.currentPrice || inv.purchasePrice || 0));
+    // Match Investments page calculation: currentValue, or fallback to purchasePrice * quantity
+    const value = inv.currentValue || ((inv.quantity || 0) * (inv.purchasePrice || 0));
 
     switch (inv.type) {
       case 'stocks':
         if (inv.country === 'US') {
-          usStocksValue += value;
+          usStocksValueUsd += value; // Store in USD
         } else {
           indiaStocksValue += value;
         }
@@ -96,6 +127,9 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
         otherInvestmentsValue += value;
     }
   }
+
+  // Convert US stocks to INR
+  const usStocksValue = usStocksValueUsd * exchangeRate;
 
   // 3. Mutual Funds - Sum of all holdings current value
   const mfFolios = await db
@@ -223,13 +257,38 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
     }
   }
 
-  // Calculate aggregates
+  // 8. Insurance Policies - use current/maturity value, not premium paid
+  const policiesData = await db
+    .select()
+    .from(policies)
+    .where(and(
+      eq(policies.userId, userId),
+      eq(policies.status, 'active')
+    ));
+
+  let policiesValue = 0;
+  for (const policy of policiesData) {
+    // Use maturity benefit if available, else premium + bonus as approximation
+    // Term insurance (type='term') has no investment value
+    if (policy.type === 'term') {
+      continue; // Term insurance has no cash value
+    }
+    if (policy.maturityBenefit) {
+      policiesValue += policy.maturityBenefit;
+    } else {
+      // Approximate current value as premium paid + bonus accrued
+      policiesValue += (policy.totalPremiumPaid || 0) + (policy.bonusAccrued || 0);
+    }
+  }
+
+  // Calculate aggregates (excluding bank balance - tracking investments only)
   const totalInvestments = usStocksValue + indiaStocksValue + mutualFundsValue +
-    fdValue + ppfValue + goldValue + cryptoValue + otherInvestmentsValue;
+    fdValue + ppfValue + goldValue + cryptoValue + otherInvestmentsValue + policiesValue;
 
   const totalPhysicalAssets = realEstateValue + vehiclesValue + otherAssetsValue;
 
-  const totalAssets = bankBalance + totalInvestments + totalPhysicalAssets + loansGivenValue;
+  // Total assets = investments + physical assets + loans given (no bank balance)
+  const totalAssets = totalInvestments + totalPhysicalAssets + loansGivenValue;
 
   const totalLiabilities = homeLoanOutstanding + carLoanOutstanding +
     personalLoanOutstanding + otherLoansOutstanding + creditCardDues;
@@ -237,8 +296,8 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
   const netWorth = totalAssets - totalLiabilities;
 
   return {
-    bankBalance,
     usStocksValue,
+    usStocksValueUsd,
     indiaStocksValue,
     mutualFundsValue,
     fdValue,
@@ -246,6 +305,7 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
     goldValue,
     cryptoValue,
     otherInvestmentsValue,
+    policiesValue,
     realEstateValue,
     vehiclesValue,
     otherAssetsValue,
@@ -260,6 +320,7 @@ export async function calculatePortfolioSummary(userId: string): Promise<Portfol
     netWorth,
     totalInvestments,
     totalPhysicalAssets,
+    exchangeRate,
   };
 }
 
@@ -380,7 +441,6 @@ export async function createSeedSnapshot(userId: string): Promise<PortfolioSnaps
     userId,
     snapshotDate,
     snapshotTime,
-    bankBalance: summary.bankBalance * 0.9,
     usStocksValue: summary.usStocksValue * 0.9,
     indiaStocksValue: summary.indiaStocksValue * 0.9,
     mutualFundsValue: summary.mutualFundsValue * 0.9,
@@ -389,6 +449,7 @@ export async function createSeedSnapshot(userId: string): Promise<PortfolioSnaps
     goldValue: summary.goldValue * 0.9,
     cryptoValue: summary.cryptoValue * 0.9,
     otherInvestmentsValue: summary.otherInvestmentsValue * 0.9,
+    policiesValue: summary.policiesValue * 0.9, // Insurance policies
     realEstateValue: summary.realEstateValue, // Physical assets don't change daily
     vehiclesValue: summary.vehiclesValue,
     otherAssetsValue: summary.otherAssetsValue,
@@ -427,7 +488,9 @@ export async function getPerformanceData(
   netWorth: number[];
   totalInvestments: number[];
   totalLiabilities: number[];
-  bankBalance: number[];
+  usStocksValue: number[];
+  indiaStocksValue: number[];
+  mutualFundsValue: number[];
 }> {
   const snapshots = await getSnapshotHistory(userId, undefined, undefined, limit * 7); // Get extra for aggregation
 
@@ -437,7 +500,9 @@ export async function getPerformanceData(
       netWorth: [],
       totalInvestments: [],
       totalLiabilities: [],
-      bankBalance: [],
+      usStocksValue: [],
+      indiaStocksValue: [],
+      mutualFundsValue: [],
     };
   }
 
@@ -489,6 +554,8 @@ export async function getPerformanceData(
     netWorth: limited.map(d => d.snapshot.netWorth || 0),
     totalInvestments: limited.map(d => d.snapshot.totalInvestments || 0),
     totalLiabilities: limited.map(d => d.snapshot.totalLiabilities || 0),
-    bankBalance: limited.map(d => d.snapshot.bankBalance || 0),
+    usStocksValue: limited.map(d => d.snapshot.usStocksValue || 0),
+    indiaStocksValue: limited.map(d => d.snapshot.indiaStocksValue || 0),
+    mutualFundsValue: limited.map(d => d.snapshot.mutualFundsValue || 0),
   };
 }

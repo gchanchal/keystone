@@ -159,7 +159,6 @@ router.get('/allocation', async (req, res) => {
     const summary = await calculatePortfolioSummary(req.userId!);
 
     const allocation = [
-      { name: 'Bank Balance', value: summary.bankBalance, color: '#3b82f6' },
       { name: 'US Stocks', value: summary.usStocksValue, color: '#10b981' },
       { name: 'India Stocks', value: summary.indiaStocksValue, color: '#6366f1' },
       { name: 'Mutual Funds', value: summary.mutualFundsValue, color: '#f59e0b' },
@@ -167,6 +166,7 @@ router.get('/allocation', async (req, res) => {
       { name: 'PPF', value: summary.ppfValue, color: '#ec4899' },
       { name: 'Gold', value: summary.goldValue, color: '#eab308' },
       { name: 'Crypto', value: summary.cryptoValue, color: '#14b8a6' },
+      { name: 'Insurance', value: summary.policiesValue, color: '#0ea5e9' },
       { name: 'Real Estate', value: summary.realEstateValue, color: '#64748b' },
       { name: 'Vehicles', value: summary.vehiclesValue, color: '#f97316' },
       { name: 'Loans Given', value: summary.loansGivenValue, color: '#22c55e' },

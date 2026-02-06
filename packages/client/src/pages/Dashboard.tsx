@@ -26,8 +26,9 @@ import { AreaChart } from '@/components/charts/AreaChart';
 import { BarChart } from '@/components/charts/BarChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { PieChart } from '@/components/charts/PieChart';
-import { dashboardApi, loansApi, investmentsApi, mutualFundsApi, assetsApi, policiesApi } from '@/lib/api';
-import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
+import { dashboardApi, loansApi, investmentsApi, mutualFundsApi, assetsApi, policiesApi, portfolioApi } from '@/lib/api';
+import { formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import type { DashboardStats, ExpenseBreakdown } from '@/types';
 
@@ -36,6 +37,7 @@ type Granularity = 'daily' | 'weekly' | 'monthly';
 export function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { formatAmount } = useCurrency();
 
   // Get mode from URL path (default to personal)
   const activeTab = location.pathname === '/gearup' ? 'business' : 'personal';
@@ -91,6 +93,12 @@ export function Dashboard() {
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats', endMonth],
     queryFn: () => dashboardApi.getStats(endMonth),
+  });
+
+  // Fetch portfolio summary (for consistent net worth calculation)
+  const { data: portfolioSummary } = useQuery({
+    queryKey: ['portfolio', 'summary'],
+    queryFn: portfolioApi.getSummary,
   });
 
   // ===== PERSONAL TAB DATA =====
@@ -234,14 +242,9 @@ export function Dashboard() {
     name: item.label,
   }));
 
-  // Calculate totals (totalInvestmentsINR already includes Funds, MFs, Assets, Policies)
-  const totalAssets =
-    stats.totalBalance +
-    totalInvestmentsINR +
-    (loansSummary?.given?.outstanding || 0);
-
+  // Calculate totals
+  const totalAssets = stats.totalBalance + totalInvestmentsINR + (loansSummary?.given?.outstanding || 0);
   const totalLiabilities = loansSummary?.taken?.outstanding || 0;
-
   const totalNetWorth = totalAssets - totalLiabilities;
 
   if (statsLoading) {
@@ -280,7 +283,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Net Worth</p>
-                  <p className="text-2xl font-bold">{formatCurrency(totalNetWorth)}</p>
+                  <p className="text-2xl font-bold">{formatAmount(totalNetWorth)}</p>
                   <p className="text-xs text-muted-foreground">Assets - Liabilities</p>
                 </div>
               </CardContent>
@@ -293,7 +296,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Bank Balance</p>
-                  <p className="text-2xl font-bold">{formatCurrency(stats.totalBalance)}</p>
+                  <p className="text-2xl font-bold">{formatAmount(stats.totalBalance)}</p>
                   <p className="text-xs text-muted-foreground">All accounts</p>
                 </div>
               </CardContent>
@@ -309,9 +312,9 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Net Investments</p>
-                  <p className="text-2xl font-bold">{formatCurrency(totalInvestmentsINR)}</p>
+                  <p className="text-2xl font-bold">{formatAmount(totalInvestmentsINR)}</p>
                   <p className="text-xs text-muted-foreground">
-                    Funds + Assets + Policies
+                    Stocks + MF + Assets + Policies
                   </p>
                 </div>
               </CardContent>
@@ -324,7 +327,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Net Liabilities</p>
-                  <p className="text-2xl font-bold text-red-600">{formatCurrency(totalLiabilities)}</p>
+                  <p className="text-2xl font-bold text-red-600">{formatAmount(loansSummary?.taken?.outstanding || 0)}</p>
                   <p className="text-xs text-muted-foreground">Total loans taken</p>
                 </div>
               </CardContent>
@@ -357,10 +360,10 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(investmentsByCountry.india)}</p>
+                    <p className="font-semibold">{formatAmount(investmentsByCountry.india)}</p>
                     {investmentsByCountry.indiaGainLoss !== 0 && (
                       <p className={`text-xs ${investmentsByCountry.indiaGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {investmentsByCountry.indiaGainLoss >= 0 ? '+' : ''}{formatCurrency(investmentsByCountry.indiaGainLoss)}
+                        {investmentsByCountry.indiaGainLoss >= 0 ? '+' : ''}{formatAmount(investmentsByCountry.indiaGainLoss)}
                       </p>
                     )}
                   </div>
@@ -383,7 +386,7 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(usInvestmentsInINR)}</p>
+                    <p className="font-semibold">{formatAmount(usInvestmentsInINR)}</p>
                     {investmentsByCountry.usGainLoss !== 0 && (
                       <p className={`text-xs ${investmentsByCountry.usGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {investmentsByCountry.usGainLoss >= 0 ? '+' : ''}${investmentsByCountry.usGainLoss.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -409,10 +412,10 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(mutualFundsSummary?.totalCurrentValue || 0)}</p>
+                    <p className="font-semibold">{formatAmount(mutualFundsSummary?.totalCurrentValue || 0)}</p>
                     {mutualFundsSummary?.totalGainLoss !== undefined && mutualFundsSummary.totalGainLoss !== 0 && (
                       <p className={`text-xs ${mutualFundsSummary.totalGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {mutualFundsSummary.totalGainLoss >= 0 ? '+' : ''}{formatCurrency(mutualFundsSummary.totalGainLoss)} ({mutualFundsSummary.totalGainLossPercent?.toFixed(1)}%)
+                        {mutualFundsSummary.totalGainLoss >= 0 ? '+' : ''}{formatAmount(mutualFundsSummary.totalGainLoss)} ({mutualFundsSummary.totalGainLossPercent?.toFixed(1)}%)
                       </p>
                     )}
                   </div>
@@ -435,10 +438,10 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(assetsSummary?.totalCurrentValue || 0)}</p>
+                    <p className="font-semibold">{formatAmount(assetsSummary?.totalCurrentValue || 0)}</p>
                     {(assetsSummary?.totalAppreciation || 0) !== 0 && (
                       <p className={`text-xs ${(assetsSummary?.totalAppreciation || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {(assetsSummary?.totalAppreciation || 0) >= 0 ? '+' : ''}{formatCurrency(assetsSummary?.totalAppreciation || 0)} ({assetsSummary?.appreciationPercent?.toFixed(1) || 0}%)
+                        {(assetsSummary?.totalAppreciation || 0) >= 0 ? '+' : ''}{formatAmount(assetsSummary?.totalAppreciation || 0)} ({assetsSummary?.appreciationPercent?.toFixed(1) || 0}%)
                       </p>
                     )}
                   </div>
@@ -461,9 +464,9 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(policiesSummary?.totalPremiumPaid || 0)}</p>
+                    <p className="font-semibold">{formatAmount(policiesSummary?.totalPremiumPaid || 0)}</p>
                     <p className="text-xs text-muted-foreground">
-                      Coverage: {formatCurrency(policiesSummary?.totalCoverage || 0)}
+                      Coverage: {formatAmount(policiesSummary?.totalCoverage || 0)}
                     </p>
                   </div>
                 </div>
@@ -485,9 +488,9 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-green-600">{formatCurrency(loansSummary?.given?.outstanding || 0)}</p>
+                    <p className="font-semibold text-green-600">{formatAmount(loansSummary?.given?.outstanding || 0)}</p>
                     <p className="text-xs text-muted-foreground">
-                      Total: {formatCurrency(loansSummary?.given?.total || 0)}
+                      Total: {formatAmount(loansSummary?.given?.total || 0)}
                     </p>
                   </div>
                 </div>
@@ -520,7 +523,7 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-red-600">{formatCurrency(loansSummary?.taken?.outstanding || 0)}</p>
+                    <p className="font-semibold text-red-600">{formatAmount(loansSummary?.taken?.outstanding || 0)}</p>
                     <p className="text-xs text-muted-foreground">Outstanding</p>
                   </div>
                 </div>
@@ -556,11 +559,11 @@ export function Dashboard() {
                       <div className="flex gap-4 text-sm">
                         <div className="flex-1 p-2 rounded bg-white/50 dark:bg-black/20">
                           <p className="text-xs text-muted-foreground">Monthly</p>
-                          <p className="font-semibold">{formatCurrency(loansSummary?.taken?.totalEmi || 0)}</p>
+                          <p className="font-semibold">{formatAmount(loansSummary?.taken?.totalEmi || 0)}</p>
                         </div>
                         <div className="flex-1 p-2 rounded bg-white/50 dark:bg-black/20">
                           <p className="text-xs text-muted-foreground">Yearly</p>
-                          <p className="font-semibold">{formatCurrency(loansSummary?.fixedExpenses?.yearlyTotal || 0)}</p>
+                          <p className="font-semibold">{formatAmount(loansSummary?.fixedExpenses?.yearlyTotal || 0)}</p>
                         </div>
                       </div>
 
@@ -570,13 +573,13 @@ export function Dashboard() {
                           <div className="border-t border-orange-200 dark:border-orange-800 pt-3">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pending This Month</p>
-                              <p className="font-semibold text-orange-600">{formatCurrency(totalPending)}</p>
+                              <p className="font-semibold text-orange-600">{formatAmount(totalPending)}</p>
                             </div>
                             <div className="space-y-1">
                               {allPending.map((expense: any, idx: number) => (
                                 <div key={idx} className="flex justify-between text-xs text-muted-foreground">
                                   <span className="truncate max-w-[180px]">{expense.name}</span>
-                                  <span>{formatCurrency(expense.amount)}</span>
+                                  <span>{formatAmount(expense.amount)}</span>
                                 </div>
                               ))}
                             </div>
@@ -584,10 +587,10 @@ export function Dashboard() {
                           {/* Surplus/Shortfall */}
                           <div className={`flex items-center justify-between text-xs px-2 py-1.5 rounded ${isShortfall ? 'bg-red-100 dark:bg-red-950/30' : 'bg-green-100 dark:bg-green-950/30'}`}>
                             <span className="text-muted-foreground">
-                              Bank Balance: {formatCurrency(stats.totalBalance)}
+                              Bank Balance: {formatAmount(stats.totalBalance)}
                             </span>
                             <span className={`font-medium ${isShortfall ? 'text-red-600' : 'text-green-600'}`}>
-                              {isShortfall ? 'Shortfall: ' : 'Surplus: '}{formatCurrency(Math.abs(surplus))}
+                              {isShortfall ? 'Shortfall: ' : 'Surplus: '}{formatAmount(Math.abs(surplus))}
                             </span>
                           </div>
                         </>
@@ -621,7 +624,7 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(policiesSummary?.yearlyPremium || 0)}</p>
+                    <p className="font-semibold">{formatAmount(policiesSummary?.yearlyPremium || 0)}</p>
                     <p className="text-xs text-muted-foreground">per year</p>
                   </div>
                 </div>
@@ -675,7 +678,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Sales Revenue</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(vyaparData?.sales || 0)}</p>
+                  <p className="text-2xl font-bold text-green-600">{formatAmount(vyaparData?.sales || 0)}</p>
                   {vyaparData?.salesUnreconciledCount > 0 && (
                     <p className="text-xs text-orange-500">
                       {vyaparData.salesUnreconciledCount} unreconciled
@@ -695,7 +698,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Pending Orders</p>
-                  <p className="text-2xl font-bold text-yellow-600">{formatCurrency(vyaparData?.saleOrders || 0)}</p>
+                  <p className="text-2xl font-bold text-yellow-600">{formatAmount(vyaparData?.saleOrders || 0)}</p>
                   <p className="text-xs text-muted-foreground">
                     {vyaparData?.saleOrdersCount || 0} orders
                   </p>
@@ -713,7 +716,7 @@ export function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Expenses</p>
-                  <p className="text-2xl font-bold text-red-600">{formatCurrency(vyaparData?.expenses || 0)}</p>
+                  <p className="text-2xl font-bold text-red-600">{formatAmount(vyaparData?.expenses || 0)}</p>
                   {vyaparData?.expensesUnreconciledCount > 0 && (
                     <p className="text-xs text-orange-500">
                       {vyaparData.expensesUnreconciledCount} unreconciled
@@ -738,7 +741,7 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm text-muted-foreground">Net Profit</p>
                   <p className={`text-2xl font-bold ${(vyaparData?.sales || 0) - (vyaparData?.expenses || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency((vyaparData?.sales || 0) - (vyaparData?.expenses || 0))}
+                    {formatAmount((vyaparData?.sales || 0) - (vyaparData?.expenses || 0))}
                   </p>
                   <p className="text-xs text-muted-foreground">Sales - Expenses</p>
                 </div>
@@ -810,7 +813,7 @@ export function Dashboard() {
                             />
                             <span className="truncate max-w-[100px]">{item.category}</span>
                           </div>
-                          <span className="font-medium">{formatCurrency(item.amount)}</span>
+                          <span className="font-medium">{formatAmount(item.amount)}</span>
                         </div>
                       ))}
                     </div>
@@ -841,7 +844,7 @@ export function Dashboard() {
                             <ShoppingCart className="h-4 w-4" />
                             <span className="text-xs font-medium">Sales ({vyaparData.salesCount})</span>
                           </div>
-                          <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.sales)}</p>
+                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.sales)}</p>
                         </div>
                       )}
                       {vyaparData.saleOrders > 0 && (
@@ -853,7 +856,7 @@ export function Dashboard() {
                             <Receipt className="h-4 w-4" />
                             <span className="text-xs font-medium">Orders ({vyaparData.saleOrdersCount})</span>
                           </div>
-                          <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.saleOrders)}</p>
+                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.saleOrders)}</p>
                         </div>
                       )}
                       {vyaparData.paymentIn > 0 && (
@@ -865,7 +868,7 @@ export function Dashboard() {
                             <CreditCard className="h-4 w-4" />
                             <span className="text-xs font-medium">Payment In</span>
                           </div>
-                          <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.paymentIn)}</p>
+                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.paymentIn)}</p>
                         </div>
                       )}
                       {vyaparData.expenses > 0 && (
@@ -877,7 +880,7 @@ export function Dashboard() {
                             <TrendingDown className="h-4 w-4" />
                             <span className="text-xs font-medium">Expenses ({vyaparData.expensesCount})</span>
                           </div>
-                          <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.expenses)}</p>
+                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.expenses)}</p>
                         </div>
                       )}
                     </div>
@@ -894,7 +897,7 @@ export function Dashboard() {
                               <AlertCircle className="h-4 w-4" />
                               <span className="text-xs font-medium">Sales Unreconciled ({vyaparData.salesUnreconciledCount})</span>
                             </div>
-                            <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.salesUnreconciled)}</p>
+                            <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.salesUnreconciled)}</p>
                           </div>
                         )}
                         {vyaparData.expensesUnreconciledCount > 0 && (
@@ -906,7 +909,7 @@ export function Dashboard() {
                               <AlertCircle className="h-4 w-4" />
                               <span className="text-xs font-medium">Expenses Unreconciled ({vyaparData.expensesUnreconciledCount})</span>
                             </div>
-                            <p className="text-lg font-bold mt-1">{formatCurrency(vyaparData.expensesUnreconciled)}</p>
+                            <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.expensesUnreconciled)}</p>
                           </div>
                         )}
                       </div>
@@ -915,16 +918,16 @@ export function Dashboard() {
                     <div className="border-t pt-3">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Total Inflow</span>
-                        <span className="font-medium text-green-600">{formatCurrency(vyaparData.totalInflow)}</span>
+                        <span className="font-medium text-green-600">{formatAmount(vyaparData.totalInflow)}</span>
                       </div>
                       <div className="flex justify-between text-sm mt-1">
                         <span className="text-muted-foreground">Total Outflow</span>
-                        <span className="font-medium text-red-600">{formatCurrency(vyaparData.totalOutflow)}</span>
+                        <span className="font-medium text-red-600">{formatAmount(vyaparData.totalOutflow)}</span>
                       </div>
                       <div className="flex justify-between text-sm mt-2 pt-2 border-t">
                         <span className="font-medium">Net Cash Flow</span>
                         <span className={`font-bold ${vyaparData.totalInflow - vyaparData.totalOutflow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(vyaparData.totalInflow - vyaparData.totalOutflow)}
+                          {formatAmount(vyaparData.totalInflow - vyaparData.totalOutflow)}
                         </span>
                       </div>
                     </div>
