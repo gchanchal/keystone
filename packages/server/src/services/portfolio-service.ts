@@ -1,0 +1,494 @@
+import { db, portfolioSnapshots, accounts, investments, mutualFundHoldings, mutualFundFolios, loans, loanGivenDetails, assets, creditCardStatements } from '../db/index.js';
+import { eq, and, desc, sql, isNull, or } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
+import type { PortfolioSnapshot, NewPortfolioSnapshot } from '../db/index.js';
+
+export interface PortfolioSummary {
+  // Bank accounts
+  bankBalance: number;
+
+  // Investments
+  usStocksValue: number;
+  indiaStocksValue: number;
+  mutualFundsValue: number;
+  fdValue: number;
+  ppfValue: number;
+  goldValue: number;
+  cryptoValue: number;
+  otherInvestmentsValue: number;
+
+  // Physical assets
+  realEstateValue: number;
+  vehiclesValue: number;
+  otherAssetsValue: number;
+
+  // Receivables
+  loansGivenValue: number;
+
+  // Liabilities
+  homeLoanOutstanding: number;
+  carLoanOutstanding: number;
+  personalLoanOutstanding: number;
+  otherLoansOutstanding: number;
+  creditCardDues: number;
+
+  // Aggregates
+  totalAssets: number;
+  totalLiabilities: number;
+  netWorth: number;
+  totalInvestments: number;
+  totalPhysicalAssets: number;
+}
+
+/**
+ * Calculate current portfolio summary for a user
+ */
+export async function calculatePortfolioSummary(userId: string): Promise<PortfolioSummary> {
+  // 1. Bank Balance - Sum of savings and current accounts
+  const accountsData = await db
+    .select()
+    .from(accounts)
+    .where(and(
+      eq(accounts.userId, userId),
+      eq(accounts.isActive, true),
+      or(eq(accounts.accountType, 'savings'), eq(accounts.accountType, 'current'))
+    ));
+  const bankBalance = accountsData.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+
+  // 2. Investments by type and country
+  const investmentsData = await db
+    .select()
+    .from(investments)
+    .where(and(eq(investments.userId, userId), eq(investments.isActive, true)));
+
+  let usStocksValue = 0;
+  let indiaStocksValue = 0;
+  let fdValue = 0;
+  let ppfValue = 0;
+  let goldValue = 0;
+  let cryptoValue = 0;
+  let otherInvestmentsValue = 0;
+
+  for (const inv of investmentsData) {
+    const value = inv.currentValue || ((inv.quantity || 0) * (inv.currentPrice || inv.purchasePrice || 0));
+
+    switch (inv.type) {
+      case 'stocks':
+        if (inv.country === 'US') {
+          usStocksValue += value;
+        } else {
+          indiaStocksValue += value;
+        }
+        break;
+      case 'fd':
+        fdValue += value;
+        break;
+      case 'ppf':
+        ppfValue += value;
+        break;
+      case 'gold':
+        goldValue += value;
+        break;
+      case 'crypto':
+        cryptoValue += value;
+        break;
+      default:
+        otherInvestmentsValue += value;
+    }
+  }
+
+  // 3. Mutual Funds - Sum of all holdings current value
+  const mfFolios = await db
+    .select()
+    .from(mutualFundFolios)
+    .where(eq(mutualFundFolios.userId, userId));
+
+  const folioIds = mfFolios.map(f => f.id);
+  let mutualFundsValue = 0;
+
+  if (folioIds.length > 0) {
+    const mfHoldings = await db
+      .select()
+      .from(mutualFundHoldings)
+      .where(sql`${mutualFundHoldings.folioId} IN (${sql.join(folioIds.map(id => sql`${id}`), sql`, `)})`);
+    mutualFundsValue = mfHoldings.reduce((sum, h) => sum + (h.currentValue || 0), 0);
+  }
+
+  // 4. Physical Assets
+  const assetsData = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.userId, userId), eq(assets.status, 'owned')));
+
+  let realEstateValue = 0;
+  let vehiclesValue = 0;
+  let otherAssetsValue = 0;
+
+  for (const asset of assetsData) {
+    const value = asset.currentValue || asset.purchaseValue || 0;
+    switch (asset.type) {
+      case 'house':
+      case 'apartment':
+      case 'land':
+        realEstateValue += value;
+        break;
+      case 'vehicle':
+        vehiclesValue += value;
+        break;
+      default:
+        otherAssetsValue += value;
+    }
+  }
+
+  // 5. Loans Given (money to receive)
+  const loansGivenData = await db
+    .select()
+    .from(loans)
+    .where(and(
+      eq(loans.userId, userId),
+      eq(loans.type, 'given'),
+      eq(loans.status, 'active')
+    ));
+
+  let loansGivenValue = 0;
+  for (const loan of loansGivenData) {
+    // Get the latest loan_given_details entry
+    const details = await db
+      .select()
+      .from(loanGivenDetails)
+      .where(eq(loanGivenDetails.loanId, loan.id))
+      .orderBy(desc(loanGivenDetails.date))
+      .limit(1);
+
+    if (details.length > 0) {
+      loansGivenValue += details[0].toGet || 0;
+    } else {
+      loansGivenValue += loan.outstandingAmount || 0;
+    }
+  }
+
+  // 6. Loans Taken (liabilities)
+  const loansTakenData = await db
+    .select()
+    .from(loans)
+    .where(and(
+      eq(loans.userId, userId),
+      sql`${loans.type} != 'given'`,
+      eq(loans.status, 'active')
+    ));
+
+  let homeLoanOutstanding = 0;
+  let carLoanOutstanding = 0;
+  let personalLoanOutstanding = 0;
+  let otherLoansOutstanding = 0;
+
+  for (const loan of loansTakenData) {
+    const outstanding = loan.outstandingAmount || 0;
+    switch (loan.loanType) {
+      case 'home':
+        homeLoanOutstanding += outstanding;
+        break;
+      case 'car':
+        carLoanOutstanding += outstanding;
+        break;
+      case 'personal':
+        personalLoanOutstanding += outstanding;
+        break;
+      default:
+        otherLoansOutstanding += outstanding;
+    }
+  }
+
+  // 7. Credit Card Dues - Latest statements for each CC account
+  const ccAccounts = await db
+    .select()
+    .from(accounts)
+    .where(and(
+      eq(accounts.userId, userId),
+      eq(accounts.accountType, 'credit_card'),
+      eq(accounts.isActive, true)
+    ));
+
+  let creditCardDues = 0;
+  for (const ccAcc of ccAccounts) {
+    const latestStatement = await db
+      .select()
+      .from(creditCardStatements)
+      .where(eq(creditCardStatements.accountId, ccAcc.id))
+      .orderBy(desc(creditCardStatements.statementDate))
+      .limit(1);
+
+    if (latestStatement.length > 0) {
+      creditCardDues += latestStatement[0].totalDue || 0;
+    }
+  }
+
+  // Calculate aggregates
+  const totalInvestments = usStocksValue + indiaStocksValue + mutualFundsValue +
+    fdValue + ppfValue + goldValue + cryptoValue + otherInvestmentsValue;
+
+  const totalPhysicalAssets = realEstateValue + vehiclesValue + otherAssetsValue;
+
+  const totalAssets = bankBalance + totalInvestments + totalPhysicalAssets + loansGivenValue;
+
+  const totalLiabilities = homeLoanOutstanding + carLoanOutstanding +
+    personalLoanOutstanding + otherLoansOutstanding + creditCardDues;
+
+  const netWorth = totalAssets - totalLiabilities;
+
+  return {
+    bankBalance,
+    usStocksValue,
+    indiaStocksValue,
+    mutualFundsValue,
+    fdValue,
+    ppfValue,
+    goldValue,
+    cryptoValue,
+    otherInvestmentsValue,
+    realEstateValue,
+    vehiclesValue,
+    otherAssetsValue,
+    loansGivenValue,
+    homeLoanOutstanding,
+    carLoanOutstanding,
+    personalLoanOutstanding,
+    otherLoansOutstanding,
+    creditCardDues,
+    totalAssets,
+    totalLiabilities,
+    netWorth,
+    totalInvestments,
+    totalPhysicalAssets,
+  };
+}
+
+/**
+ * Capture a portfolio snapshot
+ */
+export async function captureSnapshot(
+  userId: string,
+  isManual: boolean = false,
+  notes?: string
+): Promise<PortfolioSnapshot> {
+  const now = new Date();
+  const snapshotDate = now.toISOString().split('T')[0];
+  const snapshotTime = now.toISOString().split('T')[1].split('.')[0];
+
+  const summary = await calculatePortfolioSummary(userId);
+
+  // Get previous snapshot for day change calculation
+  const prevSnapshot = await db
+    .select()
+    .from(portfolioSnapshots)
+    .where(and(
+      eq(portfolioSnapshots.userId, userId),
+      sql`${portfolioSnapshots.snapshotDate} < ${snapshotDate}`
+    ))
+    .orderBy(desc(portfolioSnapshots.snapshotDate), desc(portfolioSnapshots.snapshotTime))
+    .limit(1);
+
+  let dayChangeAmount = 0;
+  let dayChangePercent = 0;
+
+  if (prevSnapshot.length > 0) {
+    const prevNetWorth = prevSnapshot[0].netWorth || 0;
+    dayChangeAmount = summary.netWorth - prevNetWorth;
+    dayChangePercent = prevNetWorth !== 0 ? (dayChangeAmount / prevNetWorth) * 100 : 0;
+  }
+
+  const newSnapshot: NewPortfolioSnapshot = {
+    id: uuidv4(),
+    userId,
+    snapshotDate,
+    snapshotTime,
+    ...summary,
+    dayChangeAmount,
+    dayChangePercent,
+    isManualCapture: isManual,
+    notes: notes || null,
+    createdAt: now.toISOString(),
+  };
+
+  await db.insert(portfolioSnapshots).values(newSnapshot);
+
+  return newSnapshot as PortfolioSnapshot;
+}
+
+/**
+ * Get snapshot history for a user
+ */
+export async function getSnapshotHistory(
+  userId: string,
+  startDate?: string,
+  endDate?: string,
+  limit?: number
+): Promise<PortfolioSnapshot[]> {
+  let query = db
+    .select()
+    .from(portfolioSnapshots)
+    .where(eq(portfolioSnapshots.userId, userId))
+    .orderBy(desc(portfolioSnapshots.snapshotDate), desc(portfolioSnapshots.snapshotTime));
+
+  if (startDate && endDate) {
+    query = db
+      .select()
+      .from(portfolioSnapshots)
+      .where(and(
+        eq(portfolioSnapshots.userId, userId),
+        sql`${portfolioSnapshots.snapshotDate} >= ${startDate}`,
+        sql`${portfolioSnapshots.snapshotDate} <= ${endDate}`
+      ))
+      .orderBy(desc(portfolioSnapshots.snapshotDate), desc(portfolioSnapshots.snapshotTime)) as typeof query;
+  }
+
+  if (limit) {
+    query = query.limit(limit) as typeof query;
+  }
+
+  return query;
+}
+
+/**
+ * Get the latest snapshot for a user
+ */
+export async function getLatestSnapshot(userId: string): Promise<PortfolioSnapshot | null> {
+  const snapshots = await db
+    .select()
+    .from(portfolioSnapshots)
+    .where(eq(portfolioSnapshots.userId, userId))
+    .orderBy(desc(portfolioSnapshots.snapshotDate), desc(portfolioSnapshots.snapshotTime))
+    .limit(1);
+
+  return snapshots[0] || null;
+}
+
+/**
+ * Create initial seed snapshot with 10% less values (for chart visualization)
+ */
+export async function createSeedSnapshot(userId: string): Promise<PortfolioSnapshot> {
+  const summary = await calculatePortfolioSummary(userId);
+
+  // Create a snapshot dated yesterday with 10% less values
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const snapshotDate = yesterday.toISOString().split('T')[0];
+  const snapshotTime = '21:30:00'; // US market close time in IST
+
+  const seedSnapshot: NewPortfolioSnapshot = {
+    id: uuidv4(),
+    userId,
+    snapshotDate,
+    snapshotTime,
+    bankBalance: summary.bankBalance * 0.9,
+    usStocksValue: summary.usStocksValue * 0.9,
+    indiaStocksValue: summary.indiaStocksValue * 0.9,
+    mutualFundsValue: summary.mutualFundsValue * 0.9,
+    fdValue: summary.fdValue * 0.9,
+    ppfValue: summary.ppfValue * 0.9,
+    goldValue: summary.goldValue * 0.9,
+    cryptoValue: summary.cryptoValue * 0.9,
+    otherInvestmentsValue: summary.otherInvestmentsValue * 0.9,
+    realEstateValue: summary.realEstateValue, // Physical assets don't change daily
+    vehiclesValue: summary.vehiclesValue,
+    otherAssetsValue: summary.otherAssetsValue,
+    loansGivenValue: summary.loansGivenValue * 0.9,
+    homeLoanOutstanding: summary.homeLoanOutstanding * 1.001, // Slightly more outstanding
+    carLoanOutstanding: summary.carLoanOutstanding * 1.001,
+    personalLoanOutstanding: summary.personalLoanOutstanding * 1.001,
+    otherLoansOutstanding: summary.otherLoansOutstanding * 1.001,
+    creditCardDues: summary.creditCardDues * 1.1, // Slightly more dues
+    totalAssets: summary.totalAssets * 0.9,
+    totalLiabilities: summary.totalLiabilities * 1.01,
+    netWorth: summary.netWorth * 0.9,
+    totalInvestments: summary.totalInvestments * 0.9,
+    totalPhysicalAssets: summary.totalPhysicalAssets,
+    dayChangeAmount: 0,
+    dayChangePercent: 0,
+    isManualCapture: false,
+    notes: 'Initial seed data',
+    createdAt: yesterday.toISOString(),
+  };
+
+  await db.insert(portfolioSnapshots).values(seedSnapshot);
+
+  return seedSnapshot as PortfolioSnapshot;
+}
+
+/**
+ * Get aggregated performance data for charts
+ */
+export async function getPerformanceData(
+  userId: string,
+  period: 'daily' | 'weekly' | 'monthly' | 'quarterly' = 'daily',
+  limit: number = 30
+): Promise<{
+  labels: string[];
+  netWorth: number[];
+  totalInvestments: number[];
+  totalLiabilities: number[];
+  bankBalance: number[];
+}> {
+  const snapshots = await getSnapshotHistory(userId, undefined, undefined, limit * 7); // Get extra for aggregation
+
+  if (snapshots.length === 0) {
+    return {
+      labels: [],
+      netWorth: [],
+      totalInvestments: [],
+      totalLiabilities: [],
+      bankBalance: [],
+    };
+  }
+
+  // Group by period
+  const grouped = new Map<string, PortfolioSnapshot[]>();
+
+  for (const snapshot of snapshots) {
+    let key: string;
+    const date = new Date(snapshot.snapshotDate);
+
+    switch (period) {
+      case 'weekly':
+        // Get week start (Monday)
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay() + 1);
+        key = weekStart.toISOString().split('T')[0];
+        break;
+      case 'monthly':
+        key = snapshot.snapshotDate.substring(0, 7); // YYYY-MM
+        break;
+      case 'quarterly':
+        const quarter = Math.floor(date.getMonth() / 3) + 1;
+        key = `${date.getFullYear()}-Q${quarter}`;
+        break;
+      default:
+        key = snapshot.snapshotDate;
+    }
+
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key)!.push(snapshot);
+  }
+
+  // Get latest snapshot for each period
+  const aggregated: { label: string; snapshot: PortfolioSnapshot }[] = [];
+  for (const [label, snaps] of grouped) {
+    // Sort by date desc and take the latest
+    snaps.sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate));
+    aggregated.push({ label, snapshot: snaps[0] });
+  }
+
+  // Sort by date asc and limit
+  aggregated.sort((a, b) => a.label.localeCompare(b.label));
+  const limited = aggregated.slice(-limit);
+
+  return {
+    labels: limited.map(d => d.label),
+    netWorth: limited.map(d => d.snapshot.netWorth || 0),
+    totalInvestments: limited.map(d => d.snapshot.totalInvestments || 0),
+    totalLiabilities: limited.map(d => d.snapshot.totalLiabilities || 0),
+    bankBalance: limited.map(d => d.snapshot.bankBalance || 0),
+  };
+}

@@ -27,6 +27,7 @@ import creditCardsRouter from './routes/credit-cards.js';
 import gmailRouter from './routes/gmail.js';
 import adminRouter from './routes/admin.js';
 import authRouter from './routes/auth.js';
+import portfolioRouter from './routes/portfolio.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,6 +76,7 @@ app.use('/api/recurring-income', requireAuth, recurringIncomeRouter);
 app.use('/api/credit-cards', requireAuth, creditCardsRouter);
 app.use('/api/gmail', requireAuth, gmailRouter);
 app.use('/api/admin', requireAuth, adminRouter);
+app.use('/api/portfolio', requireAuth, portfolioRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

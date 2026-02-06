@@ -17,6 +17,7 @@ import {
   ChevronRight,
   CreditCard,
   KeyRound,
+  LineChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ const personalItems = [
   { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
   { to: '/credit-cards', icon: CreditCard, label: 'Credit Cards' },
   { to: '/investments', icon: TrendingUp, label: 'Investments' },
+  { to: '/portfolio', icon: LineChart, label: 'Portfolio Performance' },
   { to: '/loans', icon: HandCoins, label: 'Expenses & Income' },
 ];
 
@@ -54,7 +56,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
 
   // Determine which section is active based on current path
-  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/loans'].some(
+  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/portfolio', '/loans'].some(
     path => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
   );
   const isGearupPath = ['/gearup', '/reconciliation', '/reports'].some(

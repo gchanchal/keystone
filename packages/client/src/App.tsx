@@ -15,6 +15,7 @@ import { LoanGivenDetails } from '@/pages/LoanGivenDetails';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { CreditCards } from '@/pages/CreditCards';
+import { PortfolioPerformance } from '@/pages/PortfolioPerformance';
 
 function App() {
   return (
@@ -44,6 +45,7 @@ function App() {
           <Route path="loans" element={<Loans />} />
           <Route path="loans/:id/details" element={<LoanGivenDetails />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="portfolio" element={<PortfolioPerformance />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

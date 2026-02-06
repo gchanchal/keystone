@@ -423,4 +423,30 @@ export const gmailApi = {
   ) => api.get(`/gmail/connections/${connectionId}/emails`, { params }).then((r) => r.data),
 };
 
+// Portfolio Tracking
+export const portfolioApi = {
+  // Get current portfolio summary (live calculation)
+  getSummary: () => api.get('/portfolio/summary').then((r) => r.data),
+
+  // Get snapshot history
+  getSnapshots: (params?: { startDate?: string; endDate?: string; limit?: number }) =>
+    api.get('/portfolio/snapshots', { params }).then((r) => r.data),
+
+  // Get latest snapshot
+  getLatestSnapshot: () => api.get('/portfolio/snapshots/latest').then((r) => r.data),
+
+  // Capture a new snapshot manually
+  capture: (notes?: string) => api.post('/portfolio/capture', { notes }).then((r) => r.data),
+
+  // Initialize portfolio tracking (creates seed + current snapshot)
+  initialize: () => api.post('/portfolio/initialize').then((r) => r.data),
+
+  // Get performance data for charts
+  getPerformance: (params?: { period?: 'daily' | 'weekly' | 'monthly' | 'quarterly'; limit?: number }) =>
+    api.get('/portfolio/performance', { params }).then((r) => r.data),
+
+  // Get asset allocation for pie chart
+  getAllocation: () => api.get('/portfolio/allocation').then((r) => r.data),
+};
+
 export default api;

@@ -19,6 +19,7 @@ import * as assetsSchema from './schema/assets.js';
 import * as fixedExpensesSchema from './schema/fixed-expenses.js';
 import * as recurringIncomeSchema from './schema/recurring-income.js';
 import * as gmailIntegrationSchema from './schema/gmail-integration.js';
+import * as portfolioSnapshotsSchema from './schema/portfolio-snapshots.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +53,7 @@ export const db = drizzle(sqlite, {
     ...fixedExpensesSchema,
     ...recurringIncomeSchema,
     ...gmailIntegrationSchema,
+    ...portfolioSnapshotsSchema,
   },
 });
 
@@ -674,6 +676,45 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_processed_emails_connection ON processed_emails(connection_id);
     CREATE INDEX IF NOT EXISTS idx_processed_emails_message_id ON processed_emails(gmail_message_id);
     CREATE INDEX IF NOT EXISTS idx_processed_emails_status ON processed_emails(parse_status);
+
+    -- Portfolio Snapshots for daily tracking
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      snapshot_date TEXT NOT NULL,
+      snapshot_time TEXT NOT NULL,
+      bank_balance REAL DEFAULT 0,
+      us_stocks_value REAL DEFAULT 0,
+      india_stocks_value REAL DEFAULT 0,
+      mutual_funds_value REAL DEFAULT 0,
+      fd_value REAL DEFAULT 0,
+      ppf_value REAL DEFAULT 0,
+      gold_value REAL DEFAULT 0,
+      crypto_value REAL DEFAULT 0,
+      other_investments_value REAL DEFAULT 0,
+      real_estate_value REAL DEFAULT 0,
+      vehicles_value REAL DEFAULT 0,
+      other_assets_value REAL DEFAULT 0,
+      loans_given_value REAL DEFAULT 0,
+      home_loan_outstanding REAL DEFAULT 0,
+      car_loan_outstanding REAL DEFAULT 0,
+      personal_loan_outstanding REAL DEFAULT 0,
+      other_loans_outstanding REAL DEFAULT 0,
+      credit_card_dues REAL DEFAULT 0,
+      total_assets REAL DEFAULT 0,
+      total_liabilities REAL DEFAULT 0,
+      net_worth REAL DEFAULT 0,
+      total_investments REAL DEFAULT 0,
+      total_physical_assets REAL DEFAULT 0,
+      day_change_amount REAL DEFAULT 0,
+      day_change_percent REAL DEFAULT 0,
+      is_manual_capture INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user_date ON portfolio_snapshots(user_id, snapshot_date);
+    CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_date ON portfolio_snapshots(snapshot_date);
   `);
 
   // Add currency column if it doesn't exist (migration for existing DBs)
@@ -835,6 +876,7 @@ export * from './schema/assets.js';
 export * from './schema/fixed-expenses.js';
 export * from './schema/recurring-income.js';
 export * from './schema/gmail-integration.js';
+export * from './schema/portfolio-snapshots.js';
 
 // Export sqlite for direct queries
 export { sqlite };
