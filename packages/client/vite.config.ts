@@ -3,19 +3,20 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { execSync } from 'child_process';
 
-// Get version from git (works both locally and on Railway with git in nixpkgs)
+// Get version - use commit hash (available both locally via git and on Railway via env)
 function getVersion() {
+  // Try Railway env first (always available on Railway)
+  const railwaySha = process.env.RAILWAY_GIT_COMMIT_SHA;
+  if (railwaySha) {
+    return `v0.2-${railwaySha.substring(0, 7)}`;
+  }
+
+  // Local: use git
   try {
-    const commitCount = execSync('git rev-list --count HEAD', { encoding: 'utf-8' }).trim();
     const shortHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-    return `v0.2.${commitCount}-${shortHash}`;
+    return `v0.2-${shortHash}`;
   } catch {
-    // Fallback to Railway env if git not available
-    const railwaySha = process.env.RAILWAY_GIT_COMMIT_SHA;
-    if (railwaySha) {
-      return `v0.2-${railwaySha.substring(0, 7)}`;
-    }
-    return 'v0.2';
+    return 'v0.2-dev';
   }
 }
 
