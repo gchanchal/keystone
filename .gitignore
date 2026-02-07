@@ -43,4 +43,3 @@ packages/server/*.db
 
 # Test
 coverage
-packages/client/version.txt
