@@ -330,6 +330,20 @@ export function LoanGivenDetails() {
       notes: currentRow.notes || '',
     };
 
+    // WARNING: Check for large USD amounts that might be INR entered by mistake
+    const amount = Math.max(dataToSend.toGet, dataToSend.toGive);
+    if (dataToSend.currency === 'USD' && amount > 10000) {
+      const inrEquivalent = amount * exchangeRate;
+      const confirmed = window.confirm(
+        `⚠️ Large USD Amount Warning!\n\n` +
+        `You entered $${amount.toLocaleString('en-US')} USD\n` +
+        `This will be converted to ₹${inrEquivalent.toLocaleString('en-IN')} INR\n\n` +
+        `If you meant to enter ₹${amount.toLocaleString('en-IN')} INR, please cancel and change the currency to INR.\n\n` +
+        `Are you sure the amount is in USD?`
+      );
+      if (!confirmed) return;
+    }
+
     console.log('Saving new row with data:', dataToSend);
     addGivenDetailMutation.mutate({
       loanId: id,
@@ -375,6 +389,22 @@ export function LoanGivenDetails() {
       currency: field === 'currency' ? value : (detail.currency || 'INR'),
       date: field === 'date' ? value : detail.date,
     };
+
+    // WARNING: Check for large USD amounts when currency is changed to USD
+    if (field === 'currency' && value === 'USD') {
+      const amount = Math.max(updatedData.toGet, updatedData.toGive);
+      if (amount > 10000) {
+        const inrEquivalent = amount * exchangeRate;
+        const confirmed = window.confirm(
+          `⚠️ Large USD Amount Warning!\n\n` +
+          `Changing currency to USD for amount ${amount.toLocaleString('en-US')}\n` +
+          `This will be converted to ₹${inrEquivalent.toLocaleString('en-IN')} INR\n\n` +
+          `If the amount is actually in INR, please cancel.\n\n` +
+          `Are you sure the amount is in USD?`
+        );
+        if (!confirmed) return;
+      }
+    }
 
     // Only include details/notes if they have values (as strings)
     const detailsValue = field === 'details' ? value : detail.details;

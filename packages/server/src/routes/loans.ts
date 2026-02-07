@@ -58,6 +58,13 @@ const loanGivenDetailSchema = z.object({
   details: z.string().optional(),
   date: z.string(),
   notes: z.string().optional(),
+}).refine((data) => {
+  // Warning: If currency is USD and amount is unusually high (> $50,000), it might be INR entered by mistake
+  const amount = Math.max(data.toGet, data.toGive);
+  if (data.currency === 'USD' && amount > 50000) {
+    console.warn(`[LoanGivenDetail] WARNING: Large USD amount detected: $${amount}. This will convert to ₹${(amount * 85).toLocaleString('en-IN')}. Verify this is correct.`);
+  }
+  return true;
 });
 
 // Cache for exchange rate (cache for 10 minutes)
@@ -224,6 +231,13 @@ router.get('/summary', async (req, res) => {
 
     const activeGiven = givenLoans.filter(l => l.status === 'active');
     const activeTaken = takenLoans.filter(l => l.status === 'active');
+
+    // Debug: Log what's contributing to "Loans Given" outstanding
+    console.log('[Loans Summary] Active Given Loans:');
+    activeGiven.forEach(l => {
+      console.log(`  - ${l.partyName}: Outstanding=${l.outstandingAmount}, Principal=${l.principalAmount}, Type=${l.loanType}, Status=${l.status}`);
+    });
+    console.log(`[Loans Summary] Total Given Outstanding: ${activeGiven.reduce((s, l) => s + l.outstandingAmount, 0)}`);
 
     // Home loans (subset of taken loans)
     const homeLoans = allLoans.filter(l => l.loanType === 'home');
@@ -1200,10 +1214,14 @@ async function calculateGivenDetailsTotals(details: any[]) {
   let totalToGetINR = 0;
   let totalToGiveINR = 0;
 
+  console.log('[LoanGivenDetails] Calculating totals for', details.length, 'details, exchange rate:', exchangeRate);
+
   for (const d of details) {
     const currency = d.currency || 'INR';
     const toGet = d.toGet || 0;
     const toGive = d.toGive || 0;
+
+    console.log(`  - Date: ${d.date}, Currency: ${currency}, ToGet: ${toGet}, ToGive: ${toGive}, Description: ${d.description?.substring(0, 30)}`);
 
     if (currency === 'USD') {
       totalToGetINR += toGet * exchangeRate;
@@ -1213,6 +1231,8 @@ async function calculateGivenDetailsTotals(details: any[]) {
       totalToGiveINR += toGive;
     }
   }
+
+  console.log(`[LoanGivenDetails] Totals: ToGet=${totalToGetINR}, ToGive=${totalToGiveINR}, Net=${totalToGetINR - totalToGiveINR}`);
 
   return {
     totalToGet: totalToGetINR,
