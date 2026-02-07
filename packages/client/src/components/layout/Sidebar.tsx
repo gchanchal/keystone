@@ -205,7 +205,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
           {/* Version & Server Status */}
           <div className="border-t p-4 space-y-2">
-            <p className="text-[10px] text-muted-foreground/50 text-center">v0.2</p>
+            <p className="text-[10px] text-muted-foreground/50 text-center">
+              {import.meta.env.VITE_APP_VERSION || 'dev'}
+            </p>
             <ServerStatus />
           </div>
         </div>

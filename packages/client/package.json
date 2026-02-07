@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "VITE_APP_VERSION=v0.2.$(git rev-list --count HEAD)-$(git rev-parse --short HEAD)-dev vite",
+    "build": "VITE_APP_VERSION=v0.2.$(git rev-list --count HEAD)-$(git rev-parse --short HEAD) tsc && VITE_APP_VERSION=v0.2.$(git rev-list --count HEAD)-$(git rev-parse --short HEAD) vite build",
     "preview": "vite preview"
   },
   "dependencies": {
