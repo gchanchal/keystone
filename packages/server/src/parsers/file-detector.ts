@@ -130,7 +130,8 @@ async function detectWithPython(buffer: Buffer, password?: string): Promise<Dete
       details: parsed.details,
     };
   } catch (error: any) {
-    console.error('Python detector error:', error?.message);
+    console.error('[PDF Detection] Python detector error:', error?.message);
+    console.error('[PDF Detection] Python stderr:', error?.stderr);
     return null;
   } finally {
     // Clean up temp file
@@ -143,12 +144,17 @@ async function detectWithPython(buffer: Buffer, password?: string): Promise<Dete
 }
 
 async function detectPDFType(buffer: Buffer, filename?: string, password?: string): Promise<DetectionResult> {
+  console.log('[PDF Detection] Starting detection for:', filename, 'hasPassword:', !!password);
+
   // For password-protected PDFs, use Python detector (pdfplumber handles passwords correctly)
   if (password) {
+    console.log('[PDF Detection] Using Python detector for password-protected PDF');
     const pythonResult = await detectWithPython(buffer, password);
     if (pythonResult) {
+      console.log('[PDF Detection] Python result:', JSON.stringify(pythonResult));
       return pythonResult;
     }
+    console.log('[PDF Detection] Python detection failed, falling back to pdf-parse');
     // If Python detection failed, continue with pdf-parse as fallback
   }
 
@@ -338,6 +344,7 @@ async function detectPDFType(buffer: Buffer, filename?: string, password?: strin
     }
 
     // Pick the bank with highest score
+    console.log('[PDF Detection] Scores:', JSON.stringify(scores));
     if (scores.length > 0) {
       scores.sort((a, b) => b.score - a.score);
       const winner = scores[0];
