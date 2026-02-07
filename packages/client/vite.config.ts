@@ -3,15 +3,17 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { execSync } from 'child_process';
 
-// Get version - use commit hash (available both locally via git and on Railway via env)
+// Get version - reads from version.txt (generated before deploy)
 function getVersion() {
-  // Try Railway env first (always available on Railway)
-  const railwaySha = process.env.RAILWAY_GIT_COMMIT_SHA;
-  if (railwaySha) {
-    return `v0.2-${railwaySha.substring(0, 7)}`;
-  }
+  try {
+    const fs = require('fs');
+    const versionFile = path.resolve(__dirname, 'version.txt');
+    if (fs.existsSync(versionFile)) {
+      return fs.readFileSync(versionFile, 'utf-8').trim();
+    }
+  } catch {}
 
-  // Local: use git
+  // Fallback to git for local dev
   try {
     const shortHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
     return `v0.2-${shortHash}`;

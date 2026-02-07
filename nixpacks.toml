@@ -1,12 +1,12 @@
 # Nixpacks configuration for Railway deployment
 [phases.setup]
-nixPkgs = ["nodejs_20", "git", "python312", "python312Packages.pip"]
+nixPkgs = ["nodejs_20", "python312", "python312Packages.pip", "python312Packages.pdfplumber"]
 
 [phases.install]
-cmds = ["npm install", "python3 -m pip install --break-system-packages pdfplumber || pip3 install pdfplumber || echo 'pdfplumber install skipped'"]
+cmds = ["npm install"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm run build", "chmod +x scripts/start.sh"]
 
 [start]
-cmd = "pip3 install --break-system-packages pdfplumber && NODE_ENV=production node packages/server/dist/index.js"
+cmd = "bash scripts/start.sh"
