@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 import { execSync } from 'child_process';
 
 // Get version - reads from version.txt (generated before deploy)
 function getVersion() {
   try {
-    const fs = require('fs');
     const versionFile = path.resolve(__dirname, 'version.txt');
     if (fs.existsSync(versionFile)) {
       return fs.readFileSync(versionFile, 'utf-8').trim();
