@@ -236,4 +236,50 @@ function migrateOrphanedDataHandler(req: any, res: any) {
   }
 }
 
+/**
+ * POST /api/auth/dev-login
+ * Development-only login (bypasses Google OAuth)
+ */
+router.post('/dev-login', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Not available in production' });
+  }
+
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email required' });
+    }
+
+    // Find user by email
+    const { db, users } = await import('../db/index.js');
+    const { eq } = await import('drizzle-orm');
+
+    const existingUsers = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (!existingUsers[0]) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = existingUsers[0];
+
+    // Generate JWT and set cookie
+    const { generateJWT } = await import('../services/auth-service.js');
+    const token = generateJWT(user);
+    setAuthCookie(res, token);
+
+    res.json({
+      success: true,
+      user: { id: user.id, email: user.email, name: user.name }
+    });
+  } catch (error) {
+    console.error('Dev login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
 export default router;
