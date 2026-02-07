@@ -1,9 +1,9 @@
 # Nixpacks configuration for Railway deployment
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "git", "python312", "python312Packages.pip"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm install", "pip install pdfplumber"]
 
 [phases.build]
 cmds = ["npm run build"]
