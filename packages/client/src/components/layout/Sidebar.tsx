@@ -203,8 +203,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             ))}
           </nav>
 
-          {/* Server Status */}
-          <div className="border-t p-4">
+          {/* Version & Server Status */}
+          <div className="border-t p-4 space-y-2">
+            <p className="text-[10px] text-muted-foreground/50 text-center">v0.2</p>
             <ServerStatus />
           </div>
         </div>
