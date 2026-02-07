@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Wifi, Check } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
+import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { accountsApi } from '@/lib/api';
+import { accountsApi, uploadsApi } from '@/lib/api';
+import { SmartImportProgress } from '@/components/SmartImportProgress';
 import { formatCurrency } from '@/lib/utils';
 import type { Account } from '@/types';
 import { getCardsForBank, getCardGradient, CARD_NETWORKS, type CardVariant } from '@/config/credit-card-variants';
@@ -70,6 +72,11 @@ export function Accounts() {
     cardNetwork: '',
   });
 
+  // Smart upload state
+  const [isSmartImporting, setIsSmartImporting] = useState(false);
+  const [smartImportResult, setSmartImportResult] = useState<any>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   // Handle highlight param from smart import
   useEffect(() => {
     const highlightId = searchParams.get('highlight');
@@ -84,6 +91,51 @@ export function Accounts() {
       return () => clearTimeout(timer);
     }
   }, [searchParams, setSearchParams]);
+
+  // Quick upload handler
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+
+    const file = acceptedFiles[0];
+    setUploadError(null);
+    setIsSmartImporting(true);
+
+    try {
+      const importResult = await uploadsApi.smartImport(file);
+      setSmartImportResult(importResult);
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['uploads'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-cards'] });
+    } catch (error: any) {
+      console.error('Smart import failed:', error);
+      setIsSmartImporting(false);
+      setUploadError(error?.response?.data?.error || 'Import failed. Try using Upload Center for more options.');
+    }
+  }, [queryClient]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/pdf': ['.pdf'],
+    },
+    multiple: false,
+    maxFiles: 1,
+  });
+
+  const handleSmartImportComplete = useCallback((accountId: string) => {
+    setHighlightedAccountId(accountId);
+    setIsSmartImporting(false);
+    setSmartImportResult(null);
+    // Remove highlight after 3 seconds
+    setTimeout(() => {
+      setHighlightedAccountId(null);
+    }, 3000);
+  }, []);
 
   // Get available cards based on selected bank
   const availableCards = useMemo(() => {
@@ -286,6 +338,39 @@ export function Accounts() {
           })}
         </div>
       )}
+
+      {/* Quick Upload Section */}
+      <Card>
+        <CardContent className="p-4">
+          <div
+            {...getRootProps()}
+            className={`cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+              isDragActive
+                ? 'border-primary bg-primary/5'
+                : 'border-muted-foreground/25 hover:border-primary/50'
+            }`}
+          >
+            <input {...getInputProps()} />
+            <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-medium">
+              {isDragActive ? 'Drop to import' : 'Quick Import Statement'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Drop bank or credit card statement (PDF, XLS, XLSX)
+            </p>
+          </div>
+          {uploadError && (
+            <p className="mt-2 text-sm text-destructive text-center">{uploadError}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Smart Import Progress */}
+      <SmartImportProgress
+        isOpen={isSmartImporting}
+        result={smartImportResult}
+        onComplete={handleSmartImportComplete}
+      />
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>

@@ -40,6 +40,21 @@ def detect_bank(pdf_path: str, password: str = None) -> dict:
                 hdfc_score += 5
             if hdfc_score == 0 and 'hdfc bank' in text:
                 hdfc_score += 1
+
+            # Check for HDFC Infinia Credit Card specifically (return early if found)
+            hdfc_is_credit_card = ('credit card statement' in text or 'card statement' in text or
+                                   ('minimum amount due' in text and 'hdfc' in text))
+            is_infinia = ('infinia' in text or 'diners club' in text or
+                         ('reward points' in text and 'hdfc' in text))
+
+            if hdfc_score > 0 and hdfc_is_credit_card and is_infinia:
+                return {
+                    "bank": "hdfc_infinia",
+                    "confidence": "high",
+                    "details": "HDFC Infinia Credit Card statement detected",
+                    "fileType": "credit_card_infinia"
+                }
+
             if hdfc_score > 0:
                 scores['hdfc'] = hdfc_score
 
@@ -73,15 +88,18 @@ def detect_bank(pdf_path: str, password: str = None) -> dict:
             if icici_score > 0:
                 scores['icici'] = icici_score
 
-            # SBI patterns
+            # SBI patterns - avoid false positives from BCSBI (Banking Codes and Standards Board of India)
             sbi_score = 0
-            if 'state bank of india' in text:
+            has_true_sbi = ('state bank of india' in text and
+                           'bcsbi' not in text and 'banking codes' not in text)
+            if has_true_sbi:
                 sbi_score += 10
             if 'sbi.co.in' in text:
                 sbi_score += 8
             if 'onlinesbi' in text:
                 sbi_score += 5
-            if sbi_score > 0:
+            # Only count if strong SBI indicators
+            if sbi_score >= 5:
                 scores['sbi'] = sbi_score
 
             # Axis Bank patterns

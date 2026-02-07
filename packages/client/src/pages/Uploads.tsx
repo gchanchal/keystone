@@ -171,8 +171,13 @@ export function Uploads() {
         return;
       }
 
-      // For bank statements with high confidence, use smart import
-      if (result.uploadType === 'bank_statement' && result.detection?.confidence === 'high') {
+      // For bank statements and credit cards with high confidence, use smart import
+      const supportsSmartImport =
+        (result.uploadType === 'bank_statement' && result.detection?.confidence === 'high') ||
+        (result.detection?.fileType === 'credit_card_infinia') ||
+        (result.detection?.fileType === 'credit_card' && result.detection?.confidence === 'high');
+
+      if (supportsSmartImport) {
         // Use smart import - no dialogs, just progress
         setIsSmartImporting(true);
         setUploadStep('select'); // Reset step so we don't show configure dialog
@@ -185,6 +190,7 @@ export function Uploads() {
           queryClient.invalidateQueries({ queryKey: ['uploads'] });
           queryClient.invalidateQueries({ queryKey: ['accounts'] });
           queryClient.invalidateQueries({ queryKey: ['transactions'] });
+          queryClient.invalidateQueries({ queryKey: ['credit-cards'] });
         } catch (importError: any) {
           console.error('Smart import failed:', importError);
 

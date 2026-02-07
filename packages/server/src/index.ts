@@ -28,6 +28,8 @@ import gmailRouter from './routes/gmail.js';
 import adminRouter from './routes/admin.js';
 import authRouter from './routes/auth.js';
 import portfolioRouter from './routes/portfolio.js';
+import templatesRouter from './routes/templates.js';
+import learnRouter from './routes/learn.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +79,8 @@ app.use('/api/credit-cards', requireAuth, creditCardsRouter);
 app.use('/api/gmail', requireAuth, gmailRouter);
 app.use('/api/admin', requireAuth, adminRouter);
 app.use('/api/portfolio', requireAuth, portfolioRouter);
+app.use('/api/templates', requireAuth, templatesRouter);
+app.use('/api/learn', requireAuth, learnRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

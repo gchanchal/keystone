@@ -1015,10 +1015,40 @@ function CreditCardTransactionTable({
       header: 'Description',
       accessorKey: 'description',
       cell: (row) => (
-        <span className="max-w-[300px] truncate block" title={row.description}>
-          {row.description}
-        </span>
+        <div className="flex items-center gap-2">
+          <div
+            className={`rounded-full p-1 ${
+              row.transactionType === 'credit'
+                ? 'bg-green-500/10 text-green-500'
+                : 'bg-red-500/10 text-red-500'
+            }`}
+          >
+            {row.transactionType === 'credit' ? (
+              <ArrowDownRight className="h-3 w-3" />
+            ) : (
+              <ArrowUpRight className="h-3 w-3" />
+            )}
+          </div>
+          <span className="max-w-[300px] truncate" title={row.description}>
+            {row.description}
+          </span>
+        </div>
       ),
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      accessorKey: (row) => row.transactionType === 'credit' ? 'Payment' : 'Purchase',
+      cell: (row) => (
+        <Badge variant={row.transactionType === 'credit' ? 'default' : 'secondary'}>
+          {row.transactionType === 'credit' ? 'Payment' : 'Purchase'}
+        </Badge>
+      ),
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Payments (Credits)', value: 'Payment' },
+        { label: 'Purchases (Debits)', value: 'Purchase' },
+      ],
     },
     {
       id: 'account',
@@ -1115,7 +1145,9 @@ function CreditCardTransactionTable({
       header: 'Amount',
       accessorKey: 'amount',
       cell: (row) => (
-        <span className="font-medium text-red-600">{formatCurrency(row.amount)}</span>
+        <span className={`font-medium ${row.transactionType === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+          {row.transactionType === 'credit' ? '+' : '-'}{formatCurrency(row.amount)}
+        </span>
       ),
       align: 'right',
     },

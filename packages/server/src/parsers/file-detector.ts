@@ -8,29 +8,146 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
+import { db, learnedTemplates } from '../db/index.js';
+import { eq, and } from 'drizzle-orm';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface DetectionResult {
-  fileType: 'bank_statement' | 'vyapar_report' | 'credit_card' | 'credit_card_infinia' | 'etrade_portfolio' | 'cams_statement' | 'home_loan_statement' | 'unknown';
+  fileType: 'bank_statement' | 'vyapar_report' | 'credit_card' | 'credit_card_infinia' | 'etrade_portfolio' | 'cams_statement' | 'home_loan_statement' | 'learned_template' | 'unknown';
   bankName: string | null;
   confidence: 'high' | 'medium' | 'low';
   details: string;
   needsPassword?: boolean;
+  learnedTemplateId?: string;
+  learnedTemplateName?: string;
+}
+
+/**
+ * Check if file matches any learned templates
+ */
+async function checkLearnedTemplates(
+  buffer: Buffer,
+  filename: string,
+  userId?: string
+): Promise<DetectionResult | null> {
+  if (!userId) return null;
+
+  try {
+    // Get all active templates for user
+    const templates = await db
+      .select()
+      .from(learnedTemplates)
+      .where(and(
+        eq(learnedTemplates.userId, userId),
+        eq(learnedTemplates.isActive, 1)
+      ));
+
+    if (templates.length === 0) return null;
+
+    // Try to extract some content for matching
+    let textContent = '';
+    const ext = filename.toLowerCase().split('.').pop();
+
+    if (ext === 'csv') {
+      textContent = buffer.toString('utf-8').substring(0, 5000);
+    } else if (ext === 'xls' || ext === 'xlsx') {
+      try {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        textContent = data.slice(0, 20).flat().join(' ').toLowerCase();
+      } catch (e) {
+        // Ignore parsing errors for detection
+      }
+    }
+
+    let bestMatch: { template: any; score: number } | null = null;
+
+    for (const template of templates) {
+      const patterns = JSON.parse(template.detectionPatterns || '{}');
+      let score = 0;
+
+      // Check text patterns
+      if (textContent && patterns.textPatterns) {
+        const contentLower = textContent.toLowerCase();
+        for (const pattern of patterns.textPatterns) {
+          if (contentLower.includes(pattern.toLowerCase())) {
+            score += 10;
+          }
+        }
+      }
+
+      // Check filename patterns
+      if (patterns.filenamePatterns) {
+        const filenameLower = filename.toLowerCase();
+        for (const pattern of patterns.filenamePatterns) {
+          if (filenameLower.includes(pattern.toLowerCase())) {
+            score += 5;
+          }
+          try {
+            const regex = new RegExp(pattern, 'i');
+            if (regex.test(filename)) {
+              score += 8;
+            }
+          } catch {
+            // Invalid regex, skip
+          }
+        }
+      }
+
+      // Check file type matches
+      if (template.fileType === ext) {
+        score += 3;
+      }
+
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { template, score };
+      }
+    }
+
+    if (bestMatch && bestMatch.score >= 10) {
+      const confidence = bestMatch.score >= 20 ? 'high' : bestMatch.score >= 10 ? 'medium' : 'low';
+      return {
+        fileType: 'learned_template',
+        bankName: bestMatch.template.institution,
+        confidence,
+        details: `Matched learned template: ${bestMatch.template.name}`,
+        learnedTemplateId: bestMatch.template.id,
+        learnedTemplateName: bestMatch.template.name,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[Template Detection] Error:', error);
+    return null;
+  }
 }
 
 /**
  * Detect the type of file and bank from the content
  * @param password - Optional password for encrypted PDFs
+ * @param userId - Optional user ID for checking learned templates
  */
 export async function detectFileType(
   buffer: Buffer,
   filename: string,
   mimeType: string,
-  password?: string
+  password?: string,
+  userId?: string
 ): Promise<DetectionResult> {
   const ext = filename.toLowerCase().split('.').pop();
+
+  // Check learned templates first (if userId provided)
+  if (userId) {
+    const learnedMatch = await checkLearnedTemplates(buffer, filename, userId);
+    if (learnedMatch) {
+      console.log('[Detection] Matched learned template:', learnedMatch.learnedTemplateName);
+      return learnedMatch;
+    }
+  }
 
   // Check for ETrade CSV first (specific format)
   if (ext === 'csv' || mimeType === 'text/csv') {
@@ -301,14 +418,33 @@ async function detectPDFType(buffer: Buffer, filename?: string, password?: strin
 
     const hdfcIsCreditCard = text.includes('credit card statement') ||
       text.includes('card statement') ||
-      (text.includes('minimum amount due') && text.includes('hdfc'));
+      text.includes('billed statement') ||
+      text.includes('total amount due') ||
+      text.includes('minimum amount due') ||
+      text.includes('payment due date');
 
-    // Check specifically for HDFC Infinia card
+    // Check specifically for HDFC Infinia card - add more patterns
     const isInfinia = text.includes('infinia') ||
       text.includes('diners club') ||
-      text.includes('reward points') && text.includes('hdfc');
+      text.includes('diners') ||
+      (text.includes('reward points') && text.includes('hdfc')) ||
+      (text.includes('reward point') && text.includes('hdfc'));
 
-    if (hdfcScore > 0 && hdfcIsCreditCard && isInfinia) {
+    console.log('[PDF Detection] HDFC Check:', {
+      hdfcScore,
+      hdfcIsCreditCard,
+      isInfinia,
+      hasInfinia: text.includes('infinia'),
+      hasDiners: text.includes('diners'),
+      hasRewardPoints: text.includes('reward points'),
+      hasCreditCardStatement: text.includes('credit card statement'),
+      hasBilledStatement: text.includes('billed statement'),
+      first200: text.substring(0, 200).replace(/\n/g, ' ')
+    });
+
+    // For HDFC credit cards, prioritize Infinia detection
+    if (hdfcIsCreditCard && isInfinia) {
+      console.log('[PDF Detection] Detected as HDFC Infinia Credit Card');
       return {
         fileType: 'credit_card_infinia',
         bankName: 'hdfc_infinia',
@@ -317,17 +453,31 @@ async function detectPDFType(buffer: Buffer, filename?: string, password?: strin
       };
     }
 
+    // Even if not Infinia, if it's an HDFC credit card, flag it
+    if (hdfcIsCreditCard && hdfcScore > 0) {
+      console.log('[PDF Detection] Detected as HDFC Credit Card (non-Infinia)');
+      return {
+        fileType: 'credit_card',
+        bankName: 'hdfc',
+        confidence: 'high',
+        details: 'HDFC Credit Card statement detected',
+      };
+    }
+
     if (hdfcScore > 0) {
       scores.push({ bank: 'hdfc', score: hdfcScore, isCreditCard: hdfcIsCreditCard });
     }
 
-    // SBI
+    // SBI - be careful to avoid false positives from "BCSBI" (Banking Codes and Standards Board of India)
     let sbiScore = 0;
-    if (text.includes('state bank of india')) sbiScore += 10;
+    // Only match "state bank of india" if it's not part of "bcsbi" or similar
+    const hasTrueStateBankOfIndia = text.includes('state bank of india') &&
+      !text.includes('bcsbi') && !text.includes('banking codes');
+    if (hasTrueStateBankOfIndia) sbiScore += 10;
     if (text.includes('sbi.co.in')) sbiScore += 8;
     if (text.includes('onlinesbi')) sbiScore += 5;
-
-    if (sbiScore > 0) {
+    // Only count if we have strong SBI indicators
+    if (sbiScore >= 5) {
       scores.push({ bank: 'sbi', score: sbiScore, isCreditCard: false });
     }
 

@@ -153,146 +153,208 @@ function parseStatementHeader(text: string): Partial<HDFCInfiniaStatementData> {
     transactions: [],
   };
 
-  // Extract card number (last 4 digits typically shown)
-  const cardNumMatch = text.match(/Card\s*(?:No|Number)?[:\s]*\*+(\d{4})/i);
+  // The PDF extracts with labels on separate lines from values in a columnar format:
+  // Credit Card No.
+  // Alternate Account Number
+  // Statement Date
+  // Billing Period
+  // 437546XXXXXX8810        <- card number
+  // 0001015710000108816     <- alternate account
+  // 23 Jan, 2026            <- statement date
+  // 24 Dec, 2025 - 23 Jan, 2026  <- billing period
+
+  // Extract card number - directly match the pattern anywhere in text
+  const cardNumMatch = text.match(/(\d{6}X+\d{4})/i);
   if (cardNumMatch) {
     result.cardNumber = cardNumMatch[1];
   }
 
-  // Extract statement date
-  const stmtDateMatch = text.match(/Statement\s*Date[:\s]*(\d{2}\/\d{2}\/\d{4})/i);
-  if (stmtDateMatch) {
-    result.statementDate = parseDate(stmtDateMatch[1]);
+  // Extract statement date - look for date pattern after "Statement Date" (across multiple lines)
+  // Find context around Statement Date and extract the date value
+  const stmtDateContext = text.match(/Statement\s*Date[\s\S]*?(\d{1,2}\s+[A-Za-z]{3},?\s+\d{4})/i);
+  if (stmtDateContext) {
+    result.statementDate = parseDateText(stmtDateContext[1]);
   }
 
-  // Extract billing period
-  const billingMatch = text.match(/(?:Billing\s*Period|Statement\s*Period)[:\s]*(\d{2}\/\d{2}\/\d{4})\s*(?:to|-)\s*(\d{2}\/\d{2}\/\d{4})/i);
-  if (billingMatch) {
-    result.billingPeriodStart = parseDate(billingMatch[1]);
-    result.billingPeriodEnd = parseDate(billingMatch[2]);
+  // Extract billing period - look for date range pattern after "Billing Period"
+  const billingContext = text.match(/Billing\s*Period[\s\S]*?(\d{1,2}\s+[A-Za-z]{3},?\s+\d{4})\s*[-–]\s*(\d{1,2}\s+[A-Za-z]{3},?\s+\d{4})/i);
+  if (billingContext) {
+    result.billingPeriodStart = parseDateText(billingContext[1]);
+    result.billingPeriodEnd = parseDateText(billingContext[2]);
   }
 
-  // Extract due date
-  const dueDateMatch = text.match(/(?:Payment\s*)?Due\s*Date[:\s]*(\d{2}\/\d{2}\/\d{4})/i);
+  // Extract due date - appears after "DUE DATE" label on next line: "12 Feb, 2026"
+  const dueDateMatch = text.match(/DUE\s*DATE\s*\n(\d{1,2}\s+[A-Za-z]+,?\s+\d{4})/i) ||
+                       text.match(/DUE\s*DATE[\s\S]*?(\d{1,2}\s+[A-Za-z]+,?\s+\d{4})/i);
   if (dueDateMatch) {
-    result.dueDate = parseDate(dueDateMatch[1]);
+    result.dueDate = parseDateText(dueDateMatch[1]);
   }
 
-  // Extract total amount due
-  const totalDueMatch = text.match(/Total\s*(?:Amount\s*)?Due[:\s]*(?:Rs\.?|INR)?\s*([\d,]+\.\d{2})/i);
+  // Extract total amount due - "TOTAL AMOUNT DUE" followed by newline then "C3,30,058.00"
+  const totalDueMatch = text.match(/TOTAL\s*AMOUNT\s*DUE\s*\n[C₹]?\s*([\d,]+\.\d{2})/i) ||
+                        text.match(/TOTAL\s*AMOUNT\s*DUE[\s\S]*?[C₹]\s*([\d,]+\.\d{2})/i);
   if (totalDueMatch) {
     result.totalDue = parseAmount(totalDueMatch[1]);
   }
 
-  // Extract minimum amount due
-  const minDueMatch = text.match(/Minimum\s*(?:Amount\s*)?Due[:\s]*(?:Rs\.?|INR)?\s*([\d,]+\.\d{2})/i);
+  // Extract minimum amount due - "MINIMUM DUE" followed by newline then "C16,510.00"
+  const minDueMatch = text.match(/MINIMUM\s*DUE\s*\n[C₹]?\s*([\d,]+\.\d{2})/i) ||
+                      text.match(/MINIMUM\s*DUE[\s\S]*?[C₹]\s*([\d,]+\.\d{2})/i);
   if (minDueMatch) {
     result.minimumDue = parseAmount(minDueMatch[1]);
   }
 
-  // Extract credit limit
-  const creditLimitMatch = text.match(/(?:Total\s*)?Credit\s*Limit[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d{2})?)/i);
+  // Extract credit limit from line: "TOTAL CREDIT LIMIT" ... "C8,00,000C4,58,268C3,20,000"
+  // The pattern appears as continuous text: C8,00,000C4,58,268C3,20,000
+  const creditLimitMatch = text.match(/TOTAL\s*CREDIT\s*LIMIT[\s\S]*?[C₹]\s*([\d,]+)[C₹]([\d,]+)[C₹]([\d,]+)/i);
   if (creditLimitMatch) {
-    result.creditLimit = parseAmount(creditLimitMatch[1]);
+    result.creditLimit = parseAmount(creditLimitMatch[1]);      // Total credit limit: 8,00,000
+    result.availableLimit = parseAmount(creditLimitMatch[2]);   // Available credit: 4,58,268
+    // creditLimitMatch[3] is available cash limit: 3,20,000
+  } else {
+    // Fallback: try individual patterns
+    const creditMatch = text.match(/TOTAL\s*CREDIT\s*LIMIT[\s\S]*?[C₹]\s*([\d,]+)/i);
+    if (creditMatch) {
+      result.creditLimit = parseAmount(creditMatch[1]);
+    }
   }
 
-  // Extract available limit
-  const availLimitMatch = text.match(/Available\s*(?:Credit\s*)?Limit[:\s]*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d{2})?)/i);
-  if (availLimitMatch) {
-    result.availableLimit = parseAmount(availLimitMatch[1]);
-  }
+  // Extract reward points - format:
+  // "Reward Points"
+  // "1,48,893"              <- current balance (on its own line)
+  // "REDEEM REWARDS"
+  // Then later: "Opening BalanceFeature + Bonus Reward"
+  // "Points Earned"
+  // "DisbursedAdjusted/Lapsed"
+  // "1,65,10214,13029,674665"  <- values all concatenated
 
-  // Extract reward points
-  const rewardBalanceMatch = text.match(/(?:Reward\s*)?Points?\s*(?:Balance|Available)[:\s]*([\d,]+)/i);
+  // Current balance appears right after "Reward Points" label
+  const rewardBalanceMatch = text.match(/Reward\s*Points\s*\n([\d,]+)/i);
   if (rewardBalanceMatch) {
     result.rewardPointsBalance = parseInt(rewardBalanceMatch[1].replace(/,/g, ''), 10);
   }
 
-  const rewardEarnedMatch = text.match(/Points?\s*Earned[:\s]*([\d,]+)/i);
-  if (rewardEarnedMatch) {
-    result.rewardPointsEarned = parseInt(rewardEarnedMatch[1].replace(/,/g, ''), 10);
+  // The values row looks like: "1,65,10214,13029,674665" (concatenated without spaces)
+  // These are: Opening Balance, Feature + Bonus Reward, Points Earned, Disbursed, Adjusted/Lapsed
+  // Actually the format shows: "1,65,10214,13029,674665" which is:
+  // 1,65,102 (opening) 14,130 (earned) 29,674 (bonus/disbursed) 665 (adjusted)
+  const rewardDetailsMatch = text.match(/([\d,]+)([\d,]+)([\d,]+)([\d]+)\s*\nPOINTS/i) ||
+                             text.match(/Adjusted\/Lapsed\s*\n([\d,]+)/i);
+  if (rewardDetailsMatch && rewardDetailsMatch.length >= 4) {
+    // Parse the concatenated values - they don't have separators
+    // This needs more careful parsing since values are concatenated
   }
 
-  const rewardRedeemedMatch = text.match(/Points?\s*Redeemed[:\s]*([\d,]+)/i);
-  if (rewardRedeemedMatch) {
-    result.rewardPointsRedeemed = parseInt(rewardRedeemedMatch[1].replace(/,/g, ''), 10);
-  }
-
-  // Extract opening/closing balance
-  const openingMatch = text.match(/Opening\s*Balance[:\s]*(?:Rs\.?|INR)?\s*([\d,]+\.\d{2})/i);
-  if (openingMatch) {
-    result.openingBalance = parseAmount(openingMatch[1]);
-  }
-
-  const closingMatch = text.match(/Closing\s*Balance[:\s]*(?:Rs\.?|INR)?\s*([\d,]+\.\d{2})/i);
-  if (closingMatch) {
-    result.closingBalance = parseAmount(closingMatch[1]);
+  // Extract opening balance from "PREVIOUS STATEMENT DUES" section
+  // Format: "C2,61,320.79C2,81,337.20C3,50,074.10C0.00" (concatenated)
+  const balanceRowMatch = text.match(/FINANCE\s*CHARGES\s*\n[C₹]?([\d,]+\.\d{2})[C₹]([\d,]+\.\d{2})[C₹]([\d,]+\.\d{2})[C₹]([\d,]+\.\d{2})/i);
+  if (balanceRowMatch) {
+    result.openingBalance = parseAmount(balanceRowMatch[1]); // Previous statement dues: 2,61,320.79
+    // balanceRowMatch[2] is payments received: 2,81,337.20
+    // balanceRowMatch[3] is purchases/debit: 3,50,074.10
+    result.financeCharges = parseAmount(balanceRowMatch[4]); // Finance charges: 0.00
   }
 
   return result;
 }
 
+// Parse date in format "23 Jan, 2026" or "24 Dec, 2025" to ISO format
+function parseDateText(dateStr: string): string {
+  if (!dateStr) return '';
+
+  const months: Record<string, string> = {
+    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+    'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+  };
+
+  // Match patterns like "23 Jan, 2026" or "23 Jan 2026"
+  const match = dateStr.match(/(\d{1,2})\s+([A-Za-z]{3}),?\s+(\d{4})/);
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const month = months[match[2].toLowerCase()] || '01';
+    const year = match[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // Fallback to DD/MM/YYYY format
+  const ddmmMatch = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (ddmmMatch) {
+    return `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
+  }
+
+  return dateStr;
+}
+
 function extractCardHolders(text: string): CardHolderInfo[] {
   const holders: CardHolderInfo[] = [];
+
+  // HDFC Infinia statements show card holder names in specific locations:
+  // 1. In the address block: "SHWETA SHUKLA CHANCHAL\n194 RAINBOW RESIDENCY..."
+  // 2. Before transaction sections: "SHWETA S CHANCHAL" followed by transactions
+  // 3. "GAURAV CHANCHAL" as another card holder section
+
+  // Common false positives to skip - these are headers/labels, not names
+  const skipPatterns = new Set([
+    'TOTAL AMOUNT DUE', 'TOTAL AMOUNT', 'MINIMUM DUE', 'DUE DATE', 'CREDIT LIMIT',
+    'TOTAL CREDIT LIMIT', 'AVAILABLE CREDIT LIMIT', 'AVAILABLE CASH LIMIT',
+    'DOMESTIC TRANSACTIONS', 'INTERNATIONAL TRANSACTIONS', 'REWARD POINTS',
+    'OPENING BALANCE', 'CLOSING BALANCE', 'PAYMENT RECEIVED', 'HDFC BANK',
+    'REDEEM REWARDS', 'POINTS EXPIRING', 'IMPORTANT INFORMATION', 'OVER LIMIT',
+    'CURRENT DUES', 'MINIMUM DUES', 'PREVIOUS STATEMENT DUES', 'FINANCE CHARGES',
+    'CONVERT TO EMI', 'MODIFY ON', 'CARD CONTROL', 'PURCHASE INDICATOR',
+    'BILLING PERIOD', 'STATEMENT DATE', 'TRANSACTION DESCRIPTION', 'DATE TIME',
+    'OPPOSITE', 'WIPRO OFFICE', 'AVAILABLE CREDIT LIMITAVAILABLE CASH LIMIT',
+  ]);
+
+  // Look for card holder names that appear right before transaction rows
+  // Pattern: A line with just a name (2-4 words, all caps) followed by transaction date lines
   const lines = text.split('\n');
 
-  // Look for patterns that indicate card holder names
-  // HDFC statements typically show "TRANSACTIONS FOR CARD xxxx" followed by holder name
-  // or "Primary Card" / "Add-On Card" sections
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
 
-  const holderPatterns = [
-    /(?:PRIMARY\s+CARD|MAIN\s+CARD)[:\s]*([A-Z][A-Z\s]+[A-Z])/i,
-    /(?:ADD[-\s]?ON\s+CARD)[:\s]*([A-Z][A-Z\s]+[A-Z])/i,
-    /CARD\s+(?:HOLDER|MEMBER)[:\s]*([A-Z][A-Z\s]+[A-Z])/i,
-    /^([A-Z]{2,}(?:\s+[A-Z]{1,2})?(?:\s+[A-Z]{2,})+)$/gm, // All caps names like "GAURAV CHANCHAL"
-  ];
+    // Skip empty lines and lines that are too short or too long
+    if (!line || line.length < 6 || line.length > 50) continue;
 
-  // First look for explicit primary/add-on designations
-  const primaryMatch = text.match(/(?:PRIMARY\s+CARD|MAIN\s+CARD)[:\s]*([A-Z][A-Z\s]+[A-Z])/i);
+    // Check if this line could be a card holder name
+    // Must be 2-4 words, all uppercase letters and spaces only
+    if (!/^[A-Z][A-Z\s]+[A-Z]$/.test(line)) continue;
 
-  if (primaryMatch) {
-    holders.push({ name: primaryMatch[1].trim(), isPrimary: true });
-  }
+    // Must have 2-4 words (first, middle initial optional, last)
+    const words = line.split(/\s+/).filter(w => w.length > 0);
+    if (words.length < 2 || words.length > 4) continue;
 
-  // Find add-on card holders
-  const addOnPattern = /(?:ADD[-\s]?ON\s+CARD)[:\s]*([A-Z][A-Z\s]+[A-Z])/gi;
-  let addOnMatch;
-  while ((addOnMatch = addOnPattern.exec(text)) !== null) {
-    const name = addOnMatch[1].trim();
-    if (!holders.find(h => h.name === name)) {
-      holders.push({ name, isPrimary: false });
-    }
-  }
+    // Skip known false positives
+    if (skipPatterns.has(line)) continue;
 
-  // If no explicit designations found, look for transaction section headers
-  // Pattern: "Domestic Transactions" followed by a name in all caps
-  const sectionPattern = /(?:Domestic|International)\s+Transactions\s*\n+([A-Z][A-Z\s]+[A-Z])\s*\n/gi;
-  let sectionMatch;
-  while ((sectionMatch = sectionPattern.exec(text)) !== null) {
-    const name = sectionMatch[1].trim();
-    // Skip generic headers
-    if (name === 'DATE' || name === 'DESCRIPTION' || name.length < 4) continue;
-    if (!holders.find(h => h.name === name)) {
-      holders.push({ name, isPrimary: holders.length === 0 });
-    }
-  }
+    // Check if next non-empty line looks like a transaction (starts with date DD/MM/YYYY)
+    let nextIdx = i + 1;
+    while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
 
-  // Fallback: look for names that appear before transaction blocks
-  if (holders.length === 0) {
-    // Look for all-caps names (2+ words, each 2+ chars) that aren't common headers
-    const namePattern = /^([A-Z]{2,}(?:\s+[A-Z]{1,2})?(?:\s+[A-Z]{2,})+)$/gm;
-    let nameMatch;
-    const skipNames = new Set(['TRANSACTION DATE', 'REWARD POINTS', 'CREDIT LIMIT', 'TOTAL DUE',
-      'MINIMUM DUE', 'STATEMENT DATE', 'DOMESTIC TRANSACTIONS', 'INTERNATIONAL TRANSACTIONS',
-      'OPENING BALANCE', 'CLOSING BALANCE', 'PAYMENT RECEIVED', 'HDFC BANK']);
-
-    while ((nameMatch = namePattern.exec(text)) !== null) {
-      const name = nameMatch[1].trim();
-      if (name.length > 5 && !skipNames.has(name) && !holders.find(h => h.name === name)) {
-        // Verify it looks like a person's name (not all single chars, has spaces)
-        if (name.includes(' ') && !/^[A-Z]\s+[A-Z]\s+[A-Z]$/.test(name)) {
+    if (nextIdx < lines.length) {
+      const nextLine = lines[nextIdx].trim();
+      // If followed by a transaction date, this is a card holder name
+      if (/^\d{2}\/\d{2}\/\d{4}/.test(nextLine)) {
+        const name = line;
+        if (!holders.find(h => h.name === name)) {
           holders.push({ name, isPrimary: holders.length === 0 });
         }
+      }
+    }
+  }
+
+  // Also extract the primary card holder from the address block
+  // Pattern: "Email : xxx@xxx.com\nCredit Card No." with name appearing before email
+  const addressMatch = text.match(/([A-Z][A-Z\s]+[A-Z])\n[\dA-Z\s]+\n.*\nEmail\s*:/i);
+  if (addressMatch) {
+    const name = addressMatch[1].trim();
+    if (!skipPatterns.has(name) && !holders.find(h => h.name === name)) {
+      // This is the main account holder - insert at beginning
+      holders.unshift({ name, isPrimary: true });
+      // Mark any existing holders as non-primary
+      for (let i = 1; i < holders.length; i++) {
+        holders[i].isPrimary = false;
       }
     }
   }
@@ -347,9 +409,18 @@ function parseTransactionLines(text: string, cardHolders: CardHolderInfo[]): Par
     description = description.replace(/^[|\s]+/, '').trim();
 
     // Determine if credit or debit
-    // Credits usually have "CR" suffix or "+" prefix
-    const isCredit = /\bCR\b/i.test(line) || /\+\s*[\d,]+\.\d{2}/.test(line) ||
-                     /PAYMENT\s+RECEIVED/i.test(description) ||
+    // Credits usually have "CR" suffix or "+" prefix, or are payments/refunds
+    // The + sign may appear with spaces: "+  C 2,61,321.00"
+    const hasPlus = /\+\s*C?\s*[\d,]+\.\d{2}/.test(line) || /\)\+\s/.test(line);
+    const isCredit = /\bCR\b/i.test(line) || hasPlus ||
+                     /PAYMENT\s*(RECEIVED)?/i.test(description) ||
+                     /AUTOPAY/i.test(description) ||
+                     /THANK\s*YOU/i.test(description) ||
+                     /NEFT.*CREDIT/i.test(description) ||
+                     /IMPS.*CREDIT/i.test(description) ||
+                     /UPI.*CREDIT/i.test(description) ||
+                     /REVERSAL/i.test(description) ||
+                     /CASHBACK/i.test(description) ||
                      /REFUND/i.test(description);
 
     // Extract reward points (usually shown with + or - before number at end)

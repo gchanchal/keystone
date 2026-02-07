@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Building2,
@@ -22,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ServerStatus } from './ServerStatus';
+import { authApi } from '@/lib/api';
 
 // Personal section items
 const personalItems = [
@@ -44,8 +46,12 @@ const gearupItems = [
 // Standalone items
 const standaloneItems = [
   { to: '/uploads', icon: Upload, label: 'Upload Center' },
+  // { to: '/settings/learn', icon: Brain, label: 'Scan & Learn' }, // Hidden for now - revisit later
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
+
+// Email allowed to see GearUp Mods section
+const GEARUP_ALLOWED_EMAIL = 'g.chanchal@gmail.com';
 
 interface SidebarProps {
   open: boolean;
@@ -54,6 +60,16 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
+
+  // Get current user to check email
+  const { data: authStatus } = useQuery({
+    queryKey: ['authStatus'],
+    queryFn: authApi.getStatus,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const userEmail = authStatus?.user?.email;
+  const showGearupSection = userEmail === GEARUP_ALLOWED_EMAIL;
 
   // Determine which section is active based on current path
   const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/performance', '/loans'].some(
@@ -151,33 +167,35 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               )}
             </div>
 
-            {/* GearUp Mods Section */}
-            <div className="space-y-1">
-              <button
-                onClick={() => setGearupExpanded(!gearupExpanded)}
-                className={cn(
-                  'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
-                  isGearupPath
-                    ? 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300'
-                    : 'text-foreground hover:bg-accent'
+            {/* GearUp Mods Section - Only show for allowed user */}
+            {showGearupSection && (
+              <div className="space-y-1">
+                <button
+                  onClick={() => setGearupExpanded(!gearupExpanded)}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                    isGearupPath
+                      ? 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300'
+                      : 'text-foreground hover:bg-accent'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Car className="h-5 w-5" />
+                    GearUp Mods
+                  </div>
+                  {gearupExpanded ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </button>
+                {gearupExpanded && (
+                  <div className="ml-4 space-y-1 border-l pl-3">
+                    {gearupItems.map(renderNavItem)}
+                  </div>
                 )}
-              >
-                <div className="flex items-center gap-3">
-                  <Car className="h-5 w-5" />
-                  GearUp Mods
-                </div>
-                {gearupExpanded ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </button>
-              {gearupExpanded && (
-                <div className="ml-4 space-y-1 border-l pl-3">
-                  {gearupItems.map(renderNavItem)}
-                </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Divider */}
             <div className="my-2 border-t" />

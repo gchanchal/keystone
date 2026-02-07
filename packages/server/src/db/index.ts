@@ -20,6 +20,7 @@ import * as fixedExpensesSchema from './schema/fixed-expenses.js';
 import * as recurringIncomeSchema from './schema/recurring-income.js';
 import * as gmailIntegrationSchema from './schema/gmail-integration.js';
 import * as portfolioSnapshotsSchema from './schema/portfolio-snapshots.js';
+import * as templatesSchema from './schema/templates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -54,6 +55,7 @@ export const db = drizzle(sqlite, {
     ...recurringIncomeSchema,
     ...gmailIntegrationSchema,
     ...portfolioSnapshotsSchema,
+    ...templatesSchema,
   },
 });
 
@@ -715,6 +717,50 @@ export function initializeDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user_date ON portfolio_snapshots(user_id, snapshot_date);
     CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_date ON portfolio_snapshots(snapshot_date);
+
+    -- Learned statement templates
+    CREATE TABLE IF NOT EXISTS learned_templates (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      institution TEXT NOT NULL,
+      statement_type TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      detection_patterns TEXT NOT NULL,
+      field_mappings TEXT NOT NULL,
+      sample_headers TEXT,
+      sample_rows TEXT,
+      is_active INTEGER DEFAULT 1,
+      confidence_score REAL DEFAULT 0,
+      times_used INTEGER DEFAULT 0,
+      last_used_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_learned_templates_user ON learned_templates(user_id);
+    CREATE INDEX IF NOT EXISTS idx_learned_templates_active ON learned_templates(is_active);
+
+    -- Template learning sessions
+    CREATE TABLE IF NOT EXISTS template_learning_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      template_id TEXT,
+      status TEXT DEFAULT 'extracting',
+      filename TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_type TEXT,
+      extracted_fields TEXT,
+      suggested_mappings TEXT,
+      final_mappings TEXT,
+      detected_patterns TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_template_learning_sessions_user ON template_learning_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_template_learning_sessions_status ON template_learning_sessions(status);
   `);
 
   // Add currency column if it doesn't exist (migration for existing DBs)
@@ -910,6 +956,7 @@ export * from './schema/fixed-expenses.js';
 export * from './schema/recurring-income.js';
 export * from './schema/gmail-integration.js';
 export * from './schema/portfolio-snapshots.js';
+export * from './schema/templates.js';
 
 // Export sqlite for direct queries
 export { sqlite };

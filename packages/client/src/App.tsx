@@ -16,6 +16,7 @@ import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { CreditCards } from '@/pages/CreditCards';
 import { PortfolioPerformance } from '@/pages/PortfolioPerformance';
+import { LearnStatements } from '@/pages/settings/LearnStatements';
 
 function App() {
   return (
@@ -47,6 +48,7 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="performance" element={<PortfolioPerformance />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/learn" element={<LearnStatements />} />
         </Route>
       </Routes>
     </TooltipProvider>

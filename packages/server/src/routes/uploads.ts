@@ -174,7 +174,10 @@ router.post('/detect', upload.single('file'), async (req, res) => {
     const filePath = req.file.path;
     const buffer = fs.readFileSync(filePath);
 
-    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype);
+    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, undefined, req.userId);
+
+    console.log('[Detect API] File:', req.file.originalname);
+    console.log('[Detect API] Detection result:', JSON.stringify(detection, null, 2));
 
     // Clean up the temp file
     try {
@@ -205,6 +208,9 @@ router.post('/detect', upload.single('file'), async (req, res) => {
       case 'home_loan_statement':
         uploadType = 'home_loan_statement';
         break;
+      case 'learned_template':
+        uploadType = 'learned_template';
+        break;
       default:
         uploadType = null;
     }
@@ -215,6 +221,8 @@ router.post('/detect', upload.single('file'), async (req, res) => {
       bankName: detection.bankName,
       needsUserInput: detection.confidence === 'low' || !uploadType,
       needsPassword: detection.needsPassword || false,
+      learnedTemplateId: detection.learnedTemplateId,
+      learnedTemplateName: detection.learnedTemplateName,
     });
   } catch (error: any) {
     console.error('Error detecting file type:', error?.message || error);
@@ -1627,7 +1635,7 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
     const password = req.body?.password as string | undefined;
 
     // Step 1: Detect file type and bank (with password if provided)
-    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password);
+    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password, req.userId);
 
     // Check if PDF needs password
     if (detection.needsPassword && !password) {
@@ -1639,9 +1647,23 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
       });
     }
 
+    // Handle HDFC Credit Cards (Infinia and others)
+    if (detection.fileType === 'credit_card_infinia' ||
+        (detection.fileType === 'credit_card' && detection.bankName === 'hdfc')) {
+      return await handleInfiniaCreditCardSmartImport(req, res, buffer, filePath, now);
+    }
+
+    // For other credit cards, show message to use manual upload for now
+    if (detection.fileType === 'credit_card') {
+      return res.status(400).json({
+        error: `Smart import for ${detection.bankName || 'this'} credit card is not yet supported. Please use Upload Center.`,
+        detected: detection,
+      });
+    }
+
     if (detection.fileType !== 'bank_statement') {
       return res.status(400).json({
-        error: 'Only bank statements are supported for smart import',
+        error: 'Only bank statements and HDFC credit cards are supported for smart import',
         detected: detection,
       });
     }
@@ -2047,5 +2069,218 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete upload' });
   }
 });
+
+// Helper function for HDFC Infinia Credit Card smart import
+async function handleInfiniaCreditCardSmartImport(
+  req: any,
+  res: any,
+  buffer: Buffer,
+  filePath: string,
+  now: string
+) {
+  try {
+    // Parse the Infinia statement
+    const infiniaData = await parseHDFCInfiniaCreditCard(buffer);
+
+    if (!infiniaData || !infiniaData.transactions || infiniaData.transactions.length === 0) {
+      return res.status(400).json({
+        error: 'Could not parse credit card statement or no transactions found',
+      });
+    }
+
+    // Extract card number for account matching
+    const cardNumber = infiniaData.cardNumber || '';
+    const lastFour = cardNumber.replace(/X/g, '').slice(-4) || '8810';
+
+    console.log(`[SmartImport CC] HDFC Infinia - Card: ${cardNumber}, Last4: ${lastFour}, Transactions: ${infiniaData.transactions.length}`);
+
+    // Find or create the credit card account
+    let account = null;
+    const existingAccounts = await db
+      .select()
+      .from(accounts)
+      .where(and(
+        eq(accounts.userId, req.userId!),
+        eq(accounts.accountType, 'credit_card')
+      ));
+
+    // Try to match by card number ending or Infinia name
+    for (const acc of existingAccounts) {
+      const accBankLower = (acc.bankName || '').toLowerCase();
+      const accCardLower = (acc.cardName || '').toLowerCase();
+      if (accBankLower.includes('hdfc') && (
+        acc.accountNumber?.endsWith(lastFour) ||
+        accCardLower.includes('infinia')
+      )) {
+        account = acc;
+        break;
+      }
+    }
+
+    let accountCreated = false;
+
+    if (!account) {
+      // Create new credit card account
+      const accountId = uuidv4();
+      await db.insert(accounts).values({
+        id: accountId,
+        userId: req.userId!,
+        name: 'HDFC Infinia Credit Card',
+        bankName: 'HDFC Bank',
+        accountNumber: cardNumber || `XXXX${lastFour}`,
+        accountType: 'credit_card',
+        currency: 'INR',
+        openingBalance: 0,
+        currentBalance: -(infiniaData.totalDue || 0),
+        isActive: true,
+        cardName: 'Infinia',
+        cardNetwork: 'Diners Club',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const [newAccount] = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, accountId));
+      account = newAccount;
+      accountCreated = true;
+      console.log(`[SmartImport CC] Created new account: ${accountId}`);
+    }
+
+    // Create upload record
+    const uploadId = uuidv4();
+    await db.insert(uploads).values({
+      id: uploadId,
+      userId: req.userId!,
+      filename: path.basename(filePath),
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadType: 'credit_card',
+      bankName: 'hdfc_infinia',
+      accountId: account.id,
+      status: 'processing',
+      createdAt: now,
+    });
+
+    // Check for duplicates
+    const existingTxns = await db
+      .select()
+      .from(creditCardTransactions)
+      .where(and(
+        eq(creditCardTransactions.userId, req.userId!),
+        eq(creditCardTransactions.accountId, account.id)
+      ));
+
+    const existingSignatures = new Set(
+      existingTxns.map(t => `${t.date}|${t.amount}|${t.description?.substring(0, 30)}`)
+    );
+
+    // Convert and filter transactions
+    const newTransactions = infiniaData.transactions.filter(t => {
+      const sig = `${t.date}|${t.amount}|${t.description?.substring(0, 30)}`;
+      return !existingSignatures.has(sig);
+    });
+
+    // Insert transactions
+    let insertedCount = 0;
+    for (const txn of newTransactions) {
+      await db.insert(creditCardTransactions).values({
+        id: uuidv4(),
+        userId: req.userId!,
+        accountId: account.id,
+        date: txn.date,
+        description: txn.description,
+        amount: Math.abs(txn.amount),
+        transactionType: txn.transactionType,
+        cardHolderName: txn.cardHolderName,
+        isEmi: !!txn.isEmi,
+        emiTenure: txn.emiTenure,
+        rewardPoints: txn.rewardPoints || 0,
+        merchantLocation: txn.merchantLocation,
+        transactionTime: txn.time,
+        piCategory: txn.piCategory,
+        uploadId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertedCount++;
+    }
+
+    // Create statement record
+    await db.insert(creditCardStatements).values({
+      id: uuidv4(),
+      userId: req.userId!,
+      accountId: account.id,
+      statementDate: infiniaData.statementDate || now.split('T')[0],
+      billingPeriodStart: infiniaData.billingPeriodStart || '',
+      billingPeriodEnd: infiniaData.billingPeriodEnd || '',
+      dueDate: infiniaData.dueDate || '',
+      totalDue: infiniaData.totalDue || 0,
+      minimumDue: infiniaData.minimumDue || 0,
+      creditLimit: infiniaData.creditLimit || 0,
+      availableLimit: infiniaData.availableLimit || 0,
+      rewardPointsBalance: infiniaData.rewardPointsBalance || 0,
+      rewardPointsEarned: infiniaData.rewardPointsEarned || 0,
+      uploadId,
+      createdAt: now,
+    });
+
+    // Update upload status
+    await db
+      .update(uploads)
+      .set({
+        status: 'completed',
+        transactionCount: insertedCount,
+        processedAt: now,
+      })
+      .where(eq(uploads.id, uploadId));
+
+    // Update account balance
+    await db
+      .update(accounts)
+      .set({
+        currentBalance: -(infiniaData.totalDue || 0),
+        updatedAt: now,
+      })
+      .where(eq(accounts.id, account.id));
+
+    // Clean up temp file
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {}
+
+    const skippedCount = infiniaData.transactions.length - insertedCount;
+
+    res.json({
+      success: true,
+      message: `Smart import complete! ${insertedCount} transactions imported${skippedCount > 0 ? `, ${skippedCount} duplicates skipped` : ''}.`,
+      accountCreated,
+      account: {
+        id: account.id,
+        name: account.name,
+        bankName: account.bankName,
+      },
+      transactionCount: insertedCount,
+      duplicatesSkipped: skippedCount,
+      statementInfo: {
+        statementDate: infiniaData.statementDate,
+        totalDue: infiniaData.totalDue,
+        minimumDue: infiniaData.minimumDue,
+        dueDate: infiniaData.dueDate,
+        rewardPoints: infiniaData.rewardPointsBalance,
+      },
+    });
+  } catch (error: any) {
+    console.error('[SmartImport CC] Error:', error);
+    res.status(500).json({
+      error: 'Failed to import credit card statement',
+      details: error.message,
+    });
+  }
+}
 
 export default router;
