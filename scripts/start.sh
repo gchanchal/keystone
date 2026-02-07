@@ -1,15 +1,18 @@
 #!/bin/bash
 
-# Install pdfplumber (try multiple methods)
+echo "=== KeyStone Startup ==="
+
+# Install pdfplumber - show output for debugging
 echo "Installing pdfplumber..."
-pip3 install --user pdfplumber 2>/dev/null || \
-pip3 install --break-system-packages pdfplumber 2>/dev/null || \
-python3 -m pip install --user pdfplumber 2>/dev/null || \
-echo "Warning: Could not install pdfplumber"
+pip3 install pdfplumber 2>&1 || \
+pip3 install --user pdfplumber 2>&1 || \
+python3 -m pip install pdfplumber 2>&1 || \
+echo "ERROR: All pip install methods failed"
 
 # Verify installation
-python3 -c "import pdfplumber; print('pdfplumber installed successfully')" 2>/dev/null || \
-echo "Warning: pdfplumber not available"
+echo "Verifying pdfplumber..."
+python3 -c "import pdfplumber; print('SUCCESS: pdfplumber version', pdfplumber.__version__)" 2>&1 || \
+echo "ERROR: pdfplumber import failed"
 
 # Start the server
 echo "Starting KeyStone server..."
