@@ -204,11 +204,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </nav>
 
           {/* Version & Server Status */}
-          <div className="border-t p-4 space-y-2">
-            <p className="text-[10px] text-muted-foreground/50 text-center">
-              {import.meta.env.VITE_APP_VERSION || 'dev'}
-            </p>
-            <ServerStatus />
+          <div className="border-t p-4">
+            <div className="flex items-center justify-between">
+              <ServerStatus />
+              <span className="text-[10px] text-muted-foreground/50">
+                {import.meta.env.VITE_APP_VERSION || 'dev'}
+              </span>
+            </div>
           </div>
         </div>
       </aside>
