@@ -817,6 +817,39 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add extended account fields for smart import
+  const accountExtendedMigrations = [
+    'ALTER TABLE accounts ADD COLUMN sweep_balance REAL DEFAULT 0',
+    'ALTER TABLE accounts ADD COLUMN linked_fd_account TEXT',
+    'ALTER TABLE accounts ADD COLUMN ifsc_code TEXT',
+    'ALTER TABLE accounts ADD COLUMN branch_name TEXT',
+    'ALTER TABLE accounts ADD COLUMN account_holder_name TEXT',
+    'ALTER TABLE accounts ADD COLUMN address TEXT',
+    'ALTER TABLE accounts ADD COLUMN account_status TEXT',
+  ];
+  for (const migration of accountExtendedMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
+  // Migration: Add reconciliation fingerprint fields to vyapar_transactions
+  const vyaparFingerprintMigrations = [
+    'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_date TEXT',
+    'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_amount REAL',
+    'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_narration TEXT',
+    'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_account_id TEXT',
+  ];
+  for (const migration of vyaparFingerprintMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
   // Create indexes for user_id columns
   const userIdIndexes = [
     'CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id)',
