@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Wifi, Check } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +49,8 @@ const accountTypeLabels: Record<string, string> = {
 
 export function Accounts() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlightedAccountId, setHighlightedAccountId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [formData, setFormData] = useState({
@@ -55,9 +59,31 @@ export function Accounts() {
     accountNumber: '',
     accountType: 'savings' as 'savings' | 'current' | 'credit_card' | 'loan',
     openingBalance: 0,
+    // Bank account metadata
+    ifscCode: '',
+    branchName: '',
+    accountHolderName: '',
+    address: '',
+    accountStatus: '',
+    // Credit card fields
     cardName: '',
     cardNetwork: '',
   });
+
+  // Handle highlight param from smart import
+  useEffect(() => {
+    const highlightId = searchParams.get('highlight');
+    if (highlightId) {
+      setHighlightedAccountId(highlightId);
+      // Clear the URL param
+      setSearchParams({}, { replace: true });
+      // Remove highlight after 3 seconds
+      const timer = setTimeout(() => {
+        setHighlightedAccountId(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, setSearchParams]);
 
   // Get available cards based on selected bank
   const availableCards = useMemo(() => {
@@ -102,6 +128,11 @@ export function Accounts() {
       accountNumber: '',
       accountType: 'savings',
       openingBalance: 0,
+      ifscCode: '',
+      branchName: '',
+      accountHolderName: '',
+      address: '',
+      accountStatus: '',
       cardName: '',
       cardNetwork: '',
     });
@@ -116,6 +147,11 @@ export function Accounts() {
       accountNumber: account.accountNumber || '',
       accountType: account.accountType,
       openingBalance: account.openingBalance,
+      ifscCode: account.ifscCode || '',
+      branchName: account.branchName || '',
+      accountHolderName: account.accountHolderName || '',
+      address: account.address || '',
+      accountStatus: account.accountStatus || '',
       cardName: account.cardName || '',
       cardNetwork: account.cardNetwork || '',
     });
@@ -162,58 +198,89 @@ export function Accounts() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {activeAccounts.map((account: Account) => {
             const Icon = accountTypeIcons[account.accountType];
-            return (
-              <Card key={account.id}>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-full bg-primary/10 p-3">
-                        <Icon className="h-6 w-6 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">{account.name}</p>
-                        <p className="text-sm text-muted-foreground">{account.bankName}</p>
-                      </div>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleEdit(account)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => deleteMutation.mutate(account.id)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+            const isHighlighted = highlightedAccountId === account.id;
 
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Current Balance</span>
-                      <span className="text-xl font-bold">{formatCurrency(account.currentBalance)}</span>
+            const cardContent = (
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-full bg-primary/10 p-3">
+                      <Icon className="h-6 w-6 text-primary" />
                     </div>
-                    {account.accountNumber && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Account Number</span>
-                        <span className="text-sm">****{account.accountNumber.slice(-4)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Type</span>
-                      <Badge variant="secondary">{accountTypeLabels[account.accountType]}</Badge>
+                    <div>
+                      <p className="font-semibold">{account.name}</p>
+                      <p className="text-sm text-muted-foreground">{account.bankName}</p>
                     </div>
                   </div>
-                </CardContent>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleEdit(account)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => deleteMutation.mutate(account.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Current Balance</span>
+                    <span className="text-xl font-bold">{formatCurrency(account.currentBalance)}</span>
+                  </div>
+                  {account.accountNumber && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Account Number</span>
+                      <span className="text-sm">****{account.accountNumber.slice(-4)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Type</span>
+                    <Badge variant="secondary">{accountTypeLabels[account.accountType]}</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            );
+
+            return isHighlighted ? (
+              <motion.div
+                key={account.id}
+                initial={{ scale: 1 }}
+                animate={{
+                  scale: [1, 1.02, 1],
+                  boxShadow: [
+                    '0 0 0 0 rgba(59, 130, 246, 0)',
+                    '0 0 20px 4px rgba(59, 130, 246, 0.5)',
+                    '0 0 30px 8px rgba(59, 130, 246, 0.3)',
+                    '0 0 20px 4px rgba(59, 130, 246, 0.5)',
+                    '0 0 0 0 rgba(59, 130, 246, 0)',
+                  ],
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: 1,
+                  ease: 'easeInOut',
+                }}
+                className="rounded-lg"
+              >
+                <Card className="border-primary/50 bg-primary/5">
+                  {cardContent}
+                </Card>
+              </motion.div>
+            ) : (
+              <Card key={account.id}>
+                {cardContent}
               </Card>
             );
           })}
@@ -256,6 +323,67 @@ export function Accounts() {
                 onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
                 placeholder="e.g., 1234567890"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="accountHolderName">Account Holder Name</Label>
+              <Input
+                id="accountHolderName"
+                value={formData.accountHolderName}
+                onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })}
+                placeholder="e.g., John Doe"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ifscCode">IFSC Code</Label>
+                <Input
+                  id="ifscCode"
+                  value={formData.ifscCode}
+                  onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })}
+                  placeholder="e.g., HDFC0001234"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="branchName">Branch Name</Label>
+                <Input
+                  id="branchName"
+                  value={formData.branchName}
+                  onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                  placeholder="e.g., Andheri West"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address">Address</Label>
+              <Input
+                id="address"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                placeholder="e.g., 123 Main Street, City"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="accountStatus">Account Status</Label>
+              <Select
+                value={formData.accountStatus || undefined}
+                onValueChange={(value) => setFormData({ ...formData, accountStatus: value === '_none' ? '' : value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">-- Select Status --</SelectItem>
+                  <SelectItem value="Individual">Individual</SelectItem>
+                  <SelectItem value="Joint">Joint</SelectItem>
+                  <SelectItem value="Corporate">Corporate</SelectItem>
+                  <SelectItem value="Proprietary">Proprietary</SelectItem>
+                  <SelectItem value="Partnership">Partnership</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

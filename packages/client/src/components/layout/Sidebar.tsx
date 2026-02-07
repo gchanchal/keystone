@@ -30,8 +30,8 @@ const personalItems = [
   { to: '/investments', icon: TrendingUp, label: 'Investments' },
   { to: '/loans', icon: HandCoins, label: 'Expenses & Income' },
   { to: '/credit-cards', icon: CreditCard, label: 'Credit Cards' },
-  { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
   { to: '/accounts', icon: Building2, label: 'Accounts' },
+  { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
 ];
 
 // GearUp Mods section items
