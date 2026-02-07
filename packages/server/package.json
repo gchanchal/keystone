@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp src/parsers/*.py dist/parsers/",
     "start": "node dist/index.js",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
