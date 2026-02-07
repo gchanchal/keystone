@@ -3,7 +3,7 @@
 nixPkgs = ["nodejs_20", "python312", "python312Packages.pip"]
 
 [phases.install]
-cmds = ["npm install", "pip install -r packages/server/requirements.txt"]
+cmds = ["npm install", "pip3 install --break-system-packages pdfplumber"]
 
 [phases.build]
 cmds = ["npm run build"]
