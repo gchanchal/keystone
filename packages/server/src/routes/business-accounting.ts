@@ -1510,11 +1510,60 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       taxableAmount = totalAmount - gstAmount;
     }
 
+    // Auto-match invoice to transaction if not already linked
+    let matchedTransactionId: string | null = data.transactionId || null;
+
+    if (!matchedTransactionId && partyName && partyName !== 'Unknown' && totalAmount > 0) {
+      // Try to find a matching transaction by vendor name, amount, and date
+      const invoiceDateObj = new Date(invoiceDate);
+      const dateStart = new Date(invoiceDateObj);
+      dateStart.setDate(dateStart.getDate() - 7); // 7 days before
+      const dateEnd = new Date(invoiceDateObj);
+      dateEnd.setDate(dateEnd.getDate() + 7); // 7 days after
+
+      // Get potential matching transactions
+      const potentialMatches = await db
+        .select()
+        .from(bankTransactions)
+        .where(
+          and(
+            eq(bankTransactions.userId, req.userId!),
+            between(bankTransactions.date, dateStart.toISOString().split('T')[0], dateEnd.toISOString().split('T')[0]),
+            isNull(bankTransactions.invoiceFileId) // Not already linked to an invoice
+          )
+        );
+
+      // Find best match by vendor name and amount
+      const partyNameLower = partyName.toLowerCase();
+      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length > 2);
+
+      for (const tx of potentialMatches) {
+        const txVendor = (tx.vendorName || tx.narration || '').toLowerCase();
+        const txAmount = tx.amount || 0;
+
+        // Check if amount matches (within 1% tolerance for rounding differences)
+        const amountDiff = Math.abs(txAmount - totalAmount);
+        const amountMatches = amountDiff < 1 || (amountDiff / totalAmount) < 0.01;
+
+        if (!amountMatches) continue;
+
+        // Check if vendor name matches (any significant word from party name appears in transaction)
+        const vendorMatches = partyNameWords.some((word: string) => txVendor.includes(word)) ||
+          txVendor.includes(partyNameLower.substring(0, 10)); // First 10 chars
+
+        if (vendorMatches) {
+          matchedTransactionId = tx.id;
+          console.log(`Auto-matched invoice to transaction: ${tx.id} (${tx.vendorName || tx.narration?.substring(0, 30)})`);
+          break;
+        }
+      }
+    }
+
     // Create invoice record
     await db.insert(businessInvoices).values({
       id: invoiceId,
       userId: req.userId!,
-      transactionId: data.transactionId || null,
+      transactionId: matchedTransactionId,
       filename: req.file?.filename || null,
       originalName: req.file?.originalname || null,
       mimeType: req.file?.mimetype || null,
@@ -1538,8 +1587,8 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       updatedAt: now,
     });
 
-    // If linked to a transaction, update the transaction
-    if (data.transactionId) {
+    // If linked to a transaction (manual or auto-matched), update the transaction
+    if (matchedTransactionId) {
       await db
         .update(bankTransactions)
         .set({
@@ -1549,9 +1598,10 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
           sgstAmount,
           igstAmount,
           gstType: data.gstType,
+          vendorName: partyName, // Update vendor name from invoice
           updatedAt: now,
         })
-        .where(eq(bankTransactions.id, data.transactionId));
+        .where(eq(bankTransactions.id, matchedTransactionId));
     }
 
     const [invoice] = await db
@@ -1559,7 +1609,13 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       .from(businessInvoices)
       .where(eq(businessInvoices.id, invoiceId));
 
-    res.json(invoice);
+    // Include auto-match info in response
+    const autoMatched = matchedTransactionId && !data.transactionId;
+    res.json({
+      ...invoice,
+      autoMatched,
+      matchedTransactionId: autoMatched ? matchedTransactionId : undefined,
+    });
   } catch (error) {
     console.error('Error creating GST invoice:', error);
     if (req.file) {
