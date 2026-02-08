@@ -38,6 +38,8 @@ data/uploads/*
 packages/data/*.db
 packages/data/*.db-*
 packages/data/uploads/*
+packages/data/invoices/*
+packages/data/learn-uploads/*
 !packages/data/.gitkeep
 packages/server/*.db
 
