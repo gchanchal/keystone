@@ -1947,6 +1947,41 @@ router.post('/auto-match-invoices', async (req, res) => {
       return res.json({ matched: 0, message: 'No ASG accounts found' });
     }
 
+    const now = new Date().toISOString();
+
+    // First, clean up any invoices with stale transaction_id (pointing to non-existent transactions)
+    const invoicesWithLinks = await db
+      .select({ id: businessInvoices.id, transactionId: businessInvoices.transactionId })
+      .from(businessInvoices)
+      .where(
+        and(
+          eq(businessInvoices.userId, req.userId!),
+          sql`${businessInvoices.transactionId} IS NOT NULL AND ${businessInvoices.transactionId} != ''`
+        )
+      );
+
+    let staleCount = 0;
+    for (const inv of invoicesWithLinks) {
+      const [tx] = await db
+        .select({ id: bankTransactions.id })
+        .from(bankTransactions)
+        .where(eq(bankTransactions.id, inv.transactionId!))
+        .limit(1);
+
+      if (!tx) {
+        // Transaction doesn't exist - clear the stale link
+        await db
+          .update(businessInvoices)
+          .set({ transactionId: null, updatedAt: now })
+          .where(eq(businessInvoices.id, inv.id));
+        staleCount++;
+      }
+    }
+
+    if (staleCount > 0) {
+      console.log(`[AutoMatch] Cleaned up ${staleCount} invoices with stale transaction links`);
+    }
+
     // Get all unlinked invoices (no transactionId)
     const unlinkedInvoices = await db
       .select()
@@ -1960,10 +1995,9 @@ router.post('/auto-match-invoices', async (req, res) => {
       );
 
     if (unlinkedInvoices.length === 0) {
-      return res.json({ matched: 0, message: 'No unlinked invoices to match' });
+      return res.json({ matched: 0, staleCleared: staleCount, message: 'No unlinked invoices to match' });
     }
 
-    const now = new Date().toISOString();
     let matchedCount = 0;
     const matchDetails: Array<{
       invoiceId: string;
@@ -2011,20 +2045,6 @@ router.post('/auto-match-invoices', async (req, res) => {
       // Include all words, even short ones like "HTRZ"
       const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length >= 2);
 
-      console.log(`[AutoMatch] Checking invoice ${invoice.invoiceNumber}: party="${partyName}", amount=${totalAmount}, date=${invoiceDate}, words=[${partyNameWords.join(',')}]`);
-      console.log(`[AutoMatch] Date range: ${dateStart.toISOString().split('T')[0]} to ${dateEnd.toISOString().split('T')[0]}`);
-      console.log(`[AutoMatch] Found ${potentialMatches.length} potential transactions in date range`);
-
-      if (potentialMatches.length > 0) {
-        console.log(`[AutoMatch] Potential transactions:`, potentialMatches.map(t => ({
-          id: t.id.substring(0, 8),
-          date: t.date,
-          vendor: t.vendorName,
-          amount: t.amount,
-          hasInvoice: !!t.invoiceFileId
-        })));
-      }
-
       for (const tx of potentialMatches) {
         const txVendorName = (tx.vendorName || '').toLowerCase().trim();
         const txNarration = (tx.narration || '').toLowerCase();
@@ -2034,14 +2054,11 @@ router.post('/auto-match-invoices', async (req, res) => {
         const amountDiff = Math.abs(txAmount - totalAmount);
         const amountMatches = amountDiff < 1 || (totalAmount > 0 && (amountDiff / totalAmount) < 0.01);
 
-        console.log(`[AutoMatch] Comparing: invoice amount=${totalAmount} vs tx amount=${txAmount}, diff=${amountDiff}, matches=${amountMatches}`);
-
         if (!amountMatches) continue;
 
         // Multiple vendor matching strategies:
         // 1. Exact match of vendor name
         const exactMatch = txVendorName === partyNameLower;
-        console.log(`[AutoMatch] Vendor check: invoice="${partyNameLower}" vs tx="${txVendorName}", exact=${exactMatch}`);
         // 2. Transaction vendor contains party name
         const vendorContainsParty = txVendorName.includes(partyNameLower);
         // 3. Party name contains transaction vendor (if vendor name exists)
@@ -2058,8 +2075,6 @@ router.post('/auto-match-invoices', async (req, res) => {
         const vendorMatches = exactMatch || vendorContainsParty || partyContainsVendor || wordMatch || prefixMatch;
 
         if (vendorMatches) {
-          console.log(`[AutoMatch] MATCH: invoice ${invoice.invoiceNumber} -> tx ${tx.id} (vendor: ${tx.vendorName}, amount: ${txAmount})`);
-          console.log(`  Match reasons: exact=${exactMatch}, contains=${vendorContainsParty}, partyContains=${partyContainsVendor}, word=${wordMatch}, prefix=${prefixMatch}`);
           // Found a match! Link the invoice to the transaction
           await db
             .update(businessInvoices)
@@ -2102,8 +2117,9 @@ router.post('/auto-match-invoices', async (req, res) => {
     res.json({
       matched: matchedCount,
       total: unlinkedInvoices.length,
+      staleCleared: staleCount,
       details: matchDetails,
-      message: `Matched ${matchedCount} of ${unlinkedInvoices.length} unlinked invoices`,
+      message: `Matched ${matchedCount} of ${unlinkedInvoices.length} unlinked invoices${staleCount > 0 ? ` (cleared ${staleCount} stale links)` : ''}`,
     });
   } catch (error) {
     console.error('Error auto-matching invoices:', error);
