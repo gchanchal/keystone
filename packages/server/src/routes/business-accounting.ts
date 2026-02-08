@@ -1935,6 +1935,114 @@ router.get('/gst-ledger', async (req, res) => {
 });
 
 // ============================================
+// Get Invoices by Vendor for Manual Matching
+// ============================================
+
+// Get unlinked invoices for a vendor/party name
+router.get('/invoices-by-vendor', async (req, res) => {
+  try {
+    const { vendorName } = req.query;
+
+    if (!vendorName || typeof vendorName !== 'string') {
+      return res.json([]);
+    }
+
+    const vendorLower = vendorName.toLowerCase().trim();
+
+    // Get all unlinked invoices
+    const allInvoices = await db
+      .select()
+      .from(businessInvoices)
+      .where(
+        and(
+          eq(businessInvoices.userId, req.userId!),
+          sql`(${businessInvoices.transactionId} IS NULL OR ${businessInvoices.transactionId} = '')`
+        )
+      )
+      .orderBy(desc(businessInvoices.invoiceDate));
+
+    // Filter by vendor name match (flexible matching)
+    const matchingInvoices = allInvoices.filter(inv => {
+      const partyName = (inv.partyName || '').toLowerCase().trim();
+      if (!partyName) return false;
+
+      // Check various matching strategies
+      const exactMatch = partyName === vendorLower;
+      const vendorContainsParty = vendorLower.includes(partyName);
+      const partyContainsVendor = partyName.includes(vendorLower);
+      const wordMatch = vendorLower.split(/\s+/).some(word =>
+        word.length >= 2 && partyName.includes(word)
+      );
+
+      return exactMatch || vendorContainsParty || partyContainsVendor || wordMatch;
+    });
+
+    res.json(matchingInvoices);
+  } catch (error) {
+    console.error('Error fetching invoices by vendor:', error);
+    res.status(500).json({ error: 'Failed to fetch invoices' });
+  }
+});
+
+// Manually link an invoice to a transaction
+router.post('/link-invoice', async (req, res) => {
+  try {
+    const { invoiceId, transactionId } = req.body;
+
+    if (!invoiceId || !transactionId) {
+      return res.status(400).json({ error: 'invoiceId and transactionId are required' });
+    }
+
+    // Verify invoice belongs to user
+    const [invoice] = await db
+      .select()
+      .from(businessInvoices)
+      .where(and(eq(businessInvoices.id, invoiceId), eq(businessInvoices.userId, req.userId!)));
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    // Verify transaction belongs to user
+    const [transaction] = await db
+      .select()
+      .from(bankTransactions)
+      .where(eq(bankTransactions.id, transactionId));
+
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    const now = new Date().toISOString();
+
+    // Link invoice to transaction
+    await db
+      .update(businessInvoices)
+      .set({ transactionId, updatedAt: now })
+      .where(eq(businessInvoices.id, invoiceId));
+
+    // Update transaction with invoice file id and GST info
+    await db
+      .update(bankTransactions)
+      .set({
+        invoiceFileId: invoiceId,
+        gstAmount: invoice.gstAmount || ((invoice.cgstAmount || 0) + (invoice.sgstAmount || 0) + (invoice.igstAmount || 0)),
+        cgstAmount: invoice.cgstAmount,
+        sgstAmount: invoice.sgstAmount,
+        igstAmount: invoice.igstAmount,
+        gstType: invoice.gstType || 'input',
+        updatedAt: now,
+      })
+      .where(eq(bankTransactions.id, transactionId));
+
+    res.json({ success: true, message: 'Invoice linked to transaction' });
+  } catch (error) {
+    console.error('Error linking invoice:', error);
+    res.status(500).json({ error: 'Failed to link invoice' });
+  }
+});
+
+// ============================================
 // Auto-Match Invoices to Transactions
 // ============================================
 

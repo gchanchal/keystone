@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import {
   FileText,
@@ -11,6 +11,7 @@ import {
   Loader2,
   Plus,
   Check,
+  Link2,
 } from 'lucide-react';
 import {
   Dialog,
@@ -61,6 +62,7 @@ export function TransactionDetailModal({
   onClose,
   onUpdate,
 }: TransactionDetailModalProps) {
+  const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     bizType: transaction.bizType || 'OTHER',
     bizDescription: transaction.bizDescription || '',
@@ -110,6 +112,25 @@ export function TransactionDetailModal({
   }>({
     queryKey: ['matching-transactions', transaction.id],
     queryFn: () => businessAccountingApi.getMatchingTransactions(transaction.id),
+  });
+
+  // Fetch unlinked invoices for this vendor (only if no invoice attached)
+  const vendorName = formData.vendorName || transaction.vendorName;
+  const { data: vendorInvoices, refetch: refetchVendorInvoices } = useQuery<any[]>({
+    queryKey: ['vendor-invoices', vendorName],
+    queryFn: () => businessAccountingApi.getInvoicesByVendor(vendorName || ''),
+    enabled: !transaction.invoiceFileId && !!vendorName,
+  });
+
+  // Link invoice mutation
+  const linkInvoiceMutation = useMutation({
+    mutationFn: (invoiceId: string) =>
+      businessAccountingApi.linkInvoice(invoiceId, transaction.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['gst-invoices'] });
+      onUpdate();
+    },
   });
 
   const [propagatedMessage, setPropagatedMessage] = useState<string | null>(null);
@@ -633,6 +654,64 @@ export function TransactionDetailModal({
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Show unlinked invoices from same vendor */}
+            {!transaction.invoiceFileId && vendorInvoices && vendorInvoices.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Unlinked invoices from {vendorName}:
+                </p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {vendorInvoices.map((invoice: any) => (
+                    <div
+                      key={invoice.id}
+                      className="flex items-center justify-between p-2 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {invoice.invoiceNumber || 'No Invoice #'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM yyyy') : '-'} • {formatCurrency(invoice.totalAmount || 0)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        {invoice.filename && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              window.open(
+                                businessAccountingApi.getInvoiceUrl(invoice.id),
+                                '_blank'
+                              )
+                            }
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => linkInvoiceMutation.mutate(invoice.id)}
+                          disabled={linkInvoiceMutation.isPending}
+                        >
+                          {linkInvoiceMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Link2 className="h-4 w-4" />
+                          )}
+                          <span className="ml-1">Link</span>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 

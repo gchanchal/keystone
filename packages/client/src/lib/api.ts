@@ -568,6 +568,14 @@ export const businessAccountingApi = {
   autoMatchInvoices: () =>
     api.post('/business-accounting/auto-match-invoices').then((r) => r.data),
 
+  // Get unlinked invoices by vendor name
+  getInvoicesByVendor: (vendorName: string) =>
+    api.get('/business-accounting/invoices-by-vendor', { params: { vendorName } }).then((r) => r.data),
+
+  // Manually link an invoice to a transaction
+  linkInvoice: (invoiceId: string, transactionId: string) =>
+    api.post('/business-accounting/link-invoice', { invoiceId, transactionId }).then((r) => r.data),
+
   // Import Amazon Business CSV
   importAmazonCSV: (file: File) => {
     const formData = new FormData();
