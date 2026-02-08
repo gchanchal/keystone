@@ -50,7 +50,7 @@ const paymentSchema = z.object({
   notes: z.string().optional(),
 });
 
-const loanGivenDetailSchema = z.object({
+const loanGivenDetailBaseSchema = z.object({
   particular: z.string().min(1),
   toGet: z.number().default(0),
   toGive: z.number().default(0),
@@ -58,7 +58,9 @@ const loanGivenDetailSchema = z.object({
   details: z.string().optional(),
   date: z.string(),
   notes: z.string().optional(),
-}).refine((data) => {
+});
+
+const loanGivenDetailSchema = loanGivenDetailBaseSchema.refine((data) => {
   // Warning: If currency is USD and amount is unusually high (> $50,000), it might be INR entered by mistake
   const amount = Math.max(data.toGet, data.toGive);
   if (data.currency === 'USD' && amount > 50000) {
@@ -1316,7 +1318,7 @@ router.post('/:id/given-details', async (req, res) => {
 // Update a detail entry
 router.put('/:id/given-details/:detailId', async (req, res) => {
   try {
-    const data = loanGivenDetailSchema.partial().parse(req.body);
+    const data = loanGivenDetailBaseSchema.partial().parse(req.body);
     const { id: loanId, detailId } = req.params;
     const now = new Date().toISOString();
 
