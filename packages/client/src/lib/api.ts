@@ -564,6 +564,10 @@ export const businessAccountingApi = {
   fixOldInvoices: () =>
     api.post('/business-accounting/fix-invoices').then((r) => r.data),
 
+  // Auto-match unlinked invoices to transactions
+  autoMatchInvoices: () =>
+    api.post('/business-accounting/auto-match-invoices').then((r) => r.data),
+
   // Import Amazon Business CSV
   importAmazonCSV: (file: File) => {
     const formData = new FormData();

@@ -1925,6 +1925,148 @@ router.get('/gst-ledger', async (req, res) => {
 });
 
 // ============================================
+// Auto-Match Invoices to Transactions
+// ============================================
+
+// Auto-match unlinked invoices to transactions
+router.post('/auto-match-invoices', async (req, res) => {
+  try {
+    const asgAccountIds = await getASGAccountIds(req.userId!);
+
+    if (asgAccountIds.length === 0) {
+      return res.json({ matched: 0, message: 'No ASG accounts found' });
+    }
+
+    // Get all unlinked invoices (no transactionId)
+    const unlinkedInvoices = await db
+      .select()
+      .from(businessInvoices)
+      .where(
+        and(
+          eq(businessInvoices.userId, req.userId!),
+          isNull(businessInvoices.transactionId),
+          sql`${businessInvoices.totalAmount} > 0`
+        )
+      );
+
+    if (unlinkedInvoices.length === 0) {
+      return res.json({ matched: 0, message: 'No unlinked invoices to match' });
+    }
+
+    const now = new Date().toISOString();
+    let matchedCount = 0;
+    const matchDetails: Array<{
+      invoiceId: string;
+      invoiceNumber: string | null;
+      partyName: string | null;
+      transactionId: string;
+      transactionDate: string;
+      amount: number;
+    }> = [];
+
+    for (const invoice of unlinkedInvoices) {
+      const partyName = invoice.partyName || invoice.vendorName;
+      const totalAmount = invoice.totalAmount || 0;
+
+      if (!partyName || partyName === 'Unknown' || totalAmount <= 0) continue;
+
+      // Calculate date range: 7 days before and after invoice date
+      const invoiceDate = invoice.invoiceDate || invoice.createdAt?.split('T')[0];
+      if (!invoiceDate) continue;
+
+      const invoiceDateObj = new Date(invoiceDate);
+      const dateStart = new Date(invoiceDateObj);
+      dateStart.setDate(dateStart.getDate() - 7);
+      const dateEnd = new Date(invoiceDateObj);
+      dateEnd.setDate(dateEnd.getDate() + 7);
+
+      // Get potential matching transactions
+      const potentialMatches = await db
+        .select()
+        .from(bankTransactions)
+        .where(
+          and(
+            eq(bankTransactions.userId, req.userId!),
+            sql`${bankTransactions.accountId} IN (${sql.join(
+              asgAccountIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`,
+            between(bankTransactions.date, dateStart.toISOString().split('T')[0], dateEnd.toISOString().split('T')[0]),
+            isNull(bankTransactions.invoiceFileId) // Not already linked to an invoice
+          )
+        );
+
+      // Find best match by vendor name and amount
+      const partyNameLower = partyName.toLowerCase();
+      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length > 2);
+
+      for (const tx of potentialMatches) {
+        const txVendor = (tx.vendorName || tx.narration || '').toLowerCase();
+        const txAmount = tx.amount || 0;
+
+        // Check if amount matches (within 1% tolerance for rounding differences)
+        const amountDiff = Math.abs(txAmount - totalAmount);
+        const amountMatches = amountDiff < 1 || (totalAmount > 0 && (amountDiff / totalAmount) < 0.01);
+
+        if (!amountMatches) continue;
+
+        // Check if vendor name matches (any significant word from party name appears in transaction)
+        const vendorMatches = partyNameWords.some((word: string) => txVendor.includes(word)) ||
+          txVendor.includes(partyNameLower.substring(0, 10)); // First 10 chars
+
+        if (vendorMatches) {
+          // Found a match! Link the invoice to the transaction
+          await db
+            .update(businessInvoices)
+            .set({
+              transactionId: tx.id,
+              updatedAt: now,
+            })
+            .where(eq(businessInvoices.id, invoice.id));
+
+          await db
+            .update(bankTransactions)
+            .set({
+              invoiceFileId: invoice.id,
+              gstAmount: invoice.gstAmount || tx.gstAmount,
+              cgstAmount: invoice.cgstAmount,
+              sgstAmount: invoice.sgstAmount,
+              igstAmount: invoice.igstAmount,
+              gstType: invoice.gstType || tx.gstType,
+              vendorName: partyName, // Update vendor name from invoice
+              updatedAt: now,
+            })
+            .where(eq(bankTransactions.id, tx.id));
+
+          matchedCount++;
+          matchDetails.push({
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            partyName,
+            transactionId: tx.id,
+            transactionDate: tx.date,
+            amount: txAmount,
+          });
+
+          console.log(`Auto-matched invoice ${invoice.invoiceNumber || invoice.id} to transaction ${tx.id}`);
+          break;
+        }
+      }
+    }
+
+    res.json({
+      matched: matchedCount,
+      total: unlinkedInvoices.length,
+      details: matchDetails,
+      message: `Matched ${matchedCount} of ${unlinkedInvoices.length} unlinked invoices`,
+    });
+  } catch (error) {
+    console.error('Error auto-matching invoices:', error);
+    res.status(500).json({ error: 'Failed to auto-match invoices' });
+  }
+});
+
+// ============================================
 // Import External Data (Amazon, etc.)
 // ============================================
 

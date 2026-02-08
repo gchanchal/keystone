@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   ChevronDown,
   ChevronRight,
+  Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,6 +95,20 @@ export function GSTManagementTab({ startDate, endDate }: GSTManagementTabProps) 
       queryClient.invalidateQueries({ queryKey: ['gst-invoices'] });
       queryClient.invalidateQueries({ queryKey: ['gst-ledger'] });
       alert(`Fixed ${data.fixed} invoices`);
+    },
+  });
+
+  const autoMatchMutation = useMutation({
+    mutationFn: () => businessAccountingApi.autoMatchInvoices(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['gst-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['gst-ledger'] });
+      queryClient.invalidateQueries({ queryKey: ['business-transactions'] });
+      if (data.matched > 0) {
+        alert(`Matched ${data.matched} invoices to transactions!\n\n${data.details?.map((d: any) => `• ${d.invoiceNumber || 'Invoice'} → ${d.partyName}`).join('\n') || ''}`);
+      } else {
+        alert('No invoices could be matched. Try uploading invoices with matching vendor names and amounts.');
+      }
     },
   });
 
@@ -227,6 +242,16 @@ export function GSTManagementTab({ startDate, endDate }: GSTManagementTabProps) 
                 />
               </DialogContent>
             </Dialog>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => autoMatchMutation.mutate()}
+              disabled={autoMatchMutation.isPending}
+            >
+              <Link2 className="mr-2 h-4 w-4" />
+              {autoMatchMutation.isPending ? 'Matching...' : 'Auto-Match Invoices'}
+            </Button>
             <Button
               size="sm"
               variant="outline"
