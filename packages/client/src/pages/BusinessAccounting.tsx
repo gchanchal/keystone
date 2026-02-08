@@ -13,6 +13,7 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -140,6 +141,22 @@ export function BusinessAccounting() {
     },
   });
 
+  // Auto-match invoices mutation
+  const autoMatchMutation = useMutation({
+    mutationFn: () => businessAccountingApi.autoMatchInvoices(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['gst-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['gst-ledger'] });
+      if (data.matched > 0) {
+        alert(`Matched ${data.matched} invoices to transactions!\n\n${data.details?.map((d: any) => `• ${d.invoiceNumber || 'Invoice'} → ${d.partyName}`).join('\n') || ''}`);
+      } else {
+        alert(`No matches found. ${data.total} unlinked invoices checked.`);
+      }
+    },
+  });
+
   // Export mutation
   const handleExport = async () => {
     try {
@@ -261,6 +278,15 @@ export function BusinessAccounting() {
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${enrichMutation.isPending ? 'animate-spin' : ''}`} />
             Auto-Enrich
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => autoMatchMutation.mutate()}
+            disabled={autoMatchMutation.isPending}
+          >
+            <Link2 className={`mr-2 h-4 w-4 ${autoMatchMutation.isPending ? 'animate-spin' : ''}`} />
+            {autoMatchMutation.isPending ? 'Matching...' : 'Auto-Match'}
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />

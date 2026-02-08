@@ -1517,9 +1517,9 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       // Try to find a matching transaction by vendor name, amount, and date
       const invoiceDateObj = new Date(invoiceDate);
       const dateStart = new Date(invoiceDateObj);
-      dateStart.setDate(dateStart.getDate() - 7); // 7 days before
+      dateStart.setDate(dateStart.getDate() - 14); // 14 days before
       const dateEnd = new Date(invoiceDateObj);
-      dateEnd.setDate(dateEnd.getDate() + 7); // 7 days after
+      dateEnd.setDate(dateEnd.getDate() + 14); // 14 days after
 
       // Get potential matching transactions
       const potentialMatches = await db
@@ -1534,22 +1534,32 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
         );
 
       // Find best match by vendor name and amount
-      const partyNameLower = partyName.toLowerCase();
-      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length > 2);
+      const partyNameLower = partyName.toLowerCase().trim();
+      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length >= 2);
 
       for (const tx of potentialMatches) {
-        const txVendor = (tx.vendorName || tx.narration || '').toLowerCase();
+        const txVendorName = (tx.vendorName || '').toLowerCase().trim();
+        const txNarration = (tx.narration || '').toLowerCase();
         const txAmount = tx.amount || 0;
 
         // Check if amount matches (within 1% tolerance for rounding differences)
         const amountDiff = Math.abs(txAmount - totalAmount);
-        const amountMatches = amountDiff < 1 || (amountDiff / totalAmount) < 0.01;
+        const amountMatches = amountDiff < 1 || (totalAmount > 0 && (amountDiff / totalAmount) < 0.01);
 
         if (!amountMatches) continue;
 
-        // Check if vendor name matches (any significant word from party name appears in transaction)
-        const vendorMatches = partyNameWords.some((word: string) => txVendor.includes(word)) ||
-          txVendor.includes(partyNameLower.substring(0, 10)); // First 10 chars
+        // Multiple vendor matching strategies
+        const exactMatch = txVendorName === partyNameLower;
+        const vendorContainsParty = txVendorName.includes(partyNameLower);
+        const partyContainsVendor = txVendorName.length > 2 && partyNameLower.includes(txVendorName);
+        const wordMatch = partyNameWords.some((word: string) =>
+          txVendorName.includes(word) || txNarration.includes(word)
+        );
+        const prefixMatch = partyNameLower.length >= 3 &&
+          (txVendorName.includes(partyNameLower.substring(0, Math.min(10, partyNameLower.length))) ||
+           txNarration.includes(partyNameLower.substring(0, Math.min(10, partyNameLower.length))));
+
+        const vendorMatches = exactMatch || vendorContainsParty || partyContainsVendor || wordMatch || prefixMatch;
 
         if (vendorMatches) {
           matchedTransactionId = tx.id;
@@ -1970,15 +1980,15 @@ router.post('/auto-match-invoices', async (req, res) => {
 
       if (!partyName || partyName === 'Unknown' || totalAmount <= 0) continue;
 
-      // Calculate date range: 7 days before and after invoice date
+      // Calculate date range: 14 days before and after invoice date (wider range for better matching)
       const invoiceDate = invoice.invoiceDate || invoice.createdAt?.split('T')[0];
       if (!invoiceDate) continue;
 
       const invoiceDateObj = new Date(invoiceDate);
       const dateStart = new Date(invoiceDateObj);
-      dateStart.setDate(dateStart.getDate() - 7);
+      dateStart.setDate(dateStart.getDate() - 14);
       const dateEnd = new Date(invoiceDateObj);
-      dateEnd.setDate(dateEnd.getDate() + 7);
+      dateEnd.setDate(dateEnd.getDate() + 14);
 
       // Get potential matching transactions
       const potentialMatches = await db
@@ -1997,11 +2007,15 @@ router.post('/auto-match-invoices', async (req, res) => {
         );
 
       // Find best match by vendor name and amount
-      const partyNameLower = partyName.toLowerCase();
-      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length > 2);
+      const partyNameLower = partyName.toLowerCase().trim();
+      // Include all words, even short ones like "HTRZ"
+      const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length >= 2);
+
+      console.log(`[AutoMatch] Checking invoice ${invoice.invoiceNumber}: party="${partyName}", amount=${totalAmount}, words=[${partyNameWords.join(',')}]`);
 
       for (const tx of potentialMatches) {
-        const txVendor = (tx.vendorName || tx.narration || '').toLowerCase();
+        const txVendorName = (tx.vendorName || '').toLowerCase().trim();
+        const txNarration = (tx.narration || '').toLowerCase();
         const txAmount = tx.amount || 0;
 
         // Check if amount matches (within 1% tolerance for rounding differences)
@@ -2010,11 +2024,27 @@ router.post('/auto-match-invoices', async (req, res) => {
 
         if (!amountMatches) continue;
 
-        // Check if vendor name matches (any significant word from party name appears in transaction)
-        const vendorMatches = partyNameWords.some((word: string) => txVendor.includes(word)) ||
-          txVendor.includes(partyNameLower.substring(0, 10)); // First 10 chars
+        // Multiple vendor matching strategies:
+        // 1. Exact match of vendor name
+        const exactMatch = txVendorName === partyNameLower;
+        // 2. Transaction vendor contains party name
+        const vendorContainsParty = txVendorName.includes(partyNameLower);
+        // 3. Party name contains transaction vendor (if vendor name exists)
+        const partyContainsVendor = txVendorName.length > 2 && partyNameLower.includes(txVendorName);
+        // 4. Any word from party name appears in transaction vendor or narration
+        const wordMatch = partyNameWords.some((word: string) =>
+          txVendorName.includes(word) || txNarration.includes(word)
+        );
+        // 5. First part of party name (for short names like HTRZ)
+        const prefixMatch = partyNameLower.length >= 3 &&
+          (txVendorName.includes(partyNameLower.substring(0, Math.min(10, partyNameLower.length))) ||
+           txNarration.includes(partyNameLower.substring(0, Math.min(10, partyNameLower.length))));
+
+        const vendorMatches = exactMatch || vendorContainsParty || partyContainsVendor || wordMatch || prefixMatch;
 
         if (vendorMatches) {
+          console.log(`[AutoMatch] MATCH: invoice ${invoice.invoiceNumber} -> tx ${tx.id} (vendor: ${tx.vendorName}, amount: ${txAmount})`);
+          console.log(`  Match reasons: exact=${exactMatch}, contains=${vendorContainsParty}, partyContains=${partyContainsVendor}, word=${wordMatch}, prefix=${prefixMatch}`);
           // Found a match! Link the invoice to the transaction
           await db
             .update(businessInvoices)
