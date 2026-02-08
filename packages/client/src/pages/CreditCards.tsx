@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
@@ -180,10 +180,22 @@ export function CreditCards() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Read account filter from URL
+  const accountParam = searchParams.get('account');
+
   // State
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview');
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(
+    accountParam ? [accountParam] : []
+  );
   const [cardSelectorOpen, setCardSelectorOpen] = useState(false);
+
+  // Sync URL account param with selection (for navigation from Accounts page)
+  useEffect(() => {
+    if (accountParam && !selectedAccountIds.includes(accountParam)) {
+      setSelectedAccountIds([accountParam]);
+    }
+  }, [accountParam]);
   const [startMonth, setStartMonth] = useState(() =>
     format(subMonths(new Date(), 2), 'yyyy-MM')
   );

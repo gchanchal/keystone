@@ -49,6 +49,7 @@ export function Transactions() {
   const tabParam = searchParams.get('tab') || 'bank';
   const transactionTypeParam = searchParams.get('transactionType');
   const statusParam = searchParams.get('status');
+  const accountParam = searchParams.get('account');
   const startDateParam = searchParams.get('startDate');
   const endDateParam = searchParams.get('endDate');
 
@@ -110,6 +111,14 @@ export function Transactions() {
   }, [searchParams]);
 
   // Build initial filters from URL params
+  const bankInitialFilters = useMemo(() => {
+    const filters: Record<string, string> = {};
+    if (accountParam) {
+      filters.account = accountParam;
+    }
+    return filters;
+  }, [accountParam]);
+
   const vyaparInitialFilters = useMemo(() => {
     const filters: Record<string, string> = {};
     if (transactionTypeParam) {
@@ -120,6 +129,14 @@ export function Transactions() {
     }
     return filters;
   }, [transactionTypeParam, statusParam]);
+
+  const creditCardInitialFilters = useMemo(() => {
+    const filters: Record<string, string> = {};
+    if (accountParam) {
+      filters.account = accountParam;
+    }
+    return filters;
+  }, [accountParam]);
 
   // Update URL when tab changes (but not from URL sync)
   const handleTabChange = (newTab: string) => {
@@ -282,6 +299,7 @@ export function Transactions() {
             accountMap={accountMap}
             categoryMap={categoryMap}
             queryClient={queryClient}
+            initialFilters={bankInitialFilters}
           />
         </TabsContent>
 
@@ -304,6 +322,7 @@ export function Transactions() {
             accountMap={accountMap}
             categoryMap={categoryMap}
             queryClient={queryClient}
+            initialFilters={creditCardInitialFilters}
           />
         </TabsContent>
       </Tabs>
@@ -320,6 +339,7 @@ function BankTransactionTable({
   accountMap,
   categoryMap,
   queryClient,
+  initialFilters = {},
 }: {
   transactions: BankTransaction[];
   isLoading: boolean;
@@ -328,6 +348,7 @@ function BankTransactionTable({
   accountMap: Map<string, string>;
   categoryMap: Map<string, Category>;
   queryClient: any;
+  initialFilters?: Record<string, string>;
 }) {
   const updateCategoryMutation = useMutation({
     mutationFn: ({ id, categoryId }: { id: string; categoryId: string | null }) =>
@@ -526,6 +547,7 @@ function BankTransactionTable({
       emptyMessage="No bank transactions found"
       getRowId={(row) => row.id}
       pageSize={25}
+      initialFilters={initialFilters}
     />
   );
 }
@@ -973,6 +995,7 @@ function CreditCardTransactionTable({
   accountMap,
   categoryMap,
   queryClient,
+  initialFilters = {},
 }: {
   transactions: CreditCardTransaction[];
   isLoading: boolean;
@@ -981,6 +1004,7 @@ function CreditCardTransactionTable({
   accountMap: Map<string, string>;
   categoryMap: Map<string, Category>;
   queryClient: any;
+  initialFilters?: Record<string, string>;
 }) {
   const updateCategoryMutation = useMutation({
     mutationFn: ({ id, categoryId }: { id: string; categoryId: string | null }) =>
@@ -1178,6 +1202,7 @@ function CreditCardTransactionTable({
       emptyMessage="No credit card transactions found"
       getRowId={(row) => row.id}
       pageSize={25}
+      initialFilters={initialFilters}
     />
   );
 }

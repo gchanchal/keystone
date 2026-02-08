@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -51,6 +51,7 @@ const accountTypeLabels: Record<string, string> = {
 
 export function Accounts() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [highlightedAccountId, setHighlightedAccountId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -218,6 +219,17 @@ export function Accounts() {
     }
   };
 
+  // Navigate to transactions page filtered by account
+  const handleAccountClick = (account: Account) => {
+    if (account.accountType === 'credit_card') {
+      // Navigate to Credit Cards page with account filter
+      navigate(`/credit-cards?account=${encodeURIComponent(account.id)}`);
+    } else {
+      // Navigate to Transactions page with Bank tab and account filter
+      navigate(`/transactions?tab=bank&account=${encodeURIComponent(account.name)}`);
+    }
+  };
+
   const activeAccounts = accounts.filter((a: Account) => a.isActive);
 
   if (isLoading) {
@@ -266,7 +278,11 @@ export function Accounts() {
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -326,12 +342,19 @@ export function Accounts() {
                 }}
                 className="rounded-lg"
               >
-                <Card className="border-primary/50 bg-primary/5">
+                <Card
+                  className="border-primary/50 bg-primary/5 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => handleAccountClick(account)}
+                >
                   {cardContent}
                 </Card>
               </motion.div>
             ) : (
-              <Card key={account.id}>
+              <Card
+                key={account.id}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleAccountClick(account)}
+              >
                 {cardContent}
               </Card>
             );
