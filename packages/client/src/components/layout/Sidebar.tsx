@@ -20,6 +20,8 @@ import {
   KeyRound,
   LineChart,
   Calculator,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -58,9 +60,11 @@ const GEARUP_ALLOWED_EMAIL = 'g.chanchal@gmail.com';
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export function Sidebar({ open, onClose }: SidebarProps) {
+export function Sidebar({ open, onClose, collapsed = false, onToggleCollapse }: SidebarProps) {
   const location = useLocation();
 
   // Get current user to check email
@@ -91,17 +95,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       to={item.to}
       onClick={onClose}
       end={item.to === '/' || item.to === '/gearup'}
+      title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
           isActive
             ? 'bg-primary text-primary-foreground'
-            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          collapsed && 'justify-center px-2'
         )
       }
     >
-      <item.icon className="h-4 w-4" />
-      {item.label}
+      <item.icon className="h-4 w-4 flex-shrink-0" />
+      {!collapsed && item.label}
     </NavLink>
   );
 
@@ -118,16 +124,22 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r bg-card transition-transform duration-200 lg:static lg:translate-x-0',
+          'fixed left-0 top-0 z-50 flex h-full flex-col border-r bg-card transition-all duration-200 lg:static lg:translate-x-0',
+          collapsed ? 'w-16' : 'w-64',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-16 items-center justify-between border-b px-4">
+        <div className={cn(
+          "flex h-16 items-center border-b",
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        )}>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md flex-shrink-0">
               <KeyRound className="h-5 w-5" />
             </div>
-            <span className="text-lg font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">KeyStone</span>
+            {!collapsed && (
+              <span className="text-lg font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">KeyStone</span>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -144,26 +156,31 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             {/* Personal Section */}
             <div className="space-y-1">
               <button
-                onClick={() => setPersonalExpanded(!personalExpanded)}
+                onClick={() => !collapsed && setPersonalExpanded(!personalExpanded)}
+                title={collapsed ? 'Personal' : undefined}
                 className={cn(
-                  'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                  'flex w-full items-center rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                  collapsed ? 'justify-center px-2' : 'justify-between',
                   isPersonalPath
                     ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
                     : 'text-foreground hover:bg-accent'
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <Wallet className="h-5 w-5" />
-                  Personal
+                  <Wallet className="h-5 w-5 flex-shrink-0" />
+                  {!collapsed && 'Personal'}
                 </div>
-                {personalExpanded ? (
+                {!collapsed && (personalExpanded ? (
                   <ChevronDown className="h-4 w-4" />
                 ) : (
                   <ChevronRight className="h-4 w-4" />
-                )}
+                ))}
               </button>
-              {personalExpanded && (
-                <div className="ml-4 space-y-1 border-l pl-3">
+              {(personalExpanded || collapsed) && (
+                <div className={cn(
+                  "space-y-1",
+                  !collapsed && "ml-4 border-l pl-3"
+                )}>
                   {personalItems.map(renderNavItem)}
                 </div>
               )}
@@ -173,26 +190,31 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             {showGearupSection && (
               <div className="space-y-1">
                 <button
-                  onClick={() => setGearupExpanded(!gearupExpanded)}
+                  onClick={() => !collapsed && setGearupExpanded(!gearupExpanded)}
+                  title={collapsed ? 'GearUp Mods' : undefined}
                   className={cn(
-                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                    'flex w-full items-center rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                    collapsed ? 'justify-center px-2' : 'justify-between',
                     isGearupPath
                       ? 'bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300'
                       : 'text-foreground hover:bg-accent'
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    <Car className="h-5 w-5" />
-                    GearUp Mods
+                    <Car className="h-5 w-5 flex-shrink-0" />
+                    {!collapsed && 'GearUp Mods'}
                   </div>
-                  {gearupExpanded ? (
+                  {!collapsed && (gearupExpanded ? (
                     <ChevronDown className="h-4 w-4" />
                   ) : (
                     <ChevronRight className="h-4 w-4" />
-                  )}
+                  ))}
                 </button>
-                {gearupExpanded && (
-                  <div className="ml-4 space-y-1 border-l pl-3">
+                {(gearupExpanded || collapsed) && (
+                  <div className={cn(
+                    "space-y-1",
+                    !collapsed && "ml-4 border-l pl-3"
+                  )}>
                     {gearupItems.map(renderNavItem)}
                   </div>
                 )}
@@ -208,29 +230,56 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 key={item.to}
                 to={item.to}
                 onClick={onClose}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    collapsed && 'justify-center px-2'
                   )
                 }
               >
-                <item.icon className="h-5 w-5" />
-                {item.label}
+                <item.icon className="h-5 w-5 flex-shrink-0" />
+                {!collapsed && item.label}
               </NavLink>
             ))}
           </nav>
 
           {/* Version & Server Status */}
-          <div className="border-t p-4">
-            <div className="flex items-center justify-between">
-              <ServerStatus />
-              <span className="text-[10px] text-muted-foreground/50">
-                {import.meta.env.VITE_APP_VERSION || 'dev'}
-              </span>
-            </div>
+          <div className={cn("border-t", collapsed ? "p-2" : "p-4")}>
+            {collapsed ? (
+              <div className="flex flex-col items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleCollapse}
+                  title="Expand sidebar"
+                  className="h-8 w-8"
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <ServerStatus />
+                  <span className="text-[10px] text-muted-foreground/50">
+                    {import.meta.env.VITE_APP_VERSION || 'dev'}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onToggleCollapse}
+                  className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                  Collapse
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </aside>
