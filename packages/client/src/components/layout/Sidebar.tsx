@@ -262,22 +262,22 @@ export function Sidebar({ open, onClose, collapsed = false, onToggleCollapse }: 
                 </Button>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <ServerStatus />
+              <div className="flex items-center justify-between">
+                <ServerStatus />
+                <div className="flex items-center gap-1">
                   <span className="text-[10px] text-muted-foreground/50">
                     {import.meta.env.VITE_APP_VERSION || 'dev'}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onToggleCollapse}
+                    title="Collapse sidebar"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onToggleCollapse}
-                  className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-                >
-                  <PanelLeftClose className="h-4 w-4" />
-                  Collapse
-                </Button>
               </div>
             )}
           </div>
