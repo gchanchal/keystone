@@ -985,9 +985,64 @@ export function initializeDatabase() {
     }
   }
 
-  // Make transaction_id nullable (for external invoices)
-  // SQLite doesn't support ALTER COLUMN, so we handle this at application level
-  // New invoices can have NULL transaction_id
+  // Make transaction_id, filename, etc. nullable (for external invoices)
+  // SQLite doesn't support ALTER COLUMN, so we recreate the table
+  try {
+    // Check if we need to migrate (if transaction_id has NOT NULL constraint)
+    const tableInfo = sqlite.prepare("PRAGMA table_info(business_invoices)").all() as any[];
+    const txIdColumn = tableInfo.find((c: any) => c.name === 'transaction_id');
+
+    if (txIdColumn && txIdColumn.notnull === 1) {
+      console.log('Migrating business_invoices to make columns nullable...');
+
+      sqlite.exec(`
+        -- Create new table with nullable columns
+        CREATE TABLE business_invoices_new (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          transaction_id TEXT,
+          filename TEXT,
+          original_name TEXT,
+          mime_type TEXT,
+          size INTEGER,
+          invoice_date TEXT,
+          invoice_number TEXT,
+          vendor_name TEXT,
+          total_amount REAL,
+          gst_amount REAL,
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          party_name TEXT,
+          party_gstin TEXT,
+          gst_type TEXT,
+          taxable_amount REAL,
+          cgst_amount REAL,
+          sgst_amount REAL,
+          igst_amount REAL,
+          updated_at TEXT,
+          document_type TEXT,
+          is_estimate INTEGER DEFAULT 0
+        );
+
+        -- Copy existing data
+        INSERT INTO business_invoices_new
+        SELECT id, user_id, transaction_id, filename, original_name, mime_type, size,
+               invoice_date, invoice_number, vendor_name, total_amount, gst_amount, notes, created_at,
+               party_name, party_gstin, gst_type, taxable_amount, cgst_amount, sgst_amount, igst_amount, updated_at,
+               document_type, is_estimate
+        FROM business_invoices;
+
+        -- Drop old table and rename new one
+        DROP TABLE business_invoices;
+        ALTER TABLE business_invoices_new RENAME TO business_invoices;
+      `);
+
+      console.log('Migration complete: business_invoices columns are now nullable');
+    }
+  } catch (e) {
+    // Migration failed or already done, continue
+    console.log('business_invoices migration check:', (e as Error).message);
+  }
 
   // Create indexes for business accounting
   const businessAccountingIndexes = [
