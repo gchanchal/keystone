@@ -1990,7 +1990,7 @@ router.post('/auto-match-invoices', async (req, res) => {
       const dateEnd = new Date(invoiceDateObj);
       dateEnd.setDate(dateEnd.getDate() + 14);
 
-      // Get potential matching transactions
+      // Get potential matching transactions (not already linked to an invoice)
       const potentialMatches = await db
         .select()
         .from(bankTransactions)
@@ -2002,7 +2002,7 @@ router.post('/auto-match-invoices', async (req, res) => {
               sql`, `
             )})`,
             between(bankTransactions.date, dateStart.toISOString().split('T')[0], dateEnd.toISOString().split('T')[0]),
-            isNull(bankTransactions.invoiceFileId) // Not already linked to an invoice
+            sql`(${bankTransactions.invoiceFileId} IS NULL OR ${bankTransactions.invoiceFileId} = '')` // Not already linked
           )
         );
 
@@ -2011,7 +2011,19 @@ router.post('/auto-match-invoices', async (req, res) => {
       // Include all words, even short ones like "HTRZ"
       const partyNameWords = partyNameLower.split(/\s+/).filter((w: string) => w.length >= 2);
 
-      console.log(`[AutoMatch] Checking invoice ${invoice.invoiceNumber}: party="${partyName}", amount=${totalAmount}, words=[${partyNameWords.join(',')}]`);
+      console.log(`[AutoMatch] Checking invoice ${invoice.invoiceNumber}: party="${partyName}", amount=${totalAmount}, date=${invoiceDate}, words=[${partyNameWords.join(',')}]`);
+      console.log(`[AutoMatch] Date range: ${dateStart.toISOString().split('T')[0]} to ${dateEnd.toISOString().split('T')[0]}`);
+      console.log(`[AutoMatch] Found ${potentialMatches.length} potential transactions in date range`);
+
+      if (potentialMatches.length > 0) {
+        console.log(`[AutoMatch] Potential transactions:`, potentialMatches.map(t => ({
+          id: t.id.substring(0, 8),
+          date: t.date,
+          vendor: t.vendorName,
+          amount: t.amount,
+          hasInvoice: !!t.invoiceFileId
+        })));
+      }
 
       for (const tx of potentialMatches) {
         const txVendorName = (tx.vendorName || '').toLowerCase().trim();
@@ -2022,11 +2034,14 @@ router.post('/auto-match-invoices', async (req, res) => {
         const amountDiff = Math.abs(txAmount - totalAmount);
         const amountMatches = amountDiff < 1 || (totalAmount > 0 && (amountDiff / totalAmount) < 0.01);
 
+        console.log(`[AutoMatch] Comparing: invoice amount=${totalAmount} vs tx amount=${txAmount}, diff=${amountDiff}, matches=${amountMatches}`);
+
         if (!amountMatches) continue;
 
         // Multiple vendor matching strategies:
         // 1. Exact match of vendor name
         const exactMatch = txVendorName === partyNameLower;
+        console.log(`[AutoMatch] Vendor check: invoice="${partyNameLower}" vs tx="${txVendorName}", exact=${exactMatch}`);
         // 2. Transaction vendor contains party name
         const vendorContainsParty = txVendorName.includes(partyNameLower);
         // 3. Party name contains transaction vendor (if vendor name exists)
