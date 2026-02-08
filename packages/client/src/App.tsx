@@ -17,6 +17,7 @@ import { Settings } from '@/pages/Settings';
 import { CreditCards } from '@/pages/CreditCards';
 import { PortfolioPerformance } from '@/pages/PortfolioPerformance';
 import { LearnStatements } from '@/pages/settings/LearnStatements';
+import { BusinessAccounting } from '@/pages/BusinessAccounting';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="gearup" element={<Dashboard />} />
+          <Route path="gearup/accounting" element={<BusinessAccounting />} />
           <Route path="accounts" element={<Accounts />} />
           <Route path="transactions" element={<Transactions />} />
           <Route path="credit-cards" element={<CreditCards />} />

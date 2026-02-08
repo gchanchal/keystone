@@ -465,4 +465,117 @@ export const portfolioApi = {
     api.get('/portfolio/stock-trends', { params: { days } }).then((r) => r.data),
 };
 
+// Business Accounting (ASG Technologies)
+export const businessAccountingApi = {
+  // Get transactions with enrichment data
+  getTransactions: (params?: Record<string, any>) =>
+    api.get('/business-accounting/transactions', { params }).then((r) => r.data),
+
+  // Get summary stats
+  getSummary: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/summary', { params }).then((r) => r.data),
+
+  // Run auto-enrichment
+  enrich: (data?: { accountId?: string; overwrite?: boolean }) =>
+    api.post('/business-accounting/enrich', data).then((r) => r.data),
+
+  // Update transaction business details
+  updateTransaction: (id: string, data: any) =>
+    api.patch(`/business-accounting/transaction/${id}`, data).then((r) => r.data),
+
+  // Invoice operations
+  uploadInvoice: (transactionId: string, file: File, metadata?: Record<string, any>) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('transactionId', transactionId);
+    if (metadata) {
+      Object.entries(metadata).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
+    }
+    return api.post('/business-accounting/invoice', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+
+  getInvoiceUrl: (id: string) => `/api/business-accounting/invoice/${id}`,
+
+  deleteInvoice: (id: string) =>
+    api.delete(`/business-accounting/invoice/${id}`).then((r) => r.data),
+
+  // Vendor operations
+  getVendors: () => api.get('/business-accounting/vendors').then((r) => r.data),
+
+  getVendorPayments: (vendorName: string) =>
+    api.get(`/business-accounting/vendors/${encodeURIComponent(vendorName)}/payments`).then((r) => r.data),
+
+  getVendorTransactions: (vendorName: string, month?: string) =>
+    api.get(`/business-accounting/vendors/${encodeURIComponent(vendorName)}/transactions`, {
+      params: month ? { month } : undefined,
+    }).then((r) => r.data),
+
+  // GST Summary
+  getGSTSummary: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/gst-summary', { params }).then((r) => r.data),
+
+  // CA Export
+  exportForCA: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/ca-export', {
+      params,
+      responseType: 'blob',
+    }).then((r) => r.data),
+
+  // Get business type labels
+  getBizTypes: () => api.get('/business-accounting/biz-types').then((r) => r.data),
+
+  // Get all matching transactions for a given transaction (full history)
+  getMatchingTransactions: (transactionId: string) =>
+    api.get(`/business-accounting/transaction/${transactionId}/matches`).then((r) => r.data),
+
+  // GST Invoice Management
+  createGSTInvoice: (data: FormData) =>
+    api.post('/business-accounting/gst-invoice', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data),
+
+  getGSTInvoices: (params?: {
+    startDate?: string;
+    endDate?: string;
+    gstType?: string;
+    hasFile?: boolean;
+    isExternal?: boolean;
+  }) => api.get('/business-accounting/gst-invoices', { params }).then((r) => r.data),
+
+  updateGSTInvoice: (id: string, data: any) =>
+    api.patch(`/business-accounting/gst-invoice/${id}`, data).then((r) => r.data),
+
+  bulkUpdateGSTInvoices: (invoiceIds: string[], updates: any) =>
+    api.patch('/business-accounting/gst-invoices/bulk', { invoiceIds, updates }).then((r) => r.data),
+
+  deleteGSTInvoice: (id: string) =>
+    api.delete(`/business-accounting/gst-invoice/${id}`).then((r) => r.data),
+
+  getGSTLedger: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/gst-ledger', { params }).then((r) => r.data),
+
+  // Fix old invoices that don't have GST fields
+  fixOldInvoices: () =>
+    api.post('/business-accounting/fix-invoices').then((r) => r.data),
+
+  // Import Amazon Business CSV
+  importAmazonCSV: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/business-accounting/import-amazon-csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
+  },
+
+  // Rename a vendor
+  renameVendor: (oldName: string, newName: string) =>
+    api.patch(`/business-accounting/vendors/${encodeURIComponent(oldName)}`, { newName }).then((r) => r.data),
+};
+
 export default api;

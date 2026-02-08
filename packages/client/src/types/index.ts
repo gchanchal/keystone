@@ -494,3 +494,114 @@ export interface GmailConfig {
 }
 
 export type SupportedBank = 'HDFC' | 'ICICI' | 'Kotak' | 'Axis';
+
+// Business Accounting Types (ASG Technologies)
+export type BizType = 'SALARY' | 'PETROL' | 'PORTER' | 'HELPER' | 'VENDOR' | 'SALES_INCOME' | 'OTHER';
+
+export interface BusinessTransaction extends BankTransaction {
+  bizType: BizType | null;
+  bizDescription: string | null;
+  vendorName: string | null;
+  needsInvoice: boolean;
+  invoiceFileId: string | null;
+  gstAmount: number | null;
+  cgstAmount: number | null;
+  sgstAmount: number | null;
+  igstAmount: number | null;
+  gstType: 'input' | 'output' | null;
+}
+
+export interface BusinessInvoice {
+  id: string;
+  userId: string;
+  transactionId: string | null; // NULL for external invoices
+  filename: string | null;
+  originalName: string | null;
+  mimeType: string | null;
+  size: number | null;
+  invoiceDate: string | null;
+  invoiceNumber: string | null;
+  partyName: string | null;
+  partyGstin: string | null;
+  vendorName: string | null; // Legacy
+  gstType: 'input' | 'output' | null;
+  taxableAmount: number | null;
+  cgstAmount: number | null;
+  sgstAmount: number | null;
+  igstAmount: number | null;
+  gstAmount: number | null;
+  totalAmount: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface GSTTotals {
+  count: number;
+  taxableAmount: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  totalGst: number;
+  totalAmount: number;
+}
+
+export interface GSTLedger {
+  inputTotals: GSTTotals;
+  outputTotals: GSTTotals;
+  netLiability: {
+    cgst: number;
+    sgst: number;
+    igst: number;
+    total: number;
+    status: 'payable' | 'credit';
+  };
+  months: Array<{
+    month: string;
+    input: GSTTotals;
+    output: GSTTotals;
+    net: number;
+  }>;
+  inputInvoices: BusinessInvoice[];
+  outputInvoices: BusinessInvoice[];
+}
+
+export interface VendorSummary {
+  vendorName: string;
+  totalAmount: number;
+  transactionCount: number;
+  lastPaymentDate: string;
+  invoiceCount: number;
+}
+
+export interface VendorPaymentHistory {
+  month: string;
+  totalAmount: number;
+  transactionCount: number;
+}
+
+export interface GSTMonthlySummary {
+  month: string;
+  input: number;
+  output: number;
+  inputCount: number;
+  outputCount: number;
+  net: number;
+}
+
+export interface GSTSummary {
+  months: GSTMonthlySummary[];
+  totals: {
+    input: number;
+    output: number;
+    net: number;
+  };
+}
+
+export interface BusinessAccountingSummary {
+  totalExpenses: number;
+  totalIncome: number;
+  pendingInvoices: number;
+  gstPayable: number;
+  vendorCount: number;
+}

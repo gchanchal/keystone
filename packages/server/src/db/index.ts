@@ -21,6 +21,7 @@ import * as recurringIncomeSchema from './schema/recurring-income.js';
 import * as gmailIntegrationSchema from './schema/gmail-integration.js';
 import * as portfolioSnapshotsSchema from './schema/portfolio-snapshots.js';
 import * as templatesSchema from './schema/templates.js';
+import * as businessInvoicesSchema from './schema/business-invoices.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +57,7 @@ export const db = drizzle(sqlite, {
     ...gmailIntegrationSchema,
     ...portfolioSnapshotsSchema,
     ...templatesSchema,
+    ...businessInvoicesSchema,
   },
 });
 
@@ -921,6 +923,86 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add business accounting fields to bank_transactions (ASG Technologies)
+  const businessAccountingMigrations = [
+    'ALTER TABLE bank_transactions ADD COLUMN biz_type TEXT',
+    'ALTER TABLE bank_transactions ADD COLUMN biz_description TEXT',
+    'ALTER TABLE bank_transactions ADD COLUMN vendor_name TEXT',
+    'ALTER TABLE bank_transactions ADD COLUMN needs_invoice INTEGER DEFAULT 0',
+    'ALTER TABLE bank_transactions ADD COLUMN invoice_file_id TEXT',
+    'ALTER TABLE bank_transactions ADD COLUMN gst_amount REAL',
+    'ALTER TABLE bank_transactions ADD COLUMN cgst_amount REAL',
+    'ALTER TABLE bank_transactions ADD COLUMN sgst_amount REAL',
+    'ALTER TABLE bank_transactions ADD COLUMN igst_amount REAL',
+    'ALTER TABLE bank_transactions ADD COLUMN gst_type TEXT',
+  ];
+  for (const migration of businessAccountingMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
+  // Create business_invoices table for invoice attachments
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS business_invoices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      transaction_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      invoice_date TEXT,
+      invoice_number TEXT,
+      vendor_name TEXT,
+      total_amount REAL,
+      gst_amount REAL,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  // Migration: Add new GST columns to business_invoices
+  const businessInvoicesMigrations = [
+    'ALTER TABLE business_invoices ADD COLUMN party_name TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN party_gstin TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN gst_type TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN taxable_amount REAL',
+    'ALTER TABLE business_invoices ADD COLUMN cgst_amount REAL',
+    'ALTER TABLE business_invoices ADD COLUMN sgst_amount REAL',
+    'ALTER TABLE business_invoices ADD COLUMN igst_amount REAL',
+    'ALTER TABLE business_invoices ADD COLUMN updated_at TEXT',
+  ];
+  for (const migration of businessInvoicesMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
+  // Make transaction_id nullable (for external invoices)
+  // SQLite doesn't support ALTER COLUMN, so we handle this at application level
+  // New invoices can have NULL transaction_id
+
+  // Create indexes for business accounting
+  const businessAccountingIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_bank_transactions_biz_type ON bank_transactions(biz_type)',
+    'CREATE INDEX IF NOT EXISTS idx_bank_transactions_vendor_name ON bank_transactions(vendor_name)',
+    'CREATE INDEX IF NOT EXISTS idx_bank_transactions_needs_invoice ON bank_transactions(needs_invoice)',
+    'CREATE INDEX IF NOT EXISTS idx_business_invoices_user_id ON business_invoices(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_business_invoices_transaction_id ON business_invoices(transaction_id)',
+  ];
+  for (const idx of businessAccountingIndexes) {
+    try {
+      sqlite.exec(idx);
+    } catch (e) {
+      // Index might already exist, ignore
+    }
+  }
+
   // Seed default categories if none exist
   const categoryCount = sqlite.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
   if (categoryCount.count === 0) {
@@ -957,6 +1039,7 @@ export * from './schema/recurring-income.js';
 export * from './schema/gmail-integration.js';
 export * from './schema/portfolio-snapshots.js';
 export * from './schema/templates.js';
+export * from './schema/business-invoices.js';
 
 // Export sqlite for direct queries
 export { sqlite };

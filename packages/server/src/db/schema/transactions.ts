@@ -17,6 +17,17 @@ export const bankTransactions = sqliteTable('bank_transactions', {
   reconciledWithId: text('reconciled_with_id'),
   reconciledWithType: text('reconciled_with_type'), // vyapar, credit_card
   uploadId: text('upload_id'),
+  // Business accounting fields (ASG Technologies)
+  bizType: text('biz_type'), // SALARY, PETROL, PORTER, HELPER, VENDOR, SALES_INCOME, OTHER
+  bizDescription: text('biz_description'), // User-editable enriched description
+  vendorName: text('vendor_name'), // Normalized vendor name extracted from narration
+  needsInvoice: integer('needs_invoice', { mode: 'boolean' }).default(false),
+  invoiceFileId: text('invoice_file_id'),
+  gstAmount: real('gst_amount'), // Total GST (CGST + SGST or IGST)
+  cgstAmount: real('cgst_amount'), // Central GST
+  sgstAmount: real('sgst_amount'), // State GST
+  igstAmount: real('igst_amount'), // Integrated GST (interstate)
+  gstType: text('gst_type'), // 'input' (purchases) or 'output' (sales)
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

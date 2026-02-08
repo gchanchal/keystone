@@ -19,6 +19,7 @@ import {
   CreditCard,
   KeyRound,
   LineChart,
+  Calculator,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ const personalItems = [
 // GearUp Mods section items
 const gearupItems = [
   { to: '/gearup', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/gearup/accounting', icon: Calculator, label: 'Business Accounting' },
   { to: '/reconciliation', icon: GitCompare, label: 'Reconciliation' },
   { to: '/reports', icon: FileBarChart, label: 'Reports' },
 ];
@@ -76,8 +78,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     path => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
   );
   const isGearupPath = ['/gearup', '/reconciliation', '/reports'].some(
-    path => location.pathname.startsWith(path)
-  );
+    path => location.pathname === path || location.pathname.startsWith(path + '/')
+  ) || location.pathname === '/gearup';
 
   // Expand state - default expand based on current path
   const [personalExpanded, setPersonalExpanded] = useState(true);
