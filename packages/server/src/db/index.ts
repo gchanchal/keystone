@@ -974,6 +974,8 @@ export function initializeDatabase() {
     'ALTER TABLE business_invoices ADD COLUMN sgst_amount REAL',
     'ALTER TABLE business_invoices ADD COLUMN igst_amount REAL',
     'ALTER TABLE business_invoices ADD COLUMN updated_at TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN document_type TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN is_estimate INTEGER DEFAULT 0',
   ];
   for (const migration of businessInvoicesMigrations) {
     try {
