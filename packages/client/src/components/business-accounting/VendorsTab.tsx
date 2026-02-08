@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X } from 'lucide-react';
+import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,7 @@ export function VendorsTab() {
   const [selectedTransaction, setSelectedTransaction] = useState<BusinessTransaction | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch vendors list
   const { data: vendors = [], isLoading } = useQuery<VendorSummary[]>({
@@ -342,7 +343,18 @@ export function VendorsTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Vendors</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>All Vendors</CardTitle>
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search vendors..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -357,7 +369,11 @@ export function VendorsTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {vendors.map((vendor) => (
+              {vendors
+                .filter((vendor) =>
+                  vendor.vendorName.toLowerCase().includes(searchQuery.toLowerCase())
+                )
+                .map((vendor) => (
                 <TableRow
                   key={vendor.vendorName}
                   className="cursor-pointer hover:bg-muted/50"
