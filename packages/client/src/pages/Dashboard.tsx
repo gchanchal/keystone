@@ -277,26 +277,26 @@ export function Dashboard() {
           {/* Row 1: Summary Cards - Net Worth, Bank Balance, Net Investments, Net Liabilities */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200 dark:border-blue-800">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="rounded-full p-3 bg-blue-500/20">
-                  <TrendingUp className="h-6 w-6 text-blue-600" />
+              <CardContent className="flex items-center gap-3 p-4 md:p-5 lg:p-6">
+                <div className="rounded-full p-2 md:p-3 bg-blue-500/20 flex-shrink-0">
+                  <TrendingUp className="h-5 w-5 md:h-6 md:w-6 text-blue-600" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Net Worth</p>
-                  <p className="text-2xl font-bold">{formatAmount(totalNetWorth)}</p>
+                  <p className="text-lg md:text-xl lg:text-2xl font-bold truncate">{formatAmount(totalNetWorth)}</p>
                   <p className="text-xs text-muted-foreground">Assets - Liabilities</p>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="rounded-full p-3 bg-emerald-500/10">
-                  <Landmark className="h-6 w-6 text-emerald-500" />
+              <CardContent className="flex items-center gap-3 p-4 md:p-5 lg:p-6">
+                <div className="rounded-full p-2 md:p-3 bg-emerald-500/10 flex-shrink-0">
+                  <Landmark className="h-5 w-5 md:h-6 md:w-6 text-emerald-500" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Bank Balance</p>
-                  <p className="text-2xl font-bold">{formatAmount(stats.totalBalance)}</p>
+                  <p className="text-lg md:text-xl lg:text-2xl font-bold truncate">{formatAmount(stats.totalBalance)}</p>
                   <p className="text-xs text-muted-foreground">All accounts</p>
                 </div>
               </CardContent>
@@ -306,13 +306,13 @@ export function Dashboard() {
               className="cursor-pointer hover:bg-muted/50 transition-colors"
               onClick={() => navigate('/investments')}
             >
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="rounded-full p-3 bg-purple-500/10">
-                  <LineChartIcon className="h-6 w-6 text-purple-500" />
+              <CardContent className="flex items-center gap-3 p-4 md:p-5 lg:p-6">
+                <div className="rounded-full p-2 md:p-3 bg-purple-500/10 flex-shrink-0">
+                  <LineChartIcon className="h-5 w-5 md:h-6 md:w-6 text-purple-500" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Net Investments</p>
-                  <p className="text-2xl font-bold">{formatAmount(totalInvestmentsINR)}</p>
+                  <p className="text-lg md:text-xl lg:text-2xl font-bold truncate">{formatAmount(totalInvestmentsINR)}</p>
                   <p className="text-xs text-muted-foreground">
                     Stocks + MF + Assets + Policies
                   </p>
@@ -321,13 +321,13 @@ export function Dashboard() {
             </Card>
 
             <Card>
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="rounded-full p-3 bg-red-500/10">
-                  <TrendingDown className="h-6 w-6 text-red-500" />
+              <CardContent className="flex items-center gap-3 p-4 md:p-5 lg:p-6">
+                <div className="rounded-full p-2 md:p-3 bg-red-500/10 flex-shrink-0">
+                  <TrendingDown className="h-5 w-5 md:h-6 md:w-6 text-red-500" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Net Liabilities</p>
-                  <p className="text-2xl font-bold text-red-600">{formatAmount(loansSummary?.taken?.outstanding || 0)}</p>
+                  <p className="text-lg md:text-xl lg:text-2xl font-bold text-red-600 truncate">{formatAmount(loansSummary?.taken?.outstanding || 0)}</p>
                   <p className="text-xs text-muted-foreground">Total loans taken</p>
                 </div>
               </CardContent>
