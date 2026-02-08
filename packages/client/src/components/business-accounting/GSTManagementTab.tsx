@@ -481,6 +481,7 @@ interface UploadResult {
   partyName?: string;
   amount?: number;
   error?: string;
+  autoMatched?: boolean;
 }
 
 function QuickUploadSection({
@@ -583,6 +584,7 @@ function QuickUploadSection({
           invoiceNumber: result.invoiceNumber || 'N/A',
           partyName: result.partyName || 'Unknown',
           amount: result.totalAmount || 0,
+          autoMatched: result.autoMatched || false,
         });
       } catch (error: any) {
         if (error.response?.status === 409) {
@@ -763,6 +765,9 @@ function QuickUploadSection({
                         <div className="text-xs text-muted-foreground">
                           {result.invoiceNumber} • {result.partyName}
                           {result.amount ? ` • ${formatCurrency(result.amount)}` : ''}
+                          {result.autoMatched && (
+                            <span className="ml-2 text-blue-600 font-medium">✓ Auto-linked to transaction</span>
+                          )}
                         </div>
                       )}
                       {result.status === 'duplicate' && (
