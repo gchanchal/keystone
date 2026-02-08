@@ -225,7 +225,10 @@ async function propagateToSimilarTransactions(
 import ExcelJS from 'exceljs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const invoiceDir = path.join(__dirname, '../../../data/invoices');
+// Use /data/invoices on Railway (persistent volume), otherwise use local data folder
+const invoiceDir = process.env.NODE_ENV === 'production'
+  ? '/data/invoices'
+  : path.join(__dirname, '../../../data/invoices');
 
 // Ensure invoice directory exists
 if (!fs.existsSync(invoiceDir)) {

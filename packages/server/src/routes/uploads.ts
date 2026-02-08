@@ -52,7 +52,10 @@ import { parseCAMSStatement } from '../parsers/cams-parser.js';
 import { detectFileType, type DetectionResult } from '../parsers/file-detector.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.join(__dirname, '../../../data/uploads');
+// Use /data/uploads on Railway (persistent volume), otherwise use local data folder
+const uploadDir = process.env.NODE_ENV === 'production'
+  ? '/data/uploads'
+  : path.join(__dirname, '../../../data/uploads');
 
 // Ensure upload directory exists
 if (!fs.existsSync(uploadDir)) {

@@ -15,13 +15,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
 // Configure multer for file uploads
+// Use /data/learn-uploads on Railway (persistent volume), otherwise use local data folder
+const learnUploadDir = process.env.NODE_ENV === 'production'
+  ? '/data/learn-uploads'
+  : path.join(__dirname, '../../../data/learn-uploads');
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    const uploadDir = path.join(__dirname, '../../../data/learn-uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    if (!fs.existsSync(learnUploadDir)) {
+      fs.mkdirSync(learnUploadDir, { recursive: true });
     }
-    cb(null, uploadDir);
+    cb(null, learnUploadDir);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;

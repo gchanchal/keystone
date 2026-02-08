@@ -89,8 +89,11 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve static files from uploads
-app.use('/uploads', express.static(path.join(__dirname, '../../data/uploads')));
+// Serve static files from uploads (use /data on Railway, otherwise local data folder)
+const uploadsPath = process.env.NODE_ENV === 'production'
+  ? '/data/uploads'
+  : path.join(__dirname, '../../data/uploads');
+app.use('/uploads', express.static(uploadsPath));
 
 // Serve static files from client build in production
 if (isProduction) {
