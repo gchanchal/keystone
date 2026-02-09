@@ -1103,8 +1103,27 @@ function InvoiceList({
       groups[vendorName].igst += invoice.igstAmount || 0;
     });
 
-    // Sort by total amount descending
-    return Object.values(groups).sort((a, b) => b.totalAmount - a.totalAmount);
+    // Sort invoices within each group by invoice date descending
+    Object.values(groups).forEach(group => {
+      group.invoices.sort((a, b) => {
+        const dateA = a.invoiceDate || '';
+        const dateB = b.invoiceDate || '';
+        return dateB.localeCompare(dateA);
+      });
+    });
+
+    // Sort groups by most recent invoice date descending
+    return Object.values(groups).sort((a, b) => {
+      const aLatest = a.invoices.reduce((latest, inv) => {
+        const d = inv.invoiceDate || '';
+        return d > latest ? d : latest;
+      }, '');
+      const bLatest = b.invoices.reduce((latest, inv) => {
+        const d = inv.invoiceDate || '';
+        return d > latest ? d : latest;
+      }, '');
+      return bLatest.localeCompare(aLatest);
+    });
   }, [filteredInvoices]);
 
   const toggleVendorExpand = (vendorName: string) => {
@@ -1246,16 +1265,24 @@ function InvoiceList({
                       </div>
 
                       {/* Summary amounts */}
-                      <div className="hidden sm:flex items-center gap-8 text-sm ml-auto">
-                        <div className="text-right w-28">
+                      <div className="hidden sm:flex items-center gap-6 text-sm ml-auto">
+                        <div className="text-center w-24">
+                          <div className="text-xs text-muted-foreground">Invoice Date</div>
+                          <div className="text-xs">
+                            {group.invoices[0]?.invoiceDate
+                              ? format(new Date(group.invoices[0].invoiceDate), 'dd MMM yyyy')
+                              : '-'}
+                          </div>
+                        </div>
+                        <div className="text-right w-24">
                           <div className="text-xs text-muted-foreground">Total</div>
                           <div className="font-semibold">{formatCurrency(group.totalAmount)}</div>
                         </div>
-                        <div className="text-right w-28">
+                        <div className="text-right w-24">
                           <div className="text-xs text-muted-foreground">Taxable</div>
                           <div>{formatCurrency(group.totalTaxable)}</div>
                         </div>
-                        <div className="text-right w-28">
+                        <div className="text-right w-24">
                           <div className="text-xs text-muted-foreground">GST</div>
                           <div className="font-medium text-amber-600">{formatCurrency(group.totalGst)}</div>
                           <div className="text-xs text-muted-foreground">
@@ -1302,18 +1329,8 @@ function InvoiceList({
                                   )}
                                 </button>
 
-                                {/* Invoice Date - prominent */}
-                                <div className="w-24 text-center flex-shrink-0">
-                                  <div className="text-sm font-medium">
-                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM') : '-'}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'yyyy') : ''}
-                                  </div>
-                                </div>
-
                                 {/* Document Type Badge */}
-                                <div className="w-20 flex-shrink-0">
+                                <div className="w-16 flex-shrink-0">
                                   {isEstimate ? (
                                     <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400">
                                       Estimate
@@ -1345,14 +1362,21 @@ function InvoiceList({
                                   )}
                                 </div>
 
-                                <div className="hidden sm:flex items-center gap-8 text-sm">
-                                  <div className="text-right w-28">
+                                {/* Invoice Date Column */}
+                                <div className="hidden sm:block w-24 text-center flex-shrink-0">
+                                  <div className="text-sm">
+                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM yyyy') : '-'}
+                                  </div>
+                                </div>
+
+                                <div className="hidden sm:flex items-center gap-6 text-sm">
+                                  <div className="text-right w-24">
                                     <div className="font-medium">{formatCurrency(invoice.totalAmount || 0)}</div>
                                   </div>
-                                  <div className="text-right w-28">
+                                  <div className="text-right w-24">
                                     <div className="text-muted-foreground">{formatCurrency(invoice.taxableAmount || 0)}</div>
                                   </div>
-                                  <div className="text-right w-28">
+                                  <div className="text-right w-24">
                                     <div className="text-amber-600">{formatCurrency(invoice.gstAmount || 0)}</div>
                                     <div className="text-xs text-muted-foreground">
                                       {(invoice.cgstAmount || 0) > 0 ? `C+S` : (invoice.igstAmount || 0) > 0 ? 'IGST' : ''}
