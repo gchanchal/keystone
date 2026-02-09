@@ -305,94 +305,198 @@ router.get('/transactions', async (req, res) => {
       return res.json([]);
     }
 
-    const conditions = [
-      eq(bankTransactions.userId, req.userId!),
-      sql`${bankTransactions.accountId} IN (${sql.join(
-        asgAccountIds.map((id) => sql`${id}`),
-        sql`, `
-      )})`,
-    ];
-
-    if (query.startDate && query.endDate) {
-      conditions.push(between(bankTransactions.date, query.startDate, query.endDate));
-    }
-    if (query.accountId) {
-      conditions.push(eq(bankTransactions.accountId, query.accountId));
-    }
-    if (query.bizType) {
-      conditions.push(eq(bankTransactions.bizType, query.bizType));
-    }
-    if (query.needsInvoice === 'true') {
-      conditions.push(eq(bankTransactions.needsInvoice, true));
-    }
-    if (query.hasInvoice === 'true') {
-      conditions.push(sql`${bankTransactions.invoiceFileId} IS NOT NULL`);
-    } else if (query.hasInvoice === 'false') {
-      conditions.push(isNull(bankTransactions.invoiceFileId));
-    }
-    if (query.search) {
-      conditions.push(
-        sql`(${bankTransactions.narration} LIKE ${'%' + query.search + '%'} OR ${bankTransactions.vendorName} LIKE ${'%' + query.search + '%'} OR ${bankTransactions.bizDescription} LIKE ${'%' + query.search + '%'})`
+    // Check if Vyapar account is enabled
+    const [vyaparAccount] = await db
+      .select()
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, req.userId!),
+          eq(accounts.accountType, 'vyapar'),
+          eq(accounts.isGearupBusiness, true)
+        )
       );
+
+    const includeVyapar = !!vyaparAccount;
+    const vyaparAccountId = vyaparAccount?.id;
+
+    // Filter out Vyapar from bank account IDs (it's a virtual account)
+    const bankAccountIds = asgAccountIds.filter(id => id !== vyaparAccountId);
+
+    let allTransactions: any[] = [];
+
+    // Fetch bank transactions if we have bank accounts enabled
+    if (bankAccountIds.length > 0) {
+      const conditions = [
+        eq(bankTransactions.userId, req.userId!),
+        sql`${bankTransactions.accountId} IN (${sql.join(
+          bankAccountIds.map((id) => sql`${id}`),
+          sql`, `
+        )})`,
+      ];
+
+      if (query.startDate && query.endDate) {
+        conditions.push(between(bankTransactions.date, query.startDate, query.endDate));
+      }
+      if (query.accountId && query.accountId !== vyaparAccountId) {
+        conditions.push(eq(bankTransactions.accountId, query.accountId));
+      }
+      if (query.bizType) {
+        conditions.push(eq(bankTransactions.bizType, query.bizType));
+      }
+      if (query.needsInvoice === 'true') {
+        conditions.push(eq(bankTransactions.needsInvoice, true));
+      }
+      if (query.hasInvoice === 'true') {
+        conditions.push(sql`${bankTransactions.invoiceFileId} IS NOT NULL`);
+      } else if (query.hasInvoice === 'false') {
+        conditions.push(isNull(bankTransactions.invoiceFileId));
+      }
+      if (query.search) {
+        conditions.push(
+          sql`(${bankTransactions.narration} LIKE ${'%' + query.search + '%'} OR ${bankTransactions.vendorName} LIKE ${'%' + query.search + '%'} OR ${bankTransactions.bizDescription} LIKE ${'%' + query.search + '%'})`
+        );
+      }
+
+      // Skip bank transactions if filtering specifically for Vyapar
+      if (!query.accountId || query.accountId !== vyaparAccountId) {
+        const bankTxns = await db
+          .select({
+            id: bankTransactions.id,
+            accountId: bankTransactions.accountId,
+            userId: bankTransactions.userId,
+            date: bankTransactions.date,
+            valueDate: bankTransactions.valueDate,
+            narration: bankTransactions.narration,
+            reference: bankTransactions.reference,
+            transactionType: bankTransactions.transactionType,
+            amount: bankTransactions.amount,
+            balance: bankTransactions.balance,
+            categoryId: bankTransactions.categoryId,
+            notes: bankTransactions.notes,
+            isReconciled: bankTransactions.isReconciled,
+            reconciledWithId: bankTransactions.reconciledWithId,
+            reconciledWithType: bankTransactions.reconciledWithType,
+            uploadId: bankTransactions.uploadId,
+            bizType: bankTransactions.bizType,
+            bizDescription: bankTransactions.bizDescription,
+            vendorName: bankTransactions.vendorName,
+            needsInvoice: bankTransactions.needsInvoice,
+            invoiceFileId: bankTransactions.invoiceFileId,
+            gstAmount: bankTransactions.gstAmount,
+            cgstAmount: bankTransactions.cgstAmount,
+            sgstAmount: bankTransactions.sgstAmount,
+            igstAmount: bankTransactions.igstAmount,
+            gstType: bankTransactions.gstType,
+            createdAt: bankTransactions.createdAt,
+            updatedAt: bankTransactions.updatedAt,
+            accountName: accounts.name,
+          })
+          .from(bankTransactions)
+          .leftJoin(accounts, eq(bankTransactions.accountId, accounts.id))
+          .where(and(...conditions));
+
+        allTransactions.push(...bankTxns);
+      }
     }
 
-    const sortColumn = query.sortBy === 'amount' ? bankTransactions.amount : bankTransactions.date;
-    const sortFn = query.sortOrder === 'asc' ? asc : desc;
+    // Fetch Vyapar transactions if enabled and not filtering for a specific bank account
+    if (includeVyapar && (!query.accountId || query.accountId === vyaparAccountId)) {
+      const vyaparConditions = [eq(vyaparTransactions.userId, req.userId!)];
 
-    let dbQuery = db
-      .select({
-        id: bankTransactions.id,
-        accountId: bankTransactions.accountId,
-        userId: bankTransactions.userId,
-        date: bankTransactions.date,
-        valueDate: bankTransactions.valueDate,
-        narration: bankTransactions.narration,
-        reference: bankTransactions.reference,
-        transactionType: bankTransactions.transactionType,
-        amount: bankTransactions.amount,
-        balance: bankTransactions.balance,
-        categoryId: bankTransactions.categoryId,
-        notes: bankTransactions.notes,
-        isReconciled: bankTransactions.isReconciled,
-        reconciledWithId: bankTransactions.reconciledWithId,
-        reconciledWithType: bankTransactions.reconciledWithType,
-        uploadId: bankTransactions.uploadId,
-        bizType: bankTransactions.bizType,
-        bizDescription: bankTransactions.bizDescription,
-        vendorName: bankTransactions.vendorName,
-        needsInvoice: bankTransactions.needsInvoice,
-        invoiceFileId: bankTransactions.invoiceFileId,
-        gstAmount: bankTransactions.gstAmount,
-        cgstAmount: bankTransactions.cgstAmount,
-        sgstAmount: bankTransactions.sgstAmount,
-        igstAmount: bankTransactions.igstAmount,
-        gstType: bankTransactions.gstType,
-        createdAt: bankTransactions.createdAt,
-        updatedAt: bankTransactions.updatedAt,
-        accountName: accounts.name,
-      })
-      .from(bankTransactions)
-      .leftJoin(accounts, eq(bankTransactions.accountId, accounts.id))
-      .orderBy(sortFn(sortColumn), desc(bankTransactions.createdAt));
+      if (query.startDate && query.endDate) {
+        vyaparConditions.push(between(vyaparTransactions.date, query.startDate, query.endDate));
+      }
+      if (query.search) {
+        vyaparConditions.push(
+          sql`(${vyaparTransactions.partyName} LIKE ${'%' + query.search + '%'} OR ${vyaparTransactions.description} LIKE ${'%' + query.search + '%'})`
+        );
+      }
 
-    if (conditions.length > 0) {
-      dbQuery = dbQuery.where(and(...conditions)) as typeof dbQuery;
+      const vyaparTxns = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(and(...vyaparConditions));
+
+      // Map Vyapar transactions to business transaction format
+      const mappedVyapar = vyaparTxns.map(v => ({
+        id: v.id,
+        accountId: vyaparAccountId,
+        userId: v.userId,
+        date: v.date,
+        valueDate: null,
+        narration: v.description || `${v.transactionType}: ${v.partyName || 'Unknown'}`,
+        reference: v.invoiceNumber,
+        transactionType: ['Sale', 'Payment-In'].includes(v.transactionType) ? 'credit' : 'debit',
+        amount: v.amount,
+        balance: v.balance,
+        categoryId: null,
+        notes: null,
+        isReconciled: v.isReconciled,
+        reconciledWithId: v.reconciledWithId,
+        reconciledWithType: v.reconciledWithId ? 'bank' : null,
+        uploadId: v.uploadId,
+        bizType: mapVyaparTypeToBizType(v.transactionType),
+        bizDescription: v.description || `${v.transactionType}: ${v.partyName || ''}`.trim(),
+        vendorName: v.partyName,
+        needsInvoice: false,
+        invoiceFileId: null,
+        gstAmount: null,
+        cgstAmount: null,
+        sgstAmount: null,
+        igstAmount: null,
+        gstType: ['Sale', 'Payment-In'].includes(v.transactionType) ? 'output' : 'input',
+        createdAt: v.createdAt,
+        updatedAt: v.updatedAt,
+        accountName: 'Vyapar (GearUp Mods)',
+      }));
+
+      // Apply bizType filter if specified
+      if (query.bizType) {
+        allTransactions.push(...mappedVyapar.filter(t => t.bizType === query.bizType));
+      } else {
+        allTransactions.push(...mappedVyapar);
+      }
     }
 
-    if (query.limit) {
-      dbQuery = dbQuery.limit(parseInt(query.limit)) as typeof dbQuery;
+    // Sort combined results
+    const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
+    if (query.sortBy === 'amount') {
+      allTransactions.sort((a, b) => (a.amount - b.amount) * sortOrder);
+    } else {
+      allTransactions.sort((a, b) => (a.date.localeCompare(b.date)) * sortOrder);
     }
+
+    // Apply pagination
     if (query.offset) {
-      dbQuery = dbQuery.offset(parseInt(query.offset)) as typeof dbQuery;
+      allTransactions = allTransactions.slice(parseInt(query.offset));
+    }
+    if (query.limit) {
+      allTransactions = allTransactions.slice(0, parseInt(query.limit));
     }
 
-    const transactions = await dbQuery;
-    res.json(transactions);
+    res.json(allTransactions);
   } catch (error) {
     console.error('Error fetching business transactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 });
+
+// Map Vyapar transaction types to business types
+function mapVyaparTypeToBizType(vyaparType: string): string {
+  switch (vyaparType) {
+    case 'Sale':
+    case 'Payment-In':
+      return 'SALES_INCOME';
+    case 'Purchase':
+    case 'Payment-Out':
+      return 'VENDOR';
+    case 'Expense':
+      return 'OTHER';
+    default:
+      return 'OTHER';
+  }
+}
 
 // Run auto-enrichment on transactions
 router.post('/enrich', async (req, res) => {
