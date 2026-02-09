@@ -1,18 +1,16 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, ChevronUp, Edit2, Check, X, Search, Filter } from 'lucide-react';
+import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, ChevronUp, Edit2, Check, X, Search, Filter, SlidersHorizontal } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Table,
   TableBody,
@@ -68,9 +66,14 @@ export function VendorsTab() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('totalAmount');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  // Filter state
-  const [accountFilter, setAccountFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
+  // Filter state - multi-select for each column
+  const [vendorNameFilter, setVendorNameFilter] = useState<string>('');
+  const [accountFilters, setAccountFilters] = useState<string[]>([]);
+  const [typeFilters, setTypeFilters] = useState<string[]>([]);
+  const [txnsFilter, setTxnsFilter] = useState<{ min?: number; max?: number }>({});
+  const [totalAmountFilter, setTotalAmountFilter] = useState<{ min?: number; max?: number }>({});
+  const [avgFilter, setAvgFilter] = useState<{ min?: number; max?: number }>({});
+  const [invoicesFilter, setInvoicesFilter] = useState<{ min?: number; max?: number }>({});
 
   // Fetch vendors list
   const { data: vendors = [], isLoading } = useQuery<VendorSummary[]>({
@@ -180,20 +183,60 @@ export function VendorsTab() {
   const filteredAndSortedVendors = useMemo(() => {
     let result = [...vendors];
 
-    // Apply search filter
+    // Apply vendor name filter
+    if (vendorNameFilter) {
+      const query = vendorNameFilter.toLowerCase();
+      result = result.filter(v => v.vendorName.toLowerCase().includes(query));
+    }
+
+    // Apply search filter (top search box)
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(v => v.vendorName.toLowerCase().includes(query));
     }
 
-    // Apply account filter
-    if (accountFilter !== 'all') {
-      result = result.filter(v => v.accountNames?.includes(accountFilter));
+    // Apply account filter (multi-select)
+    if (accountFilters.length > 0) {
+      result = result.filter(v =>
+        v.accountNames?.some(acc => accountFilters.includes(acc))
+      );
     }
 
-    // Apply type filter
-    if (typeFilter !== 'all') {
-      result = result.filter(v => v.primaryType === typeFilter);
+    // Apply type filter (multi-select)
+    if (typeFilters.length > 0) {
+      result = result.filter(v => v.primaryType && typeFilters.includes(v.primaryType));
+    }
+
+    // Apply txns filter
+    if (txnsFilter.min !== undefined) {
+      result = result.filter(v => v.transactionCount >= txnsFilter.min!);
+    }
+    if (txnsFilter.max !== undefined) {
+      result = result.filter(v => v.transactionCount <= txnsFilter.max!);
+    }
+
+    // Apply total amount filter
+    if (totalAmountFilter.min !== undefined) {
+      result = result.filter(v => v.totalAmount >= totalAmountFilter.min!);
+    }
+    if (totalAmountFilter.max !== undefined) {
+      result = result.filter(v => v.totalAmount <= totalAmountFilter.max!);
+    }
+
+    // Apply avg filter
+    if (avgFilter.min !== undefined) {
+      result = result.filter(v => (v.avgPayment || 0) >= avgFilter.min!);
+    }
+    if (avgFilter.max !== undefined) {
+      result = result.filter(v => (v.avgPayment || 0) <= avgFilter.max!);
+    }
+
+    // Apply invoices filter
+    if (invoicesFilter.min !== undefined) {
+      result = result.filter(v => v.invoiceCount >= invoicesFilter.min!);
+    }
+    if (invoicesFilter.max !== undefined) {
+      result = result.filter(v => v.invoiceCount <= invoicesFilter.max!);
     }
 
     // Apply sorting
@@ -229,7 +272,21 @@ export function VendorsTab() {
     });
 
     return result;
-  }, [vendors, searchQuery, accountFilter, typeFilter, sortColumn, sortDirection]);
+  }, [vendors, vendorNameFilter, searchQuery, accountFilters, typeFilters, txnsFilter, totalAmountFilter, avgFilter, invoicesFilter, sortColumn, sortDirection]);
+
+  // Check if any filter is active for a column
+  const hasActiveFilter = (column: string) => {
+    switch (column) {
+      case 'vendorName': return !!vendorNameFilter;
+      case 'accountNames': return accountFilters.length > 0;
+      case 'primaryType': return typeFilters.length > 0;
+      case 'transactionCount': return txnsFilter.min !== undefined || txnsFilter.max !== undefined;
+      case 'totalAmount': return totalAmountFilter.min !== undefined || totalAmountFilter.max !== undefined;
+      case 'avgPayment': return avgFilter.min !== undefined || avgFilter.max !== undefined;
+      case 'invoiceCount': return invoicesFilter.min !== undefined || invoicesFilter.max !== undefined;
+      default: return false;
+    }
+  };
 
   if (isLoading) {
     return (
@@ -497,41 +554,14 @@ export function VendorsTab() {
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>All Vendors</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search vendors..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-48"
-                />
-              </div>
-              {/* Account Filter */}
-              <Select value={accountFilter} onValueChange={setAccountFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Account" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  {uniqueAccounts.map(acc => (
-                    <SelectItem key={acc} value={acc}>{acc}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {/* Type Filter */}
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  {uniqueTypes.map(type => (
-                    <SelectItem key={type} value={type}>{TYPE_LABELS[type] || type}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search vendors..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 w-48"
+              />
             </div>
           </div>
         </CardHeader>
@@ -539,53 +569,324 @@ export function VendorsTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('vendorName')}
-                >
-                  Vendor Name <SortIcon column="vendorName" />
+                {/* Vendor Name */}
+                <TableHead>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('vendorName')}
+                    >
+                      Vendor Name <SortIcon column="vendorName" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('vendorName') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-60" align="start">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Name</p>
+                          <Input
+                            placeholder="Search name..."
+                            value={vendorNameFilter}
+                            onChange={(e) => setVendorNameFilter(e.target.value)}
+                          />
+                          {vendorNameFilter && (
+                            <Button variant="ghost" size="sm" onClick={() => setVendorNameFilter('')}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('accountNames')}
-                >
-                  Account <SortIcon column="accountNames" />
+
+                {/* Account */}
+                <TableHead>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('accountNames')}
+                    >
+                      Account <SortIcon column="accountNames" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('accountNames') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-60" align="start">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Account</p>
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {uniqueAccounts.map(acc => (
+                              <label key={acc} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={accountFilters.includes(acc)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setAccountFilters([...accountFilters, acc]);
+                                    } else {
+                                      setAccountFilters(accountFilters.filter(a => a !== acc));
+                                    }
+                                  }}
+                                  className="rounded border-gray-300"
+                                />
+                                {acc}
+                              </label>
+                            ))}
+                          </div>
+                          {accountFilters.length > 0 && (
+                            <Button variant="ghost" size="sm" onClick={() => setAccountFilters([])}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('primaryType')}
-                >
-                  Type <SortIcon column="primaryType" />
+
+                {/* Type */}
+                <TableHead>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('primaryType')}
+                    >
+                      Type <SortIcon column="primaryType" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('primaryType') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-60" align="start">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Type</p>
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {uniqueTypes.map(type => (
+                              <label key={type} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={typeFilters.includes(type)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTypeFilters([...typeFilters, type]);
+                                    } else {
+                                      setTypeFilters(typeFilters.filter(t => t !== type));
+                                    }
+                                  }}
+                                  className="rounded border-gray-300"
+                                />
+                                {TYPE_LABELS[type] || type}
+                              </label>
+                            ))}
+                          </div>
+                          {typeFilters.length > 0 && (
+                            <Button variant="ghost" size="sm" onClick={() => setTypeFilters([])}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="text-right cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('transactionCount')}
-                >
-                  Txns <SortIcon column="transactionCount" />
+
+                {/* Txns */}
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('transactionCount')}
+                    >
+                      Txns <SortIcon column="transactionCount" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('transactionCount') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48" align="end">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Txns</p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              placeholder="Min"
+                              value={txnsFilter.min ?? ''}
+                              onChange={(e) => setTxnsFilter({ ...txnsFilter, min: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                            <Input
+                              type="number"
+                              placeholder="Max"
+                              value={txnsFilter.max ?? ''}
+                              onChange={(e) => setTxnsFilter({ ...txnsFilter, max: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                          </div>
+                          {(txnsFilter.min !== undefined || txnsFilter.max !== undefined) && (
+                            <Button variant="ghost" size="sm" onClick={() => setTxnsFilter({})}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="text-right cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('totalAmount')}
-                >
-                  Total Amount <SortIcon column="totalAmount" />
+
+                {/* Total Amount */}
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('totalAmount')}
+                    >
+                      Total Amount <SortIcon column="totalAmount" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('totalAmount') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48" align="end">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Amount</p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              placeholder="Min"
+                              value={totalAmountFilter.min ?? ''}
+                              onChange={(e) => setTotalAmountFilter({ ...totalAmountFilter, min: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                            <Input
+                              type="number"
+                              placeholder="Max"
+                              value={totalAmountFilter.max ?? ''}
+                              onChange={(e) => setTotalAmountFilter({ ...totalAmountFilter, max: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                          </div>
+                          {(totalAmountFilter.min !== undefined || totalAmountFilter.max !== undefined) && (
+                            <Button variant="ghost" size="sm" onClick={() => setTotalAmountFilter({})}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="text-right cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('avgPayment')}
-                >
-                  Avg <SortIcon column="avgPayment" />
+
+                {/* Avg */}
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('avgPayment')}
+                    >
+                      Avg <SortIcon column="avgPayment" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('avgPayment') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48" align="end">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Avg</p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              placeholder="Min"
+                              value={avgFilter.min ?? ''}
+                              onChange={(e) => setAvgFilter({ ...avgFilter, min: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                            <Input
+                              type="number"
+                              placeholder="Max"
+                              value={avgFilter.max ?? ''}
+                              onChange={(e) => setAvgFilter({ ...avgFilter, max: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                          </div>
+                          {(avgFilter.min !== undefined || avgFilter.max !== undefined) && (
+                            <Button variant="ghost" size="sm" onClick={() => setAvgFilter({})}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="text-right cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('invoiceCount')}
-                >
-                  Invoices <SortIcon column="invoiceCount" />
+
+                {/* Invoices */}
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <span
+                      className="cursor-pointer hover:text-foreground"
+                      onClick={() => handleSort('invoiceCount')}
+                    >
+                      Invoices <SortIcon column="invoiceCount" />
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className={`h-6 w-6 ${hasActiveFilter('invoiceCount') ? 'text-primary' : 'text-muted-foreground'}`}>
+                          <Filter className="h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48" align="end">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Filter by Invoices</p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              placeholder="Min"
+                              value={invoicesFilter.min ?? ''}
+                              onChange={(e) => setInvoicesFilter({ ...invoicesFilter, min: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                            <Input
+                              type="number"
+                              placeholder="Max"
+                              value={invoicesFilter.max ?? ''}
+                              onChange={(e) => setInvoicesFilter({ ...invoicesFilter, max: e.target.value ? Number(e.target.value) : undefined })}
+                              className="w-20"
+                            />
+                          </div>
+                          {(invoicesFilter.min !== undefined || invoicesFilter.max !== undefined) && (
+                            <Button variant="ghost" size="sm" onClick={() => setInvoicesFilter({})}>
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => handleSort('lastPaymentDate')}
-                >
-                  Last Payment <SortIcon column="lastPaymentDate" />
+
+                {/* Last Payment */}
+                <TableHead>
+                  <span
+                    className="cursor-pointer hover:text-foreground"
+                    onClick={() => handleSort('lastPaymentDate')}
+                  >
+                    Last Payment <SortIcon column="lastPaymentDate" />
+                  </span>
                 </TableHead>
                 <TableHead></TableHead>
               </TableRow>
