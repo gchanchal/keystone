@@ -30,7 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { reconciliationApi, accountsApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
-import { format, addMonths, subMonths } from 'date-fns';
+import { format, addMonths, subMonths, parseISO, differenceInDays } from 'date-fns';
 import type { BankTransaction, VyaparTransaction, Account, ReconciliationMatch } from '@/types';
 
 type FilterStatus = 'all' | 'matched' | 'unmatched';
@@ -293,6 +293,91 @@ export function Reconciliation() {
   const displayedVyaparMatched = highlightedMatchVyaparId
     ? filteredVyaparMatched.filter((t: VyaparTransaction) => t.id === highlightedMatchVyaparId)
     : filteredVyaparMatched;
+
+  // ============================================
+  // Smart Match Suggestions
+  // ============================================
+
+  // Calculate potential match score (higher = better match)
+  const calculateMatchScore = (amount1: number, date1: string, amount2: number, date2: string): number => {
+    // Amount similarity (within 25% is good, exact is best)
+    const amountDelta = Math.abs(amount1 - amount2) / Math.max(amount1, amount2);
+    if (amountDelta > 0.30) return 0; // More than 30% difference = not a match
+
+    // Date proximity (within 7 days is good)
+    const daysDiff = Math.abs(differenceInDays(parseISO(date1), parseISO(date2)));
+    if (daysDiff > 14) return 0; // More than 14 days apart = not a match
+
+    // Score: exact amount = 100 base, exact date adds 50, fuzzy reduces
+    let score = 100 - (amountDelta * 200); // 0% delta = 100, 25% delta = 50
+    score += Math.max(0, 50 - (daysDiff * 5)); // Same day = +50, 7 days = +15
+
+    return Math.round(score);
+  };
+
+  // Get the first selected bank transaction for matching suggestions
+  const primarySelectedBank = selectedBankIds.length > 0
+    ? [...bank.unmatched, ...bank.matched].find(t => t.id === selectedBankIds[0])
+    : null;
+
+  // Get the first selected vyapar transaction for matching suggestions
+  const primarySelectedVyapar = selectedVyaparIds.length > 0
+    ? [...vyapar.unmatched, ...vyapar.matched].find(t => t.id === selectedVyaparIds[0])
+    : null;
+
+  // Calculate potential matches for Vyapar side when bank is selected
+  const vyaparPotentialMatches = new Map<string, number>();
+  if (primarySelectedBank) {
+    filteredVyaparUnmatched.forEach((vyaparTxn: VyaparTransaction) => {
+      const score = calculateMatchScore(
+        primarySelectedBank.amount,
+        primarySelectedBank.date,
+        vyaparTxn.amount,
+        vyaparTxn.date
+      );
+      if (score > 0) {
+        vyaparPotentialMatches.set(vyaparTxn.id, score);
+      }
+    });
+  }
+
+  // Calculate potential matches for Bank side when vyapar is selected
+  const bankPotentialMatches = new Map<string, number>();
+  if (primarySelectedVyapar) {
+    filteredBankUnmatched.forEach((bankTxn: BankTransaction) => {
+      const score = calculateMatchScore(
+        primarySelectedVyapar.amount,
+        primarySelectedVyapar.date,
+        bankTxn.amount,
+        bankTxn.date
+      );
+      if (score > 0) {
+        bankPotentialMatches.set(bankTxn.id, score);
+      }
+    });
+  }
+
+  // Sort unmatched transactions: potential matches first (by score), then by date
+  const sortedBankUnmatched = [...filteredBankUnmatched].sort((a, b) => {
+    const scoreA = bankPotentialMatches.get(a.id) || 0;
+    const scoreB = bankPotentialMatches.get(b.id) || 0;
+    if (scoreA !== scoreB) return scoreB - scoreA; // Higher score first
+    return new Date(b.date).getTime() - new Date(a.date).getTime(); // Then by date desc
+  });
+
+  const sortedVyaparUnmatched = [...filteredVyaparUnmatched].sort((a, b) => {
+    const scoreA = vyaparPotentialMatches.get(a.id) || 0;
+    const scoreB = vyaparPotentialMatches.get(b.id) || 0;
+    if (scoreA !== scoreB) return scoreB - scoreA; // Higher score first
+    return new Date(b.date).getTime() - new Date(a.date).getTime(); // Then by date desc
+  });
+
+  // Helper to get match quality label
+  const getMatchQuality = (score: number): { label: string; variant: 'success' | 'warning' | 'secondary' } => {
+    if (score >= 130) return { label: 'Likely Match', variant: 'success' };
+    if (score >= 80) return { label: 'Possible Match', variant: 'warning' };
+    return { label: 'Weak Match', variant: 'secondary' };
+  };
 
   return (
     <div className="space-y-6">
@@ -606,33 +691,43 @@ export function Reconciliation() {
               <div className="max-h-[500px] overflow-y-auto">
                 {/* Show unmatched transactions */}
                 {(bankFilter === 'all' || bankFilter === 'unmatched') &&
-                  filteredBankUnmatched.map((txn: BankTransaction) => (
-                    <div
-                      key={txn.id}
-                      className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
-                        selectedBankIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' : ''
-                      }`}
-                      onClick={() => toggleBankSelection(txn.id)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="destructive" className="text-xs">Unmatched</Badge>
-                          {selectedBankIds.includes(txn.id) && (
-                            <Check className="h-4 w-4 text-primary" />
-                          )}
-                        </div>
-                        <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
-                      </div>
-                      <span
-                        className={`font-medium ml-2 ${
-                          txn.transactionType === 'credit' ? 'text-green-500' : 'text-red-500'
+                  sortedBankUnmatched.map((txn: BankTransaction) => {
+                    const matchScore = bankPotentialMatches.get(txn.id);
+                    const matchQuality = matchScore ? getMatchQuality(matchScore) : null;
+                    return (
+                      <div
+                        key={txn.id}
+                        className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
+                          selectedBankIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' :
+                          matchScore ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : ''
                         }`}
+                        onClick={() => toggleBankSelection(txn.id)}
                       >
-                        {formatCurrency(txn.amount)}
-                      </span>
-                    </div>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="destructive" className="text-xs">Unmatched</Badge>
+                            {matchQuality && (
+                              <Badge variant={matchQuality.variant} className="text-xs">
+                                {matchQuality.label}
+                              </Badge>
+                            )}
+                            {selectedBankIds.includes(txn.id) && (
+                              <Check className="h-4 w-4 text-primary" />
+                            )}
+                          </div>
+                          <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                        </div>
+                        <span
+                          className={`font-medium ml-2 ${
+                            txn.transactionType === 'credit' ? 'text-green-500' : 'text-red-500'
+                          }`}
+                        >
+                          {formatCurrency(txn.amount)}
+                        </span>
+                      </div>
+                    );
+                  })}
 
                 {/* Show matched transactions */}
                 {(bankFilter === 'all' || bankFilter === 'matched') &&
@@ -731,30 +826,40 @@ export function Reconciliation() {
               <div className="max-h-[500px] overflow-y-auto">
                 {/* Show unmatched transactions */}
                 {(vyaparFilter === 'all' || vyaparFilter === 'unmatched') &&
-                  filteredVyaparUnmatched.map((txn: VyaparTransaction) => (
-                    <div
-                      key={txn.id}
-                      className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
-                        selectedVyaparIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' : ''
-                      }`}
-                      onClick={() => toggleVyaparSelection(txn.id)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="warning" className="text-xs">Unmatched</Badge>
-                          <Badge variant="secondary" className="text-xs">{txn.transactionType}</Badge>
-                          {selectedVyaparIds.includes(txn.id) && (
-                            <Check className="h-4 w-4 text-primary" />
-                          )}
+                  sortedVyaparUnmatched.map((txn: VyaparTransaction) => {
+                    const matchScore = vyaparPotentialMatches.get(txn.id);
+                    const matchQuality = matchScore ? getMatchQuality(matchScore) : null;
+                    return (
+                      <div
+                        key={txn.id}
+                        className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
+                          selectedVyaparIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' :
+                          matchScore ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : ''
+                        }`}
+                        onClick={() => toggleVyaparSelection(txn.id)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="warning" className="text-xs">Unmatched</Badge>
+                            <Badge variant="secondary" className="text-xs">{txn.transactionType}</Badge>
+                            {matchQuality && (
+                              <Badge variant={matchQuality.variant} className="text-xs">
+                                {matchQuality.label}
+                              </Badge>
+                            )}
+                            {selectedVyaparIds.includes(txn.id) && (
+                              <Check className="h-4 w-4 text-primary" />
+                            )}
+                          </div>
+                          <p className="text-sm font-medium line-clamp-1 mt-1">
+                            {txn.partyName || txn.invoiceNumber || '-'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
                         </div>
-                        <p className="text-sm font-medium line-clamp-1 mt-1">
-                          {txn.partyName || txn.invoiceNumber || '-'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                        <span className="font-medium ml-2">{formatCurrency(txn.amount)}</span>
                       </div>
-                      <span className="font-medium ml-2">{formatCurrency(txn.amount)}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                 {/* Show matched transactions */}
                 {(vyaparFilter === 'all' || vyaparFilter === 'matched') &&
