@@ -335,10 +335,12 @@ export function VendorsTab() {
     );
   }
 
-  // Extract unique values for filters
+  // Extract unique values for filters (with defensive checks)
   const uniqueSources = useMemo(() => {
     const sources = new Set<string>();
-    vendors.forEach(v => sources.add(v.source));
+    vendors.forEach(v => {
+      if (v.source) sources.add(v.source);
+    });
     return Array.from(sources);
   }, [vendors]);
 
@@ -353,7 +355,9 @@ export function VendorsTab() {
   const uniqueAccounts = useMemo(() => {
     const accts = new Set<string>();
     vendors.forEach(v => {
-      v.accountNames?.forEach(a => accts.add(a));
+      if (v.accountNames && Array.isArray(v.accountNames)) {
+        v.accountNames.forEach(a => accts.add(a));
+      }
     });
     return Array.from(accts);
   }, [vendors]);
@@ -373,24 +377,27 @@ export function VendorsTab() {
     {
       id: 'source',
       header: 'Source',
-      accessorKey: 'source',
+      accessorKey: (row) => row.source || 'bank',
       sortable: true,
       filterable: true,
       filterType: 'select',
       filterOptions: uniqueSources.map(s => ({ label: SOURCE_LABELS[s] || s, value: s })),
-      cell: (row) => (
-        <div className="flex items-center gap-1">
-          {row.source === 'bank' && <Building2 className="h-3 w-3 text-blue-500" />}
-          {row.source === 'vyapar' && <FileSpreadsheet className="h-3 w-3 text-green-500" />}
-          {row.source === 'both' && (
-            <>
-              <Building2 className="h-3 w-3 text-blue-500" />
-              <FileSpreadsheet className="h-3 w-3 text-green-500" />
-            </>
-          )}
-          <span className="text-xs text-muted-foreground ml-1">{SOURCE_LABELS[row.source] || row.source}</span>
-        </div>
-      ),
+      cell: (row) => {
+        const source = row.source || 'bank';
+        return (
+          <div className="flex items-center gap-1">
+            {source === 'bank' && <Building2 className="h-3 w-3 text-blue-500" />}
+            {source === 'vyapar' && <FileSpreadsheet className="h-3 w-3 text-green-500" />}
+            {source === 'both' && (
+              <>
+                <Building2 className="h-3 w-3 text-blue-500" />
+                <FileSpreadsheet className="h-3 w-3 text-green-500" />
+              </>
+            )}
+            <span className="text-xs text-muted-foreground ml-1">{SOURCE_LABELS[source] || source}</span>
+          </div>
+        );
+      },
     },
     {
       id: 'accounts',
