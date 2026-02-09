@@ -179,6 +179,17 @@ export function BusinessAccounting() {
     }
   };
 
+  // Extract unique account names for filter options
+  const uniqueAccountNames = useMemo(() => {
+    const names = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.accountName) {
+        names.add(tx.accountName);
+      }
+    });
+    return Array.from(names).sort();
+  }, [transactions]);
+
   // Column definitions for DataTable - matching Transactions page layout
   const columns: ColumnDef<BusinessTransaction>[] = useMemo(() => [
     {
@@ -231,7 +242,7 @@ export function BusinessAccounting() {
       sortable: true,
       filterable: true,
       filterType: 'select',
-      filterOptions: [], // Will be populated dynamically
+      filterOptions: uniqueAccountNames.map((name) => ({ label: name, value: name })),
       cell: (row) => (
         <span className="text-sm">{row.accountName || '-'}</span>
       ),
@@ -338,7 +349,7 @@ export function BusinessAccounting() {
         { label: 'Unreconciled', value: 'Unreconciled' },
       ],
     },
-  ], []);
+  ], [uniqueAccountNames]);
 
   return (
     <div className="space-y-6">
