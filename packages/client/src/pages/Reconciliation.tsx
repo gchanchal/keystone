@@ -104,6 +104,15 @@ export function Reconciliation() {
     mutationFn: reconciliationApi.unmatch,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+      clearMatchHighlight();
+    },
+  });
+
+  const unmatchVyaparMutation = useMutation({
+    mutationFn: reconciliationApi.unmatchVyapar,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+      clearMatchHighlight();
     },
   });
 
@@ -772,7 +781,18 @@ export function Reconciliation() {
                         </p>
                         <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
                       </div>
-                      <span className="font-medium ml-2">{formatCurrency(txn.amount)}</span>
+                      <div className="flex items-center gap-2 ml-2">
+                        <span className="font-medium">{formatCurrency(txn.amount)}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => { e.stopPropagation(); unmatchVyaparMutation.mutate(txn.id); }}
+                          title="Unmatch"
+                        >
+                          <Unlink className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
 

@@ -202,6 +202,37 @@ router.post('/unmatch', async (req, res) => {
   }
 });
 
+// Unmatch a Vyapar transaction directly (for orphaned matches)
+router.post('/unmatch-vyapar', async (req, res) => {
+  try {
+    const { vyaparTransactionId } = z
+      .object({
+        vyaparTransactionId: z.string(),
+      })
+      .parse(req.body);
+
+    const now = new Date().toISOString();
+
+    // Update the vyapar transaction
+    await db
+      .update(vyaparTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        updatedAt: now,
+      })
+      .where(eq(vyaparTransactions.id, vyaparTransactionId));
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error unmatching vyapar:', error);
+    res.status(500).json({ error: 'Failed to unmatch vyapar transaction' });
+  }
+});
+
 // Multi-match: Match multiple bank transactions to multiple vyapar transactions
 router.post('/multi-match', async (req, res) => {
   try {
