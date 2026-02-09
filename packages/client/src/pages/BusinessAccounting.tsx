@@ -14,6 +14,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Link2,
+  ArrowDownRight,
+  ArrowUpRight,
+  CheckCircle,
+  Circle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -175,7 +179,7 @@ export function BusinessAccounting() {
     }
   };
 
-  // Column definitions for DataTable
+  // Column definitions for DataTable - matching Transactions page layout
   const columns: ColumnDef<BusinessTransaction>[] = useMemo(() => [
     {
       id: 'date',
@@ -187,32 +191,36 @@ export function BusinessAccounting() {
       cell: (row) => formatDate(row.date),
     },
     {
-      id: 'bizType',
-      header: 'Type',
-      accessorKey: 'bizType',
-      width: '120px',
-      sortable: true,
-      filterable: true,
-      filterType: 'select',
-      filterOptions: Object.entries(BIZ_TYPE_LABELS).map(([value, label]) => ({ value, label })),
-      cell: (row) => row.bizType ? (
-        <Badge className={getTypeColor(row.bizType)}>
-          {getTypeLabel(row.bizType)}
-        </Badge>
-      ) : null,
-    },
-    {
       id: 'description',
       header: 'Description',
       accessorKey: (row) => row.bizDescription || row.narration,
       sortable: true,
       filterable: true,
       cell: (row) => (
-        <div className="max-w-[300px]">
-          <div className="truncate">{row.bizDescription || row.narration}</div>
-          {row.bizDescription && (
-            <div className="truncate text-xs text-muted-foreground">{row.narration}</div>
-          )}
+        <div className="flex items-center gap-2">
+          <div
+            className={`rounded-full p-1 ${
+              row.transactionType === 'credit'
+                ? 'bg-green-500/10 text-green-500'
+                : 'bg-red-500/10 text-red-500'
+            }`}
+          >
+            {row.transactionType === 'credit' ? (
+              <ArrowDownRight className="h-3 w-3" />
+            ) : (
+              <ArrowUpRight className="h-3 w-3" />
+            )}
+          </div>
+          <div className="max-w-[250px]">
+            <div className="truncate text-sm" title={row.bizDescription || row.narration}>
+              {row.bizDescription || row.narration}
+            </div>
+            {row.bizDescription && row.narration !== row.bizDescription && (
+              <div className="truncate text-xs text-muted-foreground" title={row.narration}>
+                {row.narration}
+              </div>
+            )}
+          </div>
         </div>
       ),
     },
@@ -222,20 +230,27 @@ export function BusinessAccounting() {
       accessorKey: 'vendorName',
       sortable: true,
       filterable: true,
-      cell: (row) => row.vendorName || '-',
+      cell: (row) => row.vendorName ? (
+        <span className="text-sm">{row.vendorName}</span>
+      ) : (
+        <span className="text-muted-foreground">-</span>
+      ),
     },
     {
-      id: 'amount',
-      header: 'Amount',
-      accessorKey: 'amount',
-      align: 'right',
+      id: 'bizType',
+      header: 'Type',
+      accessorKey: 'bizType',
+      width: '110px',
       sortable: true,
-      filterable: false,
-      cell: (row) => (
-        <span className={row.transactionType === 'credit' ? 'text-green-600' : 'text-red-600'}>
-          {row.transactionType === 'credit' ? '+' : '-'}
-          {formatCurrency(row.amount)}
-        </span>
+      filterable: true,
+      filterType: 'select',
+      filterOptions: Object.entries(BIZ_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+      cell: (row) => row.bizType ? (
+        <Badge className={getTypeColor(row.bizType)}>
+          {getTypeLabel(row.bizType)}
+        </Badge>
+      ) : (
+        <span className="text-muted-foreground">-</span>
       ),
     },
     {
@@ -259,6 +274,57 @@ export function BusinessAccounting() {
       ) : (
         <span className="text-muted-foreground">-</span>
       ),
+    },
+    {
+      id: 'credit',
+      header: 'Credit',
+      accessorKey: (row) => (row.transactionType === 'credit' ? row.amount : 0),
+      cell: (row) =>
+        row.transactionType === 'credit' ? (
+          <span className="font-medium text-green-600">{formatCurrency(row.amount)}</span>
+        ) : (
+          '-'
+        ),
+      align: 'right',
+      sortable: true,
+    },
+    {
+      id: 'debit',
+      header: 'Debit',
+      accessorKey: (row) => (row.transactionType === 'debit' ? row.amount : 0),
+      cell: (row) =>
+        row.transactionType === 'debit' ? (
+          <span className="font-medium text-red-600">{formatCurrency(row.amount)}</span>
+        ) : (
+          '-'
+        ),
+      align: 'right',
+      sortable: true,
+    },
+    {
+      id: 'balance',
+      header: 'Balance',
+      accessorKey: 'balance',
+      cell: (row) => (row.balance !== null ? formatCurrency(row.balance) : '-'),
+      align: 'right',
+      sortable: true,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      accessorKey: (row) => (row.isReconciled ? 'Reconciled' : 'Unreconciled'),
+      cell: (row) =>
+        row.isReconciled ? (
+          <CheckCircle className="mx-auto h-4 w-4 text-green-500" />
+        ) : (
+          <Circle className="mx-auto h-4 w-4 text-muted-foreground" />
+        ),
+      align: 'center',
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Reconciled', value: 'Reconciled' },
+        { label: 'Unreconciled', value: 'Unreconciled' },
+      ],
     },
   ], []);
 
