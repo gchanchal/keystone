@@ -344,6 +344,7 @@ router.get('/vyapar-items', async (req, res) => {
       endDate: z.string().optional(),
       category: z.string().optional(),
       transactionType: z.string().optional(),
+      invoiceNumber: z.string().optional(),
       search: z.string().optional(),
       limit: z.string().optional(),
       offset: z.string().optional(),
@@ -359,6 +360,9 @@ router.get('/vyapar-items', async (req, res) => {
     }
     if (query.transactionType) {
       conditions.push(eq(vyaparItemDetails.transactionType, query.transactionType));
+    }
+    if (query.invoiceNumber) {
+      conditions.push(eq(vyaparItemDetails.invoiceNumber, query.invoiceNumber));
     }
     if (query.search) {
       const searchCondition = or(

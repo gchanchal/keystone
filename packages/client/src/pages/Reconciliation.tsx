@@ -28,6 +28,7 @@ import {
   AlertDescription,
 } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
+import { ItemDetailsPopover } from '@/components/reconciliation/ItemDetailsPopover';
 import { reconciliationApi, accountsApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
 import { format, addMonths, subMonths, parseISO, differenceInDays } from 'date-fns';
@@ -889,7 +890,15 @@ export function Reconciliation() {
                           <p className="text-sm font-medium line-clamp-1 mt-1">
                             {txn.partyName || txn.invoiceNumber || '-'}
                           </p>
-                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                            <ItemDetailsPopover
+                              invoiceNumber={txn.invoiceNumber}
+                              transactionType={txn.transactionType}
+                              partyName={txn.partyName || undefined}
+                              date={txn.date}
+                            />
+                          </div>
                         </div>
                         <span className="font-medium ml-2">{formatCurrency(txn.amount)}</span>
                       </div>
@@ -919,7 +928,15 @@ export function Reconciliation() {
                         <p className="text-sm font-medium line-clamp-1 mt-1">
                           {txn.partyName || txn.invoiceNumber || '-'}
                         </p>
-                        <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          <ItemDetailsPopover
+                            invoiceNumber={txn.invoiceNumber}
+                            transactionType={txn.transactionType}
+                            partyName={txn.partyName || undefined}
+                            date={txn.date}
+                          />
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 ml-2">
                         <span className="font-medium">{formatCurrency(txn.amount)}</span>
