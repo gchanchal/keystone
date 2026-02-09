@@ -894,6 +894,13 @@ export function initializeDatabase() {
     // Column already exists, ignore
   }
 
+  // Set ASG TECHNOLOGIES as GearUp business account by default
+  try {
+    sqlite.exec(`UPDATE accounts SET is_gearup_business = 1 WHERE name LIKE '%ASG%' OR name LIKE '%TECHNOLOGIES%'`);
+  } catch (e) {
+    // Ignore errors
+  }
+
   // Migration: Add reconciliation fingerprint fields to vyapar_transactions
   const vyaparFingerprintMigrations = [
     'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_date TEXT',
