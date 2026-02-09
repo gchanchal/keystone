@@ -1231,58 +1231,68 @@ function InvoiceList({
                   <div key={group.vendorName} className="border rounded-lg overflow-hidden">
                     {/* Vendor Group Header */}
                     <div
-                      className={`flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/50 ${
+                      className={`p-4 cursor-pointer hover:bg-muted/50 ${
                         isExpanded ? 'bg-muted/30 border-b' : ''
                       }`}
                       onClick={() => toggleVendorExpand(group.vendorName)}
                     >
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleVendorSelection(group.vendorName); }}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {allInGroupSelected ? (
-                          <CheckSquare className="h-5 w-5 text-primary" />
-                        ) : someInGroupSelected ? (
-                          <Square className="h-5 w-5 text-primary/50" />
+                      <div className="grid grid-cols-[auto_auto_70px_1fr_1fr_1fr_1fr_1fr_auto] items-center gap-4">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleVendorSelection(group.vendorName); }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {allInGroupSelected ? (
+                            <CheckSquare className="h-5 w-5 text-primary" />
+                          ) : someInGroupSelected ? (
+                            <Square className="h-5 w-5 text-primary/50" />
+                          ) : (
+                            <Square className="h-5 w-5" />
+                          )}
+                        </button>
+
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
                         ) : (
-                          <Square className="h-5 w-5" />
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         )}
-                      </button>
 
-                      {isExpanded ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
+                        {/* Empty space for badge column alignment */}
+                        <div></div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{group.vendorName}</span>
-                          <Badge variant="secondary" className="text-xs">
-                            {group.invoices.length} invoice{group.invoices.length > 1 ? 's' : ''}
-                          </Badge>
+                        {/* Vendor Name */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{group.vendorName}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {group.invoices.length} invoice{group.invoices.length > 1 ? 's' : ''}
+                            </Badge>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Summary amounts */}
-                      <div className="hidden sm:flex items-center gap-6 text-sm ml-auto">
-                        <div className="text-center w-24">
-                          <div className="text-xs text-muted-foreground">Invoice Date</div>
-                          <div className="text-xs">
+                        {/* Invoice Date */}
+                        <div className="text-center">
+                          <div className="text-xs text-muted-foreground">Latest</div>
+                          <div className="text-sm">
                             {group.invoices[0]?.invoiceDate
                               ? format(new Date(group.invoices[0].invoiceDate), 'dd MMM yyyy')
                               : '-'}
                           </div>
                         </div>
-                        <div className="text-right w-24">
+
+                        {/* Total */}
+                        <div className="text-right">
                           <div className="text-xs text-muted-foreground">Total</div>
                           <div className="font-semibold">{formatCurrency(group.totalAmount)}</div>
                         </div>
-                        <div className="text-right w-24">
+
+                        {/* Taxable */}
+                        <div className="text-right">
                           <div className="text-xs text-muted-foreground">Taxable</div>
                           <div>{formatCurrency(group.totalTaxable)}</div>
                         </div>
-                        <div className="text-right w-24">
+
+                        {/* GST */}
+                        <div className="text-right">
                           <div className="text-xs text-muted-foreground">GST</div>
                           <div className="font-medium text-amber-600">{formatCurrency(group.totalGst)}</div>
                           <div className="text-xs text-muted-foreground">
@@ -1293,10 +1303,13 @@ function InvoiceList({
                             ) : null}
                           </div>
                         </div>
+
+                        {/* Empty space for actions column */}
+                        <div className="w-16"></div>
                       </div>
 
                       {/* Mobile summary */}
-                      <div className="sm:hidden text-right">
+                      <div className="sm:hidden text-right mt-2">
                         <div className="font-bold">{formatCurrency(group.totalAmount)}</div>
                         <div className="text-xs text-amber-600">GST: {formatCurrency(group.totalGst)}</div>
                       </div>
@@ -1317,7 +1330,7 @@ function InvoiceList({
                               } ${isEstimate ? 'bg-amber-50/30 dark:bg-amber-900/10 border-l-4 border-l-amber-400' : 'border-l-4 border-l-green-500'}`}
                               onClick={() => setPreviewInvoice(invoice)}
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="grid grid-cols-[auto_70px_1fr_1fr_1fr_1fr_1fr_auto] items-center gap-4">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); onToggle(invoice.id); }}
                                   className="text-muted-foreground hover:text-foreground"
@@ -1330,7 +1343,7 @@ function InvoiceList({
                                 </button>
 
                                 {/* Document Type Badge */}
-                                <div className="w-16 flex-shrink-0">
+                                <div>
                                   {isEstimate ? (
                                     <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400">
                                       Estimate
@@ -1342,7 +1355,8 @@ function InvoiceList({
                                   )}
                                 </div>
 
-                                <div className="flex-1 min-w-0">
+                                {/* Invoice Number & Details */}
+                                <div className="min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm font-medium">
                                       {invoice.invoiceNumber || 'No Invoice #'}
@@ -1362,32 +1376,30 @@ function InvoiceList({
                                   )}
                                 </div>
 
-                                {/* Invoice Date Column */}
-                                <div className="hidden sm:block w-24 text-center flex-shrink-0">
-                                  <div className="text-sm">
-                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM yyyy') : '-'}
+                                {/* Invoice Date */}
+                                <div className="text-center text-sm">
+                                  {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM yyyy') : '-'}
+                                </div>
+
+                                {/* Total */}
+                                <div className="text-right">
+                                  <div className="font-medium">{formatCurrency(invoice.totalAmount || 0)}</div>
+                                </div>
+
+                                {/* Taxable */}
+                                <div className="text-right">
+                                  <div className="text-muted-foreground">{formatCurrency(invoice.taxableAmount || 0)}</div>
+                                </div>
+
+                                {/* GST */}
+                                <div className="text-right">
+                                  <div className="text-amber-600">{formatCurrency(invoice.gstAmount || 0)}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {(invoice.cgstAmount || 0) > 0 ? `C+S` : (invoice.igstAmount || 0) > 0 ? 'IGST' : ''}
                                   </div>
                                 </div>
 
-                                <div className="hidden sm:flex items-center gap-6 text-sm">
-                                  <div className="text-right w-24">
-                                    <div className="font-medium">{formatCurrency(invoice.totalAmount || 0)}</div>
-                                  </div>
-                                  <div className="text-right w-24">
-                                    <div className="text-muted-foreground">{formatCurrency(invoice.taxableAmount || 0)}</div>
-                                  </div>
-                                  <div className="text-right w-24">
-                                    <div className="text-amber-600">{formatCurrency(invoice.gstAmount || 0)}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {(invoice.cgstAmount || 0) > 0 ? `C+S` : (invoice.igstAmount || 0) > 0 ? 'IGST' : ''}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="sm:hidden text-right">
-                                  <div className="font-medium text-sm">{formatCurrency(invoice.totalAmount || 0)}</div>
-                                </div>
-
+                                {/* Actions */}
                                 <div className="flex items-center gap-1">
                                   <Button
                                     variant="ghost"
