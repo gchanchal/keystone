@@ -426,8 +426,14 @@ router.get('/transactions', async (req, res) => {
         const upperType = effectiveType.toUpperCase();
 
         // Determine if it's income (credit) or expense (debit)
-        const isIncome = upperType.includes('SALE') || upperType.includes('INVOICE') ||
-                         upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN';
+        // Sale = actual money received (credit)
+        // Sale Order = pending payment, not actual money yet (credit but pending)
+        // Payment In = partial payment received (credit)
+        // Expense = outgoing (debit)
+        // Record = income entry (credit)
+        const isActualIncome = upperType === 'SALE' || upperType === 'PAYMENT IN' || upperType === 'PAYMENT-IN' || upperType === 'RECORD';
+        const isPendingIncome = upperType === 'SALE ORDER';
+        const isIncome = isActualIncome || isPendingIncome;
 
         return {
           id: v.id,
