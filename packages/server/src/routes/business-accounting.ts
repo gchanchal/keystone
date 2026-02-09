@@ -343,8 +343,39 @@ router.get('/transactions', async (req, res) => {
     const sortFn = query.sortOrder === 'asc' ? asc : desc;
 
     let dbQuery = db
-      .select()
+      .select({
+        id: bankTransactions.id,
+        accountId: bankTransactions.accountId,
+        userId: bankTransactions.userId,
+        date: bankTransactions.date,
+        valueDate: bankTransactions.valueDate,
+        narration: bankTransactions.narration,
+        reference: bankTransactions.reference,
+        transactionType: bankTransactions.transactionType,
+        amount: bankTransactions.amount,
+        balance: bankTransactions.balance,
+        categoryId: bankTransactions.categoryId,
+        notes: bankTransactions.notes,
+        isReconciled: bankTransactions.isReconciled,
+        reconciledWithId: bankTransactions.reconciledWithId,
+        reconciledWithType: bankTransactions.reconciledWithType,
+        uploadId: bankTransactions.uploadId,
+        bizType: bankTransactions.bizType,
+        bizDescription: bankTransactions.bizDescription,
+        vendorName: bankTransactions.vendorName,
+        needsInvoice: bankTransactions.needsInvoice,
+        invoiceFileId: bankTransactions.invoiceFileId,
+        gstAmount: bankTransactions.gstAmount,
+        cgstAmount: bankTransactions.cgstAmount,
+        sgstAmount: bankTransactions.sgstAmount,
+        igstAmount: bankTransactions.igstAmount,
+        gstType: bankTransactions.gstType,
+        createdAt: bankTransactions.createdAt,
+        updatedAt: bankTransactions.updatedAt,
+        accountName: accounts.name,
+      })
       .from(bankTransactions)
+      .leftJoin(accounts, eq(bankTransactions.accountId, accounts.id))
       .orderBy(sortFn(sortColumn), desc(bankTransactions.createdAt));
 
     if (conditions.length > 0) {

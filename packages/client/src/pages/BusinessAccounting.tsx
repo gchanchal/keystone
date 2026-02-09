@@ -225,6 +225,18 @@ export function BusinessAccounting() {
       ),
     },
     {
+      id: 'account',
+      header: 'Account',
+      accessorKey: (row) => row.accountName || '-',
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [], // Will be populated dynamically
+      cell: (row) => (
+        <span className="text-sm">{row.accountName || '-'}</span>
+      ),
+    },
+    {
       id: 'vendorName',
       header: 'Vendor',
       accessorKey: 'vendorName',

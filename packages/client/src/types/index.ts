@@ -510,6 +510,7 @@ export interface BusinessTransaction extends BankTransaction {
   sgstAmount: number | null;
   igstAmount: number | null;
   gstType: 'input' | 'output' | null;
+  accountName?: string;
 }
 
 export interface BusinessInvoice {
