@@ -48,6 +48,9 @@ export function Reconciliation() {
   const [vyaparFilter, setVyaparFilter] = useState<FilterStatus>('unmatched');
   const [bankSearch, setBankSearch] = useState('');
   const [vyaparSearch, setVyaparSearch] = useState('');
+  // State to track which matched transaction is selected to highlight its counterpart
+  const [highlightedMatchBankId, setHighlightedMatchBankId] = useState<string | null>(null);
+  const [highlightedMatchVyaparId, setHighlightedMatchVyaparId] = useState<string | null>(null);
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['accounts'],
@@ -238,6 +241,49 @@ export function Reconciliation() {
 
   const filteredVyaparMatched = vyapar.matched.filter(filterVyaparTxn);
   const filteredVyaparUnmatched = vyapar.unmatched.filter(filterVyaparTxn);
+
+  // Handle clicking on a matched bank transaction to show its Vyapar counterpart
+  const handleBankMatchClick = (txn: BankTransaction) => {
+    if (highlightedMatchBankId === txn.id) {
+      // Clear highlight if clicking the same item
+      clearMatchHighlight();
+    } else {
+      setHighlightedMatchBankId(txn.id);
+      setHighlightedMatchVyaparId(txn.reconciledWithId || null);
+      // Switch Vyapar side to matched view to show the counterpart
+      setVyaparFilter('matched');
+    }
+  };
+
+  // Handle clicking on a matched Vyapar transaction to show its Bank counterpart
+  const handleVyaparMatchClick = (txn: VyaparTransaction) => {
+    // Find the bank transaction that is reconciled with this Vyapar transaction
+    const bankMatch = bank.matched.find((b: BankTransaction) => b.reconciledWithId === txn.id);
+    if (highlightedMatchVyaparId === txn.id) {
+      // Clear highlight if clicking the same item
+      clearMatchHighlight();
+    } else {
+      setHighlightedMatchVyaparId(txn.id);
+      setHighlightedMatchBankId(bankMatch?.id || null);
+      // Switch Bank side to matched view to show the counterpart
+      setBankFilter('matched');
+    }
+  };
+
+  // Clear match highlighting
+  const clearMatchHighlight = () => {
+    setHighlightedMatchBankId(null);
+    setHighlightedMatchVyaparId(null);
+  };
+
+  // Filter matched transactions based on highlight selection
+  const displayedBankMatched = highlightedMatchBankId
+    ? filteredBankMatched.filter((t: BankTransaction) => t.id === highlightedMatchBankId)
+    : filteredBankMatched;
+
+  const displayedVyaparMatched = highlightedMatchVyaparId
+    ? filteredVyaparMatched.filter((t: VyaparTransaction) => t.id === highlightedMatchVyaparId)
+    : filteredVyaparMatched;
 
   return (
     <div className="space-y-6">
@@ -490,6 +536,27 @@ export function Reconciliation() {
         </Card>
       )}
 
+      {/* Match Pair Viewer */}
+      {(highlightedMatchBankId || highlightedMatchVyaparId) && (
+        <Alert className="border-blue-500 bg-blue-500/10">
+          <Info className="h-4 w-4 text-blue-500" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              Viewing matched pair. Click the highlighted item again or use the button to clear.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearMatchHighlight}
+              className="ml-4"
+            >
+              <X className="mr-1 h-3 w-3" />
+              Clear Filter
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Split View */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Bank Transactions */}
@@ -507,13 +574,13 @@ export function Reconciliation() {
                 className="pl-10"
               />
             </div>
-            <Tabs value={bankFilter} onValueChange={(v) => setBankFilter(v as FilterStatus)} className="mt-2">
+            <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({bank.matched.length + bank.unmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({bank.matched.length})
+                  Matched ({highlightedMatchBankId ? `1/${bank.matched.length}` : bank.matched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
                   Unmatched ({bank.unmatched.length})
@@ -560,14 +627,22 @@ export function Reconciliation() {
 
                 {/* Show matched transactions */}
                 {(bankFilter === 'all' || bankFilter === 'matched') &&
-                  filteredBankMatched.map((txn: BankTransaction) => (
+                  displayedBankMatched.map((txn: BankTransaction) => (
                     <div
                       key={txn.id}
-                      className="flex items-center justify-between border-b p-4 bg-green-500/5"
+                      className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
+                        highlightedMatchBankId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
+                      }`}
+                      onClick={() => handleBankMatchClick(txn)}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Badge variant="success" className="text-xs">Matched</Badge>
+                          {highlightedMatchBankId === txn.id && (
+                            <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500">
+                              Showing Match →
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
                         <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
@@ -584,7 +659,7 @@ export function Reconciliation() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => unmatchMutation.mutate(txn.id)}
+                          onClick={(e) => { e.stopPropagation(); unmatchMutation.mutate(txn.id); }}
                           title="Unmatch"
                         >
                           <Unlink className="h-4 w-4 text-muted-foreground hover:text-destructive" />
@@ -624,13 +699,13 @@ export function Reconciliation() {
                 className="pl-10"
               />
             </div>
-            <Tabs value={vyaparFilter} onValueChange={(v) => setVyaparFilter(v as FilterStatus)} className="mt-2">
+            <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({vyapar.matched.length + vyapar.unmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({vyapar.matched.length})
+                  Matched ({highlightedMatchVyaparId ? `1/${vyapar.matched.length}` : vyapar.matched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
                   Unmatched ({vyapar.unmatched.length})
@@ -674,15 +749,23 @@ export function Reconciliation() {
 
                 {/* Show matched transactions */}
                 {(vyaparFilter === 'all' || vyaparFilter === 'matched') &&
-                  filteredVyaparMatched.map((txn: VyaparTransaction) => (
+                  displayedVyaparMatched.map((txn: VyaparTransaction) => (
                     <div
                       key={txn.id}
-                      className="flex items-center justify-between border-b p-4 bg-green-500/5"
+                      className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
+                        highlightedMatchVyaparId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
+                      }`}
+                      onClick={() => handleVyaparMatchClick(txn)}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Badge variant="success" className="text-xs">Matched</Badge>
                           <Badge variant="secondary" className="text-xs">{txn.transactionType}</Badge>
+                          {highlightedMatchVyaparId === txn.id && (
+                            <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500">
+                              ← Showing Match
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm font-medium line-clamp-1 mt-1">
                           {txn.partyName || txn.invoiceNumber || '-'}
