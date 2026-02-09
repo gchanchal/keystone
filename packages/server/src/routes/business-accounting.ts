@@ -419,37 +419,48 @@ router.get('/transactions', async (req, res) => {
         .where(and(...vyaparConditions));
 
       // Map Vyapar transactions to business transaction format
-      const mappedVyapar = vyaparTxns.map(v => ({
-        id: v.id,
-        accountId: vyaparAccountId,
-        userId: v.userId,
-        date: v.date,
-        valueDate: null,
-        narration: v.description || `${v.transactionType}: ${v.partyName || 'Unknown'}`,
-        reference: v.invoiceNumber,
-        transactionType: ['Sale', 'Payment-In'].includes(v.transactionType) ? 'credit' : 'debit',
-        amount: v.amount,
-        balance: v.balance,
-        categoryId: null,
-        notes: null,
-        isReconciled: v.isReconciled,
-        reconciledWithId: v.reconciledWithId,
-        reconciledWithType: v.reconciledWithId ? 'bank' : null,
-        uploadId: v.uploadId,
-        bizType: mapVyaparTypeToBizType(v.transactionType),
-        bizDescription: v.description || `${v.transactionType}: ${v.partyName || ''}`.trim(),
-        vendorName: v.partyName,
-        needsInvoice: false,
-        invoiceFileId: null,
-        gstAmount: null,
-        cgstAmount: null,
-        sgstAmount: null,
-        igstAmount: null,
-        gstType: ['Sale', 'Payment-In'].includes(v.transactionType) ? 'output' : 'input',
-        createdAt: v.createdAt,
-        updatedAt: v.updatedAt,
-        accountName: 'Vyapar (GearUp Mods)',
-      }));
+      const mappedVyapar = vyaparTxns.map(v => {
+        // Extract type from description (e.g., "Sale: Party" -> "Sale")
+        const descType = extractVyaparTypeFromDescription(v.description);
+        const effectiveType = descType || v.transactionType;
+        const upperType = effectiveType.toUpperCase();
+
+        // Determine if it's income (credit) or expense (debit)
+        const isIncome = upperType.includes('SALE') || upperType.includes('INVOICE') ||
+                         upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN';
+
+        return {
+          id: v.id,
+          accountId: vyaparAccountId,
+          userId: v.userId,
+          date: v.date,
+          valueDate: null,
+          narration: v.description || `${v.transactionType}: ${v.partyName || 'Unknown'}`,
+          reference: v.invoiceNumber,
+          transactionType: isIncome ? 'credit' : 'debit',
+          amount: v.amount,
+          balance: v.balance,
+          categoryId: null,
+          notes: null,
+          isReconciled: v.isReconciled,
+          reconciledWithId: v.reconciledWithId,
+          reconciledWithType: v.reconciledWithId ? 'bank' : null,
+          uploadId: v.uploadId,
+          bizType: mapVyaparTypeToBizType(v.transactionType, v.description),
+          bizDescription: extractVyaparDescription(v.description, v.partyName),
+          vendorName: v.partyName,
+          needsInvoice: false,
+          invoiceFileId: null,
+          gstAmount: null,
+          cgstAmount: null,
+          sgstAmount: null,
+          igstAmount: null,
+          gstType: isIncome ? 'output' : 'input',
+          createdAt: v.createdAt,
+          updatedAt: v.updatedAt,
+          accountName: 'Vyapar (GearUp Mods)',
+        };
+      });
 
       // Apply bizType filter if specified
       if (query.bizType) {
@@ -482,20 +493,58 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
-// Map Vyapar transaction types to business types
-function mapVyaparTypeToBizType(vyaparType: string): string {
-  switch (vyaparType) {
-    case 'Sale':
-    case 'Payment-In':
-      return 'SALES_INCOME';
-    case 'Purchase':
-    case 'Payment-Out':
-      return 'VENDOR';
-    case 'Expense':
-      return 'OTHER';
-    default:
-      return 'OTHER';
+// Extract type from Vyapar description (e.g., "Sale: Party Name" -> "Sale")
+function extractVyaparTypeFromDescription(description: string | null): string | null {
+  if (!description) return null;
+
+  // Match pattern like "Sale:", "Sale Order:", "Invoice:", "Expense:", "Purchase:", "Payment-In:", etc.
+  const match = description.match(/^([^:]+):/);
+  if (match) {
+    return match[1].trim();
   }
+  return null;
+}
+
+// Map Vyapar transaction types to business types
+function mapVyaparTypeToBizType(vyaparType: string | null, description: string | null): string {
+  // First try to extract type from description
+  const descType = extractVyaparTypeFromDescription(description);
+  const typeToCheck = descType || vyaparType || '';
+
+  const upperType = typeToCheck.toUpperCase();
+
+  // Sales/Income types
+  if (upperType.includes('SALE') || upperType.includes('INVOICE') || upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN') {
+    return 'SALES_INCOME';
+  }
+
+  // Purchase/Vendor types
+  if (upperType.includes('PURCHASE') || upperType === 'PAYMENT-OUT' || upperType === 'PAYMENT OUT') {
+    return 'VENDOR';
+  }
+
+  // Expense types
+  if (upperType.includes('EXPENSE')) {
+    return 'OTHER';
+  }
+
+  // Default based on common patterns
+  return 'OTHER';
+}
+
+// Extract the actual description (after the type prefix)
+function extractVyaparDescription(description: string | null, partyName: string | null): string {
+  if (!description) {
+    return partyName || 'Unknown';
+  }
+
+  // Remove the type prefix (e.g., "Sale: Party Name" -> "Party Name")
+  const match = description.match(/^[^:]+:\s*(.*)$/);
+  if (match && match[1]) {
+    return match[1].trim() || partyName || description;
+  }
+
+  return description;
 }
 
 // Run auto-enrichment on transactions
