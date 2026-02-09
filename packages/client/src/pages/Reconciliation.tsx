@@ -298,6 +298,31 @@ export function Reconciliation() {
   // Smart Match Suggestions
   // ============================================
 
+  // Determine if Vyapar transaction type means money coming IN or going OUT
+  const isVyaparIncoming = (txnType: string): boolean => {
+    // Sale = money coming in (customer pays us)
+    return txnType === 'Sale';
+  };
+
+  const isVyaparOutgoing = (txnType: string): boolean => {
+    // Expense, Purchase, Payment-Out = money going out (we pay someone)
+    return ['Expense', 'Purchase', 'Payment-Out'].includes(txnType);
+  };
+
+  // Check if bank and vyapar transaction directions are compatible
+  const areDirectionsCompatible = (bankTxnType: string, vyaparTxnType: string): boolean => {
+    const bankIsCredit = bankTxnType === 'credit'; // Money coming in
+    const vyaparIsIncoming = isVyaparIncoming(vyaparTxnType); // Sale = money coming in
+    const vyaparIsOutgoing = isVyaparOutgoing(vyaparTxnType); // Expense/Purchase = money going out
+
+    // Credit (money in) should match with Sale (money in)
+    if (bankIsCredit && vyaparIsIncoming) return true;
+    // Debit (money out) should match with Expense/Purchase/Payment-Out (money out)
+    if (!bankIsCredit && vyaparIsOutgoing) return true;
+
+    return false;
+  };
+
   // Calculate potential match score (higher = better match)
   const calculateMatchScore = (amount1: number, date1: string, amount2: number, date2: string): number => {
     // Amount similarity (within 25% is good, exact is best)
@@ -329,6 +354,11 @@ export function Reconciliation() {
   const vyaparPotentialMatches = new Map<string, number>();
   if (primarySelectedBank) {
     filteredVyaparUnmatched.forEach((vyaparTxn: VyaparTransaction) => {
+      // Check direction compatibility first
+      if (!areDirectionsCompatible(primarySelectedBank.transactionType, vyaparTxn.transactionType)) {
+        return; // Skip - directions don't match (e.g., credit vs expense)
+      }
+
       const score = calculateMatchScore(
         primarySelectedBank.amount,
         primarySelectedBank.date,
@@ -345,6 +375,11 @@ export function Reconciliation() {
   const bankPotentialMatches = new Map<string, number>();
   if (primarySelectedVyapar) {
     filteredBankUnmatched.forEach((bankTxn: BankTransaction) => {
+      // Check direction compatibility first
+      if (!areDirectionsCompatible(bankTxn.transactionType, primarySelectedVyapar.transactionType)) {
+        return; // Skip - directions don't match (e.g., debit vs sale)
+      }
+
       const score = calculateMatchScore(
         primarySelectedVyapar.amount,
         primarySelectedVyapar.date,
