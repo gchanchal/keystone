@@ -1,11 +1,12 @@
 /**
  * Invoice Parser Service
  * Extracts GST information from uploaded invoice PDFs and images
+ * Uses Claude Vision API for accurate image OCR
  */
 
 import pdf from 'pdf-parse';
 import fs from 'fs';
-import Tesseract from 'tesseract.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 export interface InvoiceGSTInfo {
   gstAmount: number | null;
@@ -492,10 +493,10 @@ function normalizeDate(dateStr: string): string | null {
 }
 
 /**
- * Extract GST info from image using Tesseract OCR
+ * Extract GST info from image using Claude Vision API
  */
 export async function extractGSTFromImage(filePath: string): Promise<InvoiceGSTInfo> {
-  const result: InvoiceGSTInfo = {
+  const emptyResult: InvoiceGSTInfo = {
     gstAmount: null,
     cgstAmount: null,
     sgstAmount: null,
@@ -512,25 +513,114 @@ export async function extractGSTFromImage(filePath: string): Promise<InvoiceGSTI
   };
 
   try {
-    console.log('[InvoiceParser] Running OCR on image:', filePath);
+    console.log('[InvoiceParser] Using Claude Vision API for image:', filePath);
 
-    // Run Tesseract OCR
-    const { data: { text } } = await Tesseract.recognize(filePath, 'eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          console.log(`[InvoiceParser] OCR progress: ${Math.round(m.progress * 100)}%`);
-        }
-      },
+    // Check if API key is available
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.error('[InvoiceParser] ANTHROPIC_API_KEY not set, falling back to empty result');
+      return emptyResult;
+    }
+
+    // Read image and convert to base64
+    const imageBuffer = fs.readFileSync(filePath);
+    const base64Image = imageBuffer.toString('base64');
+
+    // Determine media type from file extension
+    const ext = filePath.toLowerCase().split('.').pop();
+    let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+    if (ext === 'png') mediaType = 'image/png';
+    else if (ext === 'gif') mediaType = 'image/gif';
+    else if (ext === 'webp') mediaType = 'image/webp';
+
+    // Initialize Anthropic client
+    const anthropic = new Anthropic({ apiKey });
+
+    // Call Claude Vision API
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: base64Image,
+              },
+            },
+            {
+              type: 'text',
+              text: `Extract the following information from this invoice image and return ONLY a JSON object (no markdown, no explanation):
+
+{
+  "vendorName": "The seller/vendor company name (who issued the invoice)",
+  "gstinVendor": "Vendor's GSTIN number (format: 22AAAAA0000A1Z5)",
+  "invoiceNumber": "Invoice number",
+  "invoiceDate": "Invoice date in YYYY-MM-DD format",
+  "totalAmount": numeric grand total amount,
+  "taxableAmount": numeric taxable/subtotal amount before GST,
+  "cgstAmount": numeric CGST amount (or null if not applicable),
+  "sgstAmount": numeric SGST amount (or null if not applicable),
+  "igstAmount": numeric IGST amount (or null if not applicable),
+  "documentType": "invoice" or "estimate" or "proforma" or "quotation"
+}
+
+Return null for any field you cannot find. Numbers should be plain numbers without currency symbols or commas.`,
+            },
+          ],
+        },
+      ],
     });
 
-    console.log('[InvoiceParser] OCR completed, text length:', text.length);
-    console.log('[InvoiceParser] OCR text preview:', text.substring(0, 500));
+    // Parse the response
+    const content = response.content[0];
+    if (content.type !== 'text') {
+      console.error('[InvoiceParser] Unexpected response type from Claude');
+      return emptyResult;
+    }
 
-    // Apply the same extraction logic as PDF
-    return extractGSTFromText(text);
-  } catch (error) {
-    console.error('[InvoiceParser] Error running OCR on image:', error);
+    console.log('[InvoiceParser] Claude response:', content.text);
+
+    // Extract JSON from response (handle potential markdown formatting)
+    let jsonStr = content.text.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```$/g, '').trim();
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    console.log('[InvoiceParser] Parsed invoice data:', parsed);
+
+    // Map to our result format
+    const result: InvoiceGSTInfo = {
+      gstAmount: null,
+      cgstAmount: parsed.cgstAmount || null,
+      sgstAmount: parsed.sgstAmount || null,
+      igstAmount: parsed.igstAmount || null,
+      gstType: 'input',
+      gstinVendor: parsed.gstinVendor || null,
+      partyName: parsed.vendorName || null,
+      invoiceNumber: parsed.invoiceNumber || null,
+      invoiceDate: parsed.invoiceDate || null,
+      totalAmount: parsed.totalAmount || null,
+      taxableAmount: parsed.taxableAmount || null,
+      documentType: parsed.documentType || 'invoice',
+      isEstimate: ['estimate', 'proforma', 'quotation'].includes(parsed.documentType?.toLowerCase()),
+    };
+
+    // Calculate total GST
+    if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
+      result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
+    }
+
+    console.log('[InvoiceParser] Final extracted info:', result);
     return result;
+  } catch (error) {
+    console.error('[InvoiceParser] Error using Claude Vision API:', error);
+    return emptyResult;
   }
 }
 
