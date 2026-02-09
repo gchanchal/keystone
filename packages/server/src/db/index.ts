@@ -22,6 +22,7 @@ import * as gmailIntegrationSchema from './schema/gmail-integration.js';
 import * as portfolioSnapshotsSchema from './schema/portfolio-snapshots.js';
 import * as templatesSchema from './schema/templates.js';
 import * as businessInvoicesSchema from './schema/business-invoices.js';
+import * as enrichmentRulesSchema from './schema/enrichment-rules.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ export const db = drizzle(sqlite, {
     ...portfolioSnapshotsSchema,
     ...templatesSchema,
     ...businessInvoicesSchema,
+    ...enrichmentRulesSchema,
   },
 });
 
@@ -1044,6 +1046,29 @@ export function initializeDatabase() {
     console.log('business_invoices migration check:', (e as Error).message);
   }
 
+  // Create enrichment_rules table for learned auto-enrichment patterns
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS enrichment_rules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      pattern_type TEXT NOT NULL,
+      pattern_value TEXT NOT NULL,
+      biz_type TEXT,
+      biz_description TEXT,
+      vendor_name TEXT,
+      needs_invoice INTEGER,
+      gst_type TEXT,
+      match_count INTEGER DEFAULT 0,
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_enrichment_rules_user_id ON enrichment_rules(user_id);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_rules_pattern ON enrichment_rules(pattern_type, pattern_value);
+  `);
+
   // Create indexes for business accounting
   const businessAccountingIndexes = [
     'CREATE INDEX IF NOT EXISTS idx_bank_transactions_biz_type ON bank_transactions(biz_type)',
@@ -1097,6 +1122,7 @@ export * from './schema/gmail-integration.js';
 export * from './schema/portfolio-snapshots.js';
 export * from './schema/templates.js';
 export * from './schema/business-invoices.js';
+export * from './schema/enrichment-rules.js';
 
 // Export sqlite for direct queries
 export { sqlite };

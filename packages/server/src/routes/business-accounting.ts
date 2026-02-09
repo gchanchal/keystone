@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, bankTransactions, accounts, businessInvoices } from '../db/index.js';
+import { db, bankTransactions, accounts, businessInvoices, enrichmentRules } from '../db/index.js';
 import { eq, and, between, desc, asc, sql, like, isNull } from 'drizzle-orm';
 import {
   enrichTransaction,
@@ -376,7 +376,42 @@ router.post('/enrich', async (req, res) => {
       return res.json({ enriched: 0, message: 'No ASG accounts found' });
     }
 
-    // First, build a mapping of narration keys to existing enrichments (learn from user edits)
+    // First, load persisted enrichment rules (these survive transaction deletion)
+    const savedRules = await db
+      .select()
+      .from(enrichmentRules)
+      .where(
+        and(
+          eq(enrichmentRules.userId, req.userId!),
+          eq(enrichmentRules.isActive, 1)
+        )
+      )
+      .orderBy(desc(enrichmentRules.priority), desc(enrichmentRules.matchCount));
+
+    // Build lookup map from persisted rules: patternValue -> enrichment data
+    const learnedMappings: Map<string, {
+      vendorName: string | null;
+      bizType: string | null;
+      bizDescription: string | null;
+      gstType: string | null;
+      needsInvoice: boolean | null;
+      ruleId: string;
+    }> = new Map();
+
+    for (const rule of savedRules) {
+      if (!learnedMappings.has(rule.patternValue)) {
+        learnedMappings.set(rule.patternValue, {
+          vendorName: rule.vendorName,
+          bizType: rule.bizType,
+          bizDescription: rule.bizDescription,
+          gstType: rule.gstType,
+          needsInvoice: rule.needsInvoice === 1,
+          ruleId: rule.id,
+        });
+      }
+    }
+
+    // Also learn from existing enriched transactions (for backward compatibility)
     const existingMappings = await db
       .select({
         narration: bankTransactions.narration,
@@ -398,17 +433,9 @@ router.post('/enrich', async (req, res) => {
         )
       );
 
-    // Build lookup map: narrationKey -> { vendorName, bizType, ... }
-    const learnedMappings: Map<string, {
-      vendorName: string | null;
-      bizType: string | null;
-      bizDescription: string | null;
-      gstType: string | null;
-      needsInvoice: boolean | null;
-    }> = new Map();
-
     for (const mapping of existingMappings) {
       const key = extractNarrationKey(mapping.narration);
+      // Only add if not already in persisted rules (persisted rules take priority)
       if (key && !learnedMappings.has(key)) {
         learnedMappings.set(key, {
           vendorName: mapping.vendorName,
@@ -416,11 +443,12 @@ router.post('/enrich', async (req, res) => {
           bizDescription: mapping.bizDescription,
           gstType: mapping.gstType,
           needsInvoice: mapping.needsInvoice,
+          ruleId: '', // No rule ID for transaction-learned mappings
         });
       }
     }
 
-    console.log(`[Enrich] Learned ${learnedMappings.size} mappings from existing transactions`);
+    console.log(`[Enrich] Loaded ${savedRules.length} persisted rules, ${learnedMappings.size} total mappings`);
 
     // Get transactions that need enrichment
     const conditions = [
@@ -491,17 +519,109 @@ router.post('/enrich', async (req, res) => {
           .set(updateData)
           .where(eq(bankTransactions.id, tx.id));
         enrichedCount++;
+
+        // Increment match count for the used rule
+        if (learnedMapping?.ruleId) {
+          await db
+            .update(enrichmentRules)
+            .set({
+              matchCount: sql`${enrichmentRules.matchCount} + 1`,
+              updatedAt: now,
+            })
+            .where(eq(enrichmentRules.id, learnedMapping.ruleId));
+        }
       }
     }
 
     res.json({
       enriched: enrichedCount,
       learnedMappings: learnedMappings.size,
-      message: `Successfully enriched ${enrichedCount} transactions (using ${learnedMappings.size} learned patterns)`,
+      persistedRules: savedRules.length,
+      message: `Successfully enriched ${enrichedCount} transactions (using ${learnedMappings.size} learned patterns, ${savedRules.length} persisted rules)`,
     });
   } catch (error) {
     console.error('Error enriching transactions:', error);
     res.status(500).json({ error: 'Failed to enrich transactions' });
+  }
+});
+
+// ============================================
+// Enrichment Rules Management
+// ============================================
+
+// Get all enrichment rules
+router.get('/enrichment-rules', async (req, res) => {
+  try {
+    const rules = await db
+      .select()
+      .from(enrichmentRules)
+      .where(eq(enrichmentRules.userId, req.userId!))
+      .orderBy(desc(enrichmentRules.matchCount), desc(enrichmentRules.priority));
+
+    res.json(rules);
+  } catch (error) {
+    console.error('Error fetching enrichment rules:', error);
+    res.status(500).json({ error: 'Failed to fetch enrichment rules' });
+  }
+});
+
+// Delete an enrichment rule
+router.delete('/enrichment-rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify rule belongs to user
+    const [rule] = await db
+      .select()
+      .from(enrichmentRules)
+      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, req.userId!)));
+
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    await db.delete(enrichmentRules).where(eq(enrichmentRules.id, id));
+
+    res.json({ success: true, message: 'Rule deleted' });
+  } catch (error) {
+    console.error('Error deleting enrichment rule:', error);
+    res.status(500).json({ error: 'Failed to delete rule' });
+  }
+});
+
+// Toggle enrichment rule active status
+router.patch('/enrichment-rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    // Verify rule belongs to user
+    const [rule] = await db
+      .select()
+      .from(enrichmentRules)
+      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, req.userId!)));
+
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    await db
+      .update(enrichmentRules)
+      .set({
+        isActive: isActive ? 1 : 0,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(enrichmentRules.id, id));
+
+    const [updated] = await db
+      .select()
+      .from(enrichmentRules)
+      .where(eq(enrichmentRules.id, id));
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating enrichment rule:', error);
+    res.status(500).json({ error: 'Failed to update rule' });
   }
 });
 
@@ -542,6 +662,58 @@ router.patch('/transaction/:id', async (req, res) => {
         updatedAt: now,
       })
       .where(eq(bankTransactions.id, id));
+
+    // Save enrichment rule for future auto-enrichment (learn from user's corrections)
+    if (data.bizType || data.vendorName) {
+      const narrationKey = extractNarrationKey(tx.narration);
+      if (narrationKey) {
+        // Check if rule already exists
+        const [existingRule] = await db
+          .select()
+          .from(enrichmentRules)
+          .where(
+            and(
+              eq(enrichmentRules.userId, req.userId!),
+              eq(enrichmentRules.patternType, 'narration_key'),
+              eq(enrichmentRules.patternValue, narrationKey)
+            )
+          )
+          .limit(1);
+
+        if (existingRule) {
+          // Update existing rule
+          await db
+            .update(enrichmentRules)
+            .set({
+              bizType: data.bizType || existingRule.bizType,
+              bizDescription: data.bizDescription || existingRule.bizDescription,
+              vendorName: data.vendorName || existingRule.vendorName,
+              needsInvoice: data.needsInvoice !== undefined ? (data.needsInvoice ? 1 : 0) : existingRule.needsInvoice,
+              gstType: data.gstType || existingRule.gstType,
+              matchCount: (existingRule.matchCount || 0) + 1,
+              updatedAt: now,
+            })
+            .where(eq(enrichmentRules.id, existingRule.id));
+        } else {
+          // Create new rule
+          await db.insert(enrichmentRules).values({
+            id: uuidv4(),
+            userId: req.userId!,
+            patternType: 'narration_key',
+            patternValue: narrationKey,
+            bizType: data.bizType,
+            bizDescription: data.bizDescription,
+            vendorName: data.vendorName,
+            needsInvoice: data.needsInvoice ? 1 : 0,
+            gstType: data.gstType,
+            matchCount: 1,
+            priority: 10, // User-defined rules have higher priority
+            isActive: 1,
+            createdAt: now,
+          });
+        }
+      }
+    }
 
     // Propagate updates to similar transactions with empty values (fuzzy matching)
     let propagatedCount = 0;
