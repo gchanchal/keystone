@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, bankTransactions, accounts, businessInvoices, enrichmentRules } from '../db/index.js';
+import { db, bankTransactions, accounts, businessInvoices, enrichmentRules, vyaparTransactions } from '../db/index.js';
 import { eq, and, between, desc, asc, sql, like, isNull } from 'drizzle-orm';
 import {
   enrichTransaction,
@@ -2694,6 +2694,45 @@ router.get('/gearup-accounts', async (req: any, res) => {
       .select()
       .from(accounts)
       .where(and(eq(accounts.userId, userId), eq(accounts.isActive, true)));
+
+    // Check if user has Vyapar data - if so, ensure Vyapar virtual account exists
+    const vyaparCount = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(vyaparTransactions)
+      .where(eq(vyaparTransactions.userId, userId));
+
+    const hasVyaparData = vyaparCount[0]?.count > 0;
+
+    // Check if Vyapar virtual account exists
+    let vyaparAccount = allAccounts.find(a => a.accountType === 'vyapar');
+
+    // Create Vyapar virtual account if user has Vyapar data but no account
+    if (hasVyaparData && !vyaparAccount) {
+      const now = new Date().toISOString();
+      const vyaparId = uuidv4();
+      await db.insert(accounts).values({
+        id: vyaparId,
+        userId,
+        name: 'Vyapar (GearUp Mods)',
+        bankName: 'Vyapar App',
+        accountNumber: null,
+        accountType: 'vyapar',
+        isGearupBusiness: true, // Enable by default for GearUp
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Fetch the newly created account
+      const [newVyapar] = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, vyaparId));
+      if (newVyapar) {
+        vyaparAccount = newVyapar;
+        allAccounts.push(newVyapar);
+      }
+    }
 
     // Separate into personal and gearup accounts
     const result = {

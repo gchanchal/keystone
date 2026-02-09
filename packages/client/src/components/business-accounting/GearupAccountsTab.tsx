@@ -7,6 +7,7 @@ import {
   X,
   ArrowRight,
   Loader2,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -82,12 +83,17 @@ export function GearupAccountsTab() {
   const gearupAccounts = accounts.filter(a => a.isGearupBusiness);
   const personalAccounts = accounts.filter(a => !a.isGearupBusiness);
 
-  const bankAccounts = accounts.filter(a => a.accountType !== 'credit_card');
+  // Separate by type - exclude Vyapar from bank accounts
+  const bankAccounts = accounts.filter(a => a.accountType !== 'credit_card' && a.accountType !== 'vyapar');
   const creditCards = accounts.filter(a => a.accountType === 'credit_card');
+  const dataSources = accounts.filter(a => a.accountType === 'vyapar');
 
   const getAccountIcon = (accountType: string) => {
     if (accountType === 'credit_card') {
       return <CreditCard className="h-5 w-5" />;
+    }
+    if (accountType === 'vyapar') {
+      return <FileSpreadsheet className="h-5 w-5" />;
     }
     return <Building2 className="h-5 w-5" />;
   };
@@ -257,6 +263,67 @@ export function GearupAccountsTab() {
         </CardContent>
       </Card>
 
+      {/* Data Sources Section (Vyapar) */}
+      {dataSources.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Data Sources
+            </CardTitle>
+            <CardDescription>
+              External data sources like Vyapar for sales and inventory tracking
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {dataSources.map((source) => (
+                <div
+                  key={source.id}
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
+                    source.isGearupBusiness
+                      ? 'bg-primary/5 border-primary/20'
+                      : 'bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded-full ${
+                      source.isGearupBusiness ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {getAccountIcon(source.accountType)}
+                    </div>
+                    <div>
+                      <div className="font-medium">{source.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {source.bankName}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {source.isGearupBusiness && (
+                      <Badge variant="default" className="bg-primary">
+                        GearUp Mods
+                      </Badge>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        {source.isGearupBusiness ? 'Enabled' : 'Disabled'}
+                      </span>
+                      <Switch
+                        checked={source.isGearupBusiness}
+                        onCheckedChange={() => handleToggle(source.id)}
+                        disabled={togglingId === source.id}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Help Text */}
       <Card className="bg-muted/30">
         <CardContent className="py-4">
@@ -269,6 +336,7 @@ export function GearupAccountsTab() {
                 <li><strong>Personal only accounts</strong> are hidden from GearUp Mods business accounting</li>
                 <li>Transactions from shared accounts can be enriched with business details (vendor, type, invoices)</li>
                 <li>GST tracking and invoice management is available for GearUp Mods accounts</li>
+                <li><strong>Vyapar</strong> data source provides sales and inventory transactions</li>
               </ul>
             </div>
           </div>
