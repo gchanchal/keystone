@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, subMonths, addMonths, startOfMonth, endOfMonth } from 'date-fns';
 import {
@@ -95,7 +96,14 @@ const getTypeColor = (type: string) => BIZ_TYPE_COLORS[type] || DEFAULT_TYPE_COL
 
 export function BusinessAccounting() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('transactions');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Get tab from URL or default to 'transactions'
+  const activeTab = searchParams.get('tab') || 'transactions';
+  const setActiveTab = (tab: string) => {
+    setSearchParams({ tab });
+  };
+
   const [selectedTransaction, setSelectedTransaction] = useState<BusinessTransaction | null>(null);
   const [bizTypeFilter, setBizTypeFilter] = useState<string>('all');
   const [invoiceFilter, setInvoiceFilter] = useState<string>('all');

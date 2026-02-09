@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X, Building2, FileSpreadsheet } from 'lucide-react';
+import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -45,11 +45,6 @@ const TYPE_COLORS: Record<string, string> = {
   PAYMENT_OUT: 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300',
 };
 
-const SOURCE_LABELS: Record<string, string> = {
-  bank: 'Bank',
-  vyapar: 'Vyapar',
-  both: 'Bank + Vyapar',
-};
 
 export function VendorsTab() {
   const queryClient = useQueryClient();
@@ -397,7 +392,6 @@ export function VendorsTab() {
             <TableHeader>
               <TableRow>
                 <TableHead>Vendor Name</TableHead>
-                <TableHead>Source</TableHead>
                 <TableHead>Account</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead className="text-right">Txns</TableHead>
@@ -411,68 +405,52 @@ export function VendorsTab() {
             <TableBody>
               {vendors.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     No vendors found
                   </TableCell>
                 </TableRow>
               ) : (
-                vendors.map((vendor) => {
-                  const source = vendor.source || 'bank';
-                  return (
-                    <TableRow
-                      key={vendor.vendorName}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => setSelectedVendor(vendor.vendorName)}
-                    >
-                      <TableCell className="font-medium">{vendor.vendorName}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          {source === 'bank' && <Building2 className="h-3 w-3 text-blue-500" />}
-                          {source === 'vyapar' && <FileSpreadsheet className="h-3 w-3 text-green-500" />}
-                          {source === 'both' && (
-                            <>
-                              <Building2 className="h-3 w-3 text-blue-500" />
-                              <FileSpreadsheet className="h-3 w-3 text-green-500" />
-                            </>
-                          )}
-                          <span className="text-xs">{SOURCE_LABELS[source] || source}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-muted-foreground">
-                          {vendor.accountNames?.join(', ') || '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {vendor.primaryType ? (
-                          <Badge className={TYPE_COLORS[vendor.primaryType] || 'bg-slate-100 text-slate-800'}>
-                            {TYPE_LABELS[vendor.primaryType] || vendor.primaryType}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">{vendor.transactionCount}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(vendor.totalAmount)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(vendor.avgPayment || 0)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {vendor.invoiceCount > 0 ? (
-                          <span className="text-green-600">{vendor.invoiceCount}</span>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatDate(vendor.lastPaymentDate)}</TableCell>
-                      <TableCell>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                vendors.map((vendor) => (
+                  <TableRow
+                    key={vendor.vendorName}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setSelectedVendor(vendor.vendorName)}
+                  >
+                    <TableCell className="font-medium">{vendor.vendorName}</TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {vendor.accountNames?.join(', ') || '-'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {vendor.primaryType ? (
+                        <Badge className={TYPE_COLORS[vendor.primaryType] || 'bg-slate-100 text-slate-800'}>
+                          {TYPE_LABELS[vendor.primaryType] || vendor.primaryType}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">{vendor.transactionCount}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(vendor.totalAmount)}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {formatCurrency(vendor.avgPayment || 0)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {vendor.invoiceCount > 0 ? (
+                        <span className="text-green-600">{vendor.invoiceCount}</span>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{formatDate(vendor.lastPaymentDate)}</TableCell>
+                    <TableCell>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ))}
               )}
             </TableBody>
           </Table>
