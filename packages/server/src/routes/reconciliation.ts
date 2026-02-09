@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { db, bankTransactions, vyaparTransactions } from '../db/index.js';
-import { eq, and, between, sql } from 'drizzle-orm';
+import { db, bankTransactions, vyaparTransactions, reconciliationRules } from '../db/index.js';
+import { eq, and, between, sql, desc } from 'drizzle-orm';
 import {
   autoReconcile,
   applyMatches,
@@ -169,7 +169,7 @@ router.post('/manual-match', async (req, res) => {
       })
       .parse(req.body);
 
-    await manualMatch(bankTransactionId, vyaparTransactionId);
+    await manualMatch(bankTransactionId, vyaparTransactionId, req.userId);
 
     res.json({ success: true });
   } catch (error) {
@@ -356,6 +356,86 @@ router.get('/export', async (req, res) => {
     }
     console.error('Error exporting reconciliation:', error);
     res.status(500).json({ error: 'Failed to export report' });
+  }
+});
+
+// ============================================
+// Reconciliation Rules Management
+// ============================================
+
+// Get all reconciliation rules
+router.get('/rules', async (req, res) => {
+  try {
+    const rules = await db
+      .select()
+      .from(reconciliationRules)
+      .where(eq(reconciliationRules.userId, req.userId!))
+      .orderBy(desc(reconciliationRules.matchCount), desc(reconciliationRules.priority));
+
+    res.json(rules);
+  } catch (error) {
+    console.error('Error fetching reconciliation rules:', error);
+    res.status(500).json({ error: 'Failed to fetch rules' });
+  }
+});
+
+// Delete a reconciliation rule
+router.delete('/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify rule belongs to user
+    const [rule] = await db
+      .select()
+      .from(reconciliationRules)
+      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, req.userId!)));
+
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    await db.delete(reconciliationRules).where(eq(reconciliationRules.id, id));
+
+    res.json({ success: true, message: 'Rule deleted' });
+  } catch (error) {
+    console.error('Error deleting reconciliation rule:', error);
+    res.status(500).json({ error: 'Failed to delete rule' });
+  }
+});
+
+// Toggle reconciliation rule active status
+router.patch('/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    // Verify rule belongs to user
+    const [rule] = await db
+      .select()
+      .from(reconciliationRules)
+      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, req.userId!)));
+
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    await db
+      .update(reconciliationRules)
+      .set({
+        isActive: isActive ? 1 : 0,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(reconciliationRules.id, id));
+
+    const [updated] = await db
+      .select()
+      .from(reconciliationRules)
+      .where(eq(reconciliationRules.id, id));
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating reconciliation rule:', error);
+    res.status(500).json({ error: 'Failed to update rule' });
   }
 });
 

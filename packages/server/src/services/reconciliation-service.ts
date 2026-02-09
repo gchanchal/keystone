@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { bankTransactions, vyaparTransactions, reconciliationMatches } from '../db/index.js';
-import { eq, and, between, sql, inArray } from 'drizzle-orm';
+import { bankTransactions, vyaparTransactions, reconciliationMatches, reconciliationRules } from '../db/index.js';
+import { eq, and, between, sql, inArray, desc } from 'drizzle-orm';
 import { addDays, subDays, parseISO } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -69,6 +69,38 @@ function extractPartyName(narration: string): string {
   return narration;
 }
 
+// Extract bank pattern with type for rule storage
+function extractBankPattern(narration: string): { type: string; value: string } | null {
+  if (!narration) return null;
+  const upper = narration.toUpperCase();
+
+  // UPI pattern
+  const upiMatch = upper.match(/UPI[-\/]([^\/]+)\//);
+  if (upiMatch) {
+    return { type: 'upi_name', value: upiMatch[1].trim() };
+  }
+
+  // NEFT pattern
+  const neftMatch = upper.match(/NEFT[-\/][^\/]+\/([^\/]+)/);
+  if (neftMatch) {
+    return { type: 'neft_name', value: neftMatch[1].trim() };
+  }
+
+  // RTGS pattern
+  const rtgsMatch = upper.match(/RTGS[-\/][^\/]+\/([^\/]+)/);
+  if (rtgsMatch) {
+    return { type: 'rtgs_name', value: rtgsMatch[1].trim() };
+  }
+
+  // IMPS pattern
+  const impsMatch = upper.match(/IMPS[-\/][^\/]+\/([^\/]+)/);
+  if (impsMatch) {
+    return { type: 'imps_name', value: impsMatch[1].trim() };
+  }
+
+  return null;
+}
+
 // Check if amounts match (with small tolerance for rounding)
 function amountsMatch(amount1: number, amount2: number, tolerance = 0.01): boolean {
   return Math.abs(amount1 - amount2) <= tolerance;
@@ -131,9 +163,73 @@ export async function autoReconcile(
     ? bankTxns.filter(t => accountIds.includes(t.accountId))
     : bankTxns;
 
+  // Load learned reconciliation rules
+  const learnedRules = userId
+    ? await db
+        .select()
+        .from(reconciliationRules)
+        .where(and(eq(reconciliationRules.userId, userId), eq(reconciliationRules.isActive, 1)))
+        .orderBy(desc(reconciliationRules.priority), desc(reconciliationRules.matchCount))
+    : [];
+
+  // Build lookup map: bankPattern -> vyaparPartyName
+  const ruleMap = new Map<string, { partyName: string; ruleId: string }>();
+  for (const rule of learnedRules) {
+    const key = `${rule.bankPatternType}:${rule.bankPatternValue}`;
+    if (!ruleMap.has(key)) {
+      ruleMap.set(key, { partyName: rule.vyaparPartyName, ruleId: rule.id });
+    }
+  }
+
+  console.log(`[AutoReconcile] Loaded ${learnedRules.length} learned rules`);
+
   // Create sets to track matched transactions
   const matchedBankIds = new Set<string>();
   const matchedVyaparIds = new Set<string>();
+  const usedRuleIds = new Set<string>();
+
+  // Priority 0: Learned rules - match bank pattern to vyapar party name
+  if (ruleMap.size > 0) {
+    for (const bankTxn of filteredBankTxns) {
+      if (matchedBankIds.has(bankTxn.id)) continue;
+
+      const pattern = extractBankPattern(bankTxn.narration);
+      if (!pattern) continue;
+
+      const key = `${pattern.type}:${pattern.value}`;
+      const rule = ruleMap.get(key);
+      if (!rule) continue;
+
+      // Find vyapar transaction with matching party name and amount
+      for (const vyaparTxn of vyaparTxns) {
+        if (matchedVyaparIds.has(vyaparTxn.id)) continue;
+        if (!vyaparTxn.partyName) continue;
+
+        // Check if party name matches and amount matches
+        if (
+          vyaparTxn.partyName.toUpperCase() === rule.partyName.toUpperCase() &&
+          amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
+          datesWithinRange(bankTxn.date, vyaparTxn.date, 7) // Within 7 days
+        ) {
+          matches.push({
+            bankTransactionId: bankTxn.id,
+            vyaparTransactionId: vyaparTxn.id,
+            confidence: 98, // High confidence for learned rules
+            matchType: 'exact',
+            bankAmount: bankTxn.amount,
+            vyaparAmount: vyaparTxn.amount,
+            bankDate: bankTxn.date,
+            vyaparDate: vyaparTxn.date,
+          });
+          matchedBankIds.add(bankTxn.id);
+          matchedVyaparIds.add(vyaparTxn.id);
+          usedRuleIds.add(rule.ruleId);
+          break;
+        }
+      }
+    }
+    console.log(`[AutoReconcile] Matched ${usedRuleIds.size} using learned rules`);
+  }
 
   // Priority 1: Exact amount + same date
   for (const bankTxn of filteredBankTxns) {
@@ -282,7 +378,8 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
 
 export async function manualMatch(
   bankTransactionId: string,
-  vyaparTransactionId: string
+  vyaparTransactionId: string,
+  userId?: string
 ): Promise<boolean> {
   const now = new Date().toISOString();
 
@@ -294,6 +391,13 @@ export async function manualMatch(
     .limit(1);
 
   if (!bankTxn[0]) return false;
+
+  // Fetch vyapar transaction to get party name
+  const vyaparTxn = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(eq(vyaparTransactions.id, vyaparTransactionId))
+    .limit(1);
 
   await db
     .update(bankTransactions)
@@ -318,6 +422,51 @@ export async function manualMatch(
       updatedAt: now,
     })
     .where(eq(vyaparTransactions.id, vyaparTransactionId));
+
+  // Save reconciliation rule for future auto-matching
+  const effectiveUserId = userId || bankTxn[0].userId;
+  if (effectiveUserId && vyaparTxn[0]?.partyName) {
+    const pattern = extractBankPattern(bankTxn[0].narration);
+    if (pattern) {
+      // Check if rule already exists
+      const [existingRule] = await db
+        .select()
+        .from(reconciliationRules)
+        .where(
+          and(
+            eq(reconciliationRules.userId, effectiveUserId),
+            eq(reconciliationRules.bankPatternType, pattern.type),
+            eq(reconciliationRules.bankPatternValue, pattern.value)
+          )
+        )
+        .limit(1);
+
+      if (existingRule) {
+        // Update existing rule
+        await db
+          .update(reconciliationRules)
+          .set({
+            vyaparPartyName: vyaparTxn[0].partyName,
+            matchCount: (existingRule.matchCount || 0) + 1,
+            updatedAt: now,
+          })
+          .where(eq(reconciliationRules.id, existingRule.id));
+      } else {
+        // Create new rule
+        await db.insert(reconciliationRules).values({
+          id: uuidv4(),
+          userId: effectiveUserId,
+          bankPatternType: pattern.type,
+          bankPatternValue: pattern.value,
+          vyaparPartyName: vyaparTxn[0].partyName,
+          matchCount: 1,
+          priority: 10, // Manual matches have higher priority
+          isActive: 1,
+          createdAt: now,
+        });
+      }
+    }
+  }
 
   return true;
 }
