@@ -1,10 +1,11 @@
 /**
  * Invoice Parser Service
- * Extracts GST information from uploaded invoice PDFs
+ * Extracts GST information from uploaded invoice PDFs and images
  */
 
 import pdf from 'pdf-parse';
 import fs from 'fs';
+import Tesseract from 'tesseract.js';
 
 export interface InvoiceGSTInfo {
   gstAmount: number | null;
@@ -107,9 +108,9 @@ function extractFirst(text: string, pattern: RegExp): string | null {
 }
 
 /**
- * Extract GST information from PDF buffer
+ * Extract GST information from text (shared by PDF and image parsing)
  */
-export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInfo> {
+function extractGSTFromText(text: string): InvoiceGSTInfo {
   const result: InvoiceGSTInfo = {
     gstAmount: null,
     cgstAmount: null,
@@ -126,34 +127,34 @@ export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInf
     isEstimate: false,
   };
 
-  try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdf(dataBuffer);
-    const text = data.text;
-
-    // Detect document type (Estimate, Invoice, Proforma, etc.)
-    const docTypeMatch = text.match(PATTERNS.documentType);
-    if (docTypeMatch) {
-      const docType = docTypeMatch[1].toLowerCase();
-      if (docType.includes('estimate')) {
-        result.documentType = 'estimate';
-        result.isEstimate = true;
-      } else if (docType.includes('proforma')) {
-        result.documentType = 'proforma';
-        result.isEstimate = true;
-      } else if (docType.includes('quotation') || docType.includes('quote')) {
-        result.documentType = 'quotation';
-        result.isEstimate = true;
-      } else {
-        result.documentType = 'invoice';
-        result.isEstimate = false;
-      }
+  // Detect document type (Estimate, Invoice, Proforma, etc.)
+  const docTypeMatch = text.match(PATTERNS.documentType);
+  if (docTypeMatch) {
+    const docType = docTypeMatch[1].toLowerCase();
+    if (docType.includes('estimate')) {
+      result.documentType = 'estimate';
+      result.isEstimate = true;
+    } else if (docType.includes('proforma')) {
+      result.documentType = 'proforma';
+      result.isEstimate = true;
+    } else if (docType.includes('quotation') || docType.includes('quote')) {
+      result.documentType = 'quotation';
+      result.isEstimate = true;
+    } else {
+      result.documentType = 'invoice';
+      result.isEstimate = false;
     }
+  }
 
-    // Extract party/company name - try "BILL TO" first (customer for output invoices)
-    const billToMatch = text.match(PATTERNS.billTo);
-    if (billToMatch && billToMatch[1]) {
-      result.partyName = billToMatch[1].trim();
+  // Extract party/company name - try "BILL TO" first, then "To" or "M/s"
+  const billToMatch = text.match(PATTERNS.billTo);
+  if (billToMatch && billToMatch[1]) {
+    result.partyName = billToMatch[1].trim();
+  } else {
+    // Try M/s pattern (common in Indian invoices)
+    const msMatch = text.match(/M\/s\.?\s+([A-Z][A-Z0-9\s&.,]+?)(?:\n|,|\d)/i);
+    if (msMatch && msMatch[1]) {
+      result.partyName = msMatch[1].trim();
     } else {
       // Fallback: try seller name pattern (after document title)
       const partyMatch = text.match(PATTERNS.partyName);
@@ -161,178 +162,212 @@ export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInf
         result.partyName = partyMatch[2].trim();
       }
     }
+  }
 
-    // Extract GSTIN (vendor's GST number)
-    const gstins = extractAll(text, PATTERNS.gstin);
-    if (gstins.length > 0) {
-      // Usually the first GSTIN is the vendor's
-      result.gstinVendor = gstins[0];
-    }
+  // Extract GSTIN (vendor's GST number)
+  const gstins = extractAll(text, PATTERNS.gstin);
+  if (gstins.length > 0) {
+    // Usually the first GSTIN is the vendor's
+    result.gstinVendor = gstins[0];
+  }
 
-    // Extract CGST amount - try percentage format first (e.g., "CGST2.5 (2.5%)16.67")
-    let cgstMatches = extractAll(text, PATTERNS.cgstWithPct);
-    if (cgstMatches.length === 0) {
-      cgstMatches = extractAll(text, PATTERNS.cgst);
+  // Extract CGST amount - try percentage format first (e.g., "CGST2.5 (2.5%)16.67")
+  let cgstMatches = extractAll(text, PATTERNS.cgstWithPct);
+  if (cgstMatches.length === 0) {
+    cgstMatches = extractAll(text, PATTERNS.cgst);
+  }
+  if (cgstMatches.length > 0) {
+    // Take the largest CGST amount (likely the total)
+    const amounts = cgstMatches.map(parseIndianNumber).filter(n => n > 0);
+    if (amounts.length > 0) {
+      result.cgstAmount = Math.max(...amounts);
     }
-    if (cgstMatches.length > 0) {
-      // Take the largest CGST amount (likely the total)
-      const amounts = cgstMatches.map(parseIndianNumber).filter(n => n > 0);
-      if (amounts.length > 0) {
-        result.cgstAmount = Math.max(...amounts);
+  }
+
+  // Extract SGST amount - try percentage format first
+  let sgstMatches = extractAll(text, PATTERNS.sgstWithPct);
+  if (sgstMatches.length === 0) {
+    sgstMatches = extractAll(text, PATTERNS.sgst);
+  }
+  if (sgstMatches.length > 0) {
+    const amounts = sgstMatches.map(parseIndianNumber).filter(n => n > 0);
+    if (amounts.length > 0) {
+      result.sgstAmount = Math.max(...amounts);
+    }
+  }
+
+  // Extract IGST amount - try percentage format first, then table format
+  let igstMatches = extractAll(text, PATTERNS.igstWithPct);
+  if (igstMatches.length === 0) {
+    igstMatches = extractAll(text, PATTERNS.igst);
+  }
+  if (igstMatches.length > 0) {
+    const amounts = igstMatches.map(parseIndianNumber).filter(n => n > 0);
+    if (amounts.length > 0) {
+      result.igstAmount = Math.max(...amounts);
+    }
+  }
+
+  // If no IGST found, try looking for HSN tax table which often has the breakdown
+  if (!result.igstAmount && !result.cgstAmount && !result.sgstAmount) {
+    // Check if this document has IGST (interstate) based on place of supply being different from seller state
+    const hasIGST = text.match(/\bIGST\b/i) !== null;
+    const hasCGSTSGST = text.match(/\bCGST\b/i) !== null || text.match(/\bSGST\b/i) !== null;
+
+    // Try HSN table pattern first: "Total Tax Amount" header followed by totals row
+    const hsnTableMatch = text.match(PATTERNS.hsnTaxTable);
+    if (hsnTableMatch) {
+      const taxableVal = parseIndianNumber(hsnTableMatch[1]);
+      const taxVal = parseIndianNumber(hsnTableMatch[2]);
+      // const totalTaxVal = parseIndianNumber(hsnTableMatch[3]); // Usually same as taxVal
+
+      if (taxableVal > 0 && taxVal > 0 && taxableVal > taxVal) {
+        result.taxableAmount = taxableVal;
+        // Determine if IGST or CGST+SGST based on presence in document
+        if (hasIGST && !hasCGSTSGST) {
+          result.igstAmount = taxVal;
+        } else if (hasCGSTSGST && !hasIGST) {
+          result.cgstAmount = Math.round(taxVal / 2 * 100) / 100;
+          result.sgstAmount = Math.round(taxVal / 2 * 100) / 100;
+        } else {
+          // Default to IGST if "IGST" column header exists
+          result.igstAmount = taxVal;
+        }
       }
     }
 
-    // Extract SGST amount - try percentage format first
-    let sgstMatches = extractAll(text, PATTERNS.sgstWithPct);
-    if (sgstMatches.length === 0) {
-      sgstMatches = extractAll(text, PATTERNS.sgst);
-    }
-    if (sgstMatches.length > 0) {
-      const amounts = sgstMatches.map(parseIndianNumber).filter(n => n > 0);
-      if (amounts.length > 0) {
-        result.sgstAmount = Math.max(...amounts);
-      }
-    }
+    // Fallback: Look for any Total row with three amounts
+    if (!result.igstAmount && !result.cgstAmount) {
+      const totalTaxMatch = text.match(/Total[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/i);
+      if (totalTaxMatch) {
+        const val1 = parseIndianNumber(totalTaxMatch[1]);
+        const val2 = parseIndianNumber(totalTaxMatch[2]);
+        const val3 = parseIndianNumber(totalTaxMatch[3]);
 
-    // Extract IGST amount - try percentage format first, then table format
-    let igstMatches = extractAll(text, PATTERNS.igstWithPct);
-    if (igstMatches.length === 0) {
-      igstMatches = extractAll(text, PATTERNS.igst);
-    }
-    if (igstMatches.length > 0) {
-      const amounts = igstMatches.map(parseIndianNumber).filter(n => n > 0);
-      if (amounts.length > 0) {
-        result.igstAmount = Math.max(...amounts);
-      }
-    }
-
-    // If no IGST found, try looking for HSN tax table which often has the breakdown
-    if (!result.igstAmount && !result.cgstAmount && !result.sgstAmount) {
-      // Check if this document has IGST (interstate) based on place of supply being different from seller state
-      const hasIGST = text.match(/\bIGST\b/i) !== null;
-      const hasCGSTSGST = text.match(/\bCGST\b/i) !== null || text.match(/\bSGST\b/i) !== null;
-
-      // Try HSN table pattern first: "Total Tax Amount" header followed by totals row
-      const hsnTableMatch = text.match(PATTERNS.hsnTaxTable);
-      if (hsnTableMatch) {
-        const taxableVal = parseIndianNumber(hsnTableMatch[1]);
-        const taxVal = parseIndianNumber(hsnTableMatch[2]);
-        // const totalTaxVal = parseIndianNumber(hsnTableMatch[3]); // Usually same as taxVal
-
-        if (taxableVal > 0 && taxVal > 0 && taxableVal > taxVal) {
-          result.taxableAmount = taxableVal;
-          // Determine if IGST or CGST+SGST based on presence in document
+        // If val2 and val3 are equal and both less than val1, it's likely taxable + tax + tax
+        if (val2 === val3 && val1 > val2 && val2 > 0) {
+          result.taxableAmount = val1;
+          const taxVal = val2;
           if (hasIGST && !hasCGSTSGST) {
             result.igstAmount = taxVal;
           } else if (hasCGSTSGST && !hasIGST) {
             result.cgstAmount = Math.round(taxVal / 2 * 100) / 100;
             result.sgstAmount = Math.round(taxVal / 2 * 100) / 100;
           } else {
-            // Default to IGST if "IGST" column header exists
             result.igstAmount = taxVal;
           }
         }
       }
+    }
+  }
 
-      // Fallback: Look for any Total row with three amounts
-      if (!result.igstAmount && !result.cgstAmount) {
-        const totalTaxMatch = text.match(/Total[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/i);
-        if (totalTaxMatch) {
-          const val1 = parseIndianNumber(totalTaxMatch[1]);
-          const val2 = parseIndianNumber(totalTaxMatch[2]);
-          const val3 = parseIndianNumber(totalTaxMatch[3]);
-
-          // If val2 and val3 are equal and both less than val1, it's likely taxable + tax + tax
-          if (val2 === val3 && val1 > val2 && val2 > 0) {
-            result.taxableAmount = val1;
-            const taxVal = val2;
-            if (hasIGST && !hasCGSTSGST) {
-              result.igstAmount = taxVal;
-            } else if (hasCGSTSGST && !hasIGST) {
-              result.cgstAmount = Math.round(taxVal / 2 * 100) / 100;
-              result.sgstAmount = Math.round(taxVal / 2 * 100) / 100;
-            } else {
-              result.igstAmount = taxVal;
-            }
-          }
-        }
+  // Calculate total GST
+  if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
+    result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
+  } else {
+    // Try generic GST pattern
+    const gstMatches = extractAll(text, PATTERNS.gst);
+    if (gstMatches.length > 0) {
+      const amounts = gstMatches.map(parseIndianNumber).filter(n => n > 0);
+      if (amounts.length > 0) {
+        result.gstAmount = Math.max(...amounts);
       }
     }
 
-    // Calculate total GST
-    if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
-      result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
-    } else {
-      // Try generic GST pattern
-      const gstMatches = extractAll(text, PATTERNS.gst);
-      if (gstMatches.length > 0) {
-        const amounts = gstMatches.map(parseIndianNumber).filter(n => n > 0);
+    // Try tax amount pattern
+    if (!result.gstAmount) {
+      const taxMatches = extractAll(text, PATTERNS.taxAmount);
+      if (taxMatches.length > 0) {
+        const amounts = taxMatches.map(parseIndianNumber).filter(n => n > 0);
         if (amounts.length > 0) {
           result.gstAmount = Math.max(...amounts);
         }
       }
-
-      // Try tax amount pattern
-      if (!result.gstAmount) {
-        const taxMatches = extractAll(text, PATTERNS.taxAmount);
-        if (taxMatches.length > 0) {
-          const amounts = taxMatches.map(parseIndianNumber).filter(n => n > 0);
-          if (amounts.length > 0) {
-            result.gstAmount = Math.max(...amounts);
-          }
-        }
-      }
     }
+  }
 
-    // Extract invoice/estimate number
-    result.invoiceNumber = extractFirst(text, PATTERNS.invoiceNumber);
-
-    // Extract invoice date
-    const dateStr = extractFirst(text, PATTERNS.invoiceDate);
-    if (dateStr) {
-      result.invoiceDate = normalizeDate(dateStr);
+  // Extract invoice/estimate number - also try "Inv. No" pattern
+  result.invoiceNumber = extractFirst(text, PATTERNS.invoiceNumber);
+  if (!result.invoiceNumber) {
+    const invNoMatch = text.match(/Inv\.?\s*No\.?\s*:?\s*([A-Z0-9\-\/]+)/i);
+    if (invNoMatch) {
+      result.invoiceNumber = invNoMatch[1];
     }
+  }
 
-    // Extract total amount - try Grand Total first (more specific)
-    const grandTotalMatches = extractAll(text, PATTERNS.grandTotal);
-    if (grandTotalMatches.length > 0) {
-      const amounts = grandTotalMatches.map(parseIndianNumber).filter(n => n > 0);
+  // Extract invoice date
+  const dateStr = extractFirst(text, PATTERNS.invoiceDate);
+  if (dateStr) {
+    result.invoiceDate = normalizeDate(dateStr);
+  }
+
+  // Extract total amount - try Grand Total first (more specific)
+  const grandTotalMatches = extractAll(text, PATTERNS.grandTotal);
+  if (grandTotalMatches.length > 0) {
+    const amounts = grandTotalMatches.map(parseIndianNumber).filter(n => n > 0);
+    if (amounts.length > 0) {
+      result.totalAmount = Math.max(...amounts);
+    }
+  }
+  // Fallback to generic total patterns
+  if (!result.totalAmount) {
+    const totalMatches = extractAll(text, PATTERNS.totalAmount);
+    if (totalMatches.length > 0) {
+      const amounts = totalMatches.map(parseIndianNumber).filter(n => n > 0);
       if (amounts.length > 0) {
         result.totalAmount = Math.max(...amounts);
       }
     }
-    // Fallback to generic total patterns
-    if (!result.totalAmount) {
-      const totalMatches = extractAll(text, PATTERNS.totalAmount);
-      if (totalMatches.length > 0) {
-        const amounts = totalMatches.map(parseIndianNumber).filter(n => n > 0);
-        if (amounts.length > 0) {
-          result.totalAmount = Math.max(...amounts);
-        }
+  }
+
+  // Extract taxable amount if not already set
+  if (!result.taxableAmount) {
+    const taxableMatches = extractAll(text, PATTERNS.taxableAmount);
+    if (taxableMatches.length > 0) {
+      const amounts = taxableMatches.map(parseIndianNumber).filter(n => n > 0);
+      if (amounts.length > 0) {
+        result.taxableAmount = Math.max(...amounts);
       }
     }
+  }
 
-    // Extract taxable amount if not already set
-    if (!result.taxableAmount) {
-      const taxableMatches = extractAll(text, PATTERNS.taxableAmount);
-      if (taxableMatches.length > 0) {
-        const amounts = taxableMatches.map(parseIndianNumber).filter(n => n > 0);
-        if (amounts.length > 0) {
-          result.taxableAmount = Math.max(...amounts);
-        }
-      }
-    }
+  // Calculate taxable amount if we have total and GST but no taxable
+  if (!result.taxableAmount && result.totalAmount && result.gstAmount) {
+    result.taxableAmount = result.totalAmount - result.gstAmount;
+  }
 
-    // Calculate taxable amount if we have total and GST but no taxable
-    if (!result.taxableAmount && result.totalAmount && result.gstAmount) {
-      result.taxableAmount = result.totalAmount - result.gstAmount;
-    }
+  console.log('[InvoiceParser] Extracted GST info:', result);
+  return result;
+}
 
-    console.log('[InvoiceParser] Extracted GST info:', result);
-    return result;
+/**
+ * Extract GST information from PDF buffer
+ */
+export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInfo> {
+  try {
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdf(dataBuffer);
+    const text = data.text;
+
+    console.log('[InvoiceParser] PDF text length:', text.length);
+    return extractGSTFromText(text);
   } catch (error) {
     console.error('[InvoiceParser] Error extracting GST from PDF:', error);
-    return result;
+    return {
+      gstAmount: null,
+      cgstAmount: null,
+      sgstAmount: null,
+      igstAmount: null,
+      gstType: 'input',
+      gstinVendor: null,
+      partyName: null,
+      invoiceNumber: null,
+      invoiceDate: null,
+      totalAmount: null,
+      taxableAmount: null,
+      documentType: null,
+      isEstimate: false,
+    };
   }
 }
 
@@ -379,13 +414,10 @@ function normalizeDate(dateStr: string): string | null {
 }
 
 /**
- * Extract GST info from image using basic OCR patterns
- * Note: For better accuracy, consider using a proper OCR service
+ * Extract GST info from image using Tesseract OCR
  */
-export async function extractGSTFromImage(_filePath: string): Promise<InvoiceGSTInfo> {
-  // For now, return empty result for images
-  // TODO: Integrate with OCR service like Google Vision or Tesseract
-  return {
+export async function extractGSTFromImage(filePath: string): Promise<InvoiceGSTInfo> {
+  const result: InvoiceGSTInfo = {
     gstAmount: null,
     cgstAmount: null,
     sgstAmount: null,
@@ -400,6 +432,28 @@ export async function extractGSTFromImage(_filePath: string): Promise<InvoiceGST
     documentType: null,
     isEstimate: false,
   };
+
+  try {
+    console.log('[InvoiceParser] Running OCR on image:', filePath);
+
+    // Run Tesseract OCR
+    const { data: { text } } = await Tesseract.recognize(filePath, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          console.log(`[InvoiceParser] OCR progress: ${Math.round(m.progress * 100)}%`);
+        }
+      },
+    });
+
+    console.log('[InvoiceParser] OCR completed, text length:', text.length);
+    console.log('[InvoiceParser] OCR text preview:', text.substring(0, 500));
+
+    // Apply the same extraction logic as PDF
+    return extractGSTFromText(text);
+  } catch (error) {
+    console.error('[InvoiceParser] Error running OCR on image:', error);
+    return result;
+  }
 }
 
 /**

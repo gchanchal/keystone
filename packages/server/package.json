@@ -11,6 +11,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
     "better-sqlite3": "^11.3.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
@@ -27,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^1.4.5-lts.1",
     "pdf-parse": "^1.1.1",
+    "tesseract.js": "^7.0.0",
     "uuid": "^10.0.0",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
