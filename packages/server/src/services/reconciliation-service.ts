@@ -494,11 +494,10 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
     return unmatchGroup(matchRecord[0].matchGroupId);
   }
 
-  // Legacy single match
-  if (!bankTxn[0].reconciledWithId) return false;
+  // Not in match group - could be legacy single match or multi-match without match record
+  const reconciledWithId = bankTxn[0].reconciledWithId;
 
-  const vyaparId = bankTxn[0].reconciledWithId;
-
+  // Update bank transaction first
   await db
     .update(bankTransactions)
     .set({
@@ -509,6 +508,21 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
     })
     .where(eq(bankTransactions.id, bankTransactionId));
 
+  // Try multiple strategies to find and update the matched vyapar transaction(s)
+
+  // Strategy 1: Direct ID match (legacy 1:1 match where reconciledWithId is vyapar ID)
+  if (reconciledWithId) {
+    await db
+      .update(vyaparTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        updatedAt: now,
+      })
+      .where(eq(vyaparTransactions.id, reconciledWithId));
+  }
+
+  // Strategy 2: Find vyapar transactions that reference this bank transaction ID
   await db
     .update(vyaparTransactions)
     .set({
@@ -516,7 +530,24 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
       reconciledWithId: null,
       updatedAt: now,
     })
-    .where(eq(vyaparTransactions.id, vyaparId));
+    .where(eq(vyaparTransactions.reconciledWithId, bankTransactionId));
+
+  // Strategy 3: If reconciledWithId was a matchGroupId, find vyapar transactions with that group ID
+  if (reconciledWithId && bankTxn[0].reconciledWithType === 'multi_vyapar') {
+    await db
+      .update(vyaparTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        updatedAt: now,
+      })
+      .where(eq(vyaparTransactions.reconciledWithId, reconciledWithId));
+
+    // Also clean up any orphaned match records for this group
+    await db
+      .delete(reconciliationMatches)
+      .where(eq(reconciliationMatches.matchGroupId, reconciledWithId));
+  }
 
   return true;
 }
