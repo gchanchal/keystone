@@ -48,7 +48,8 @@ export function GearupAccountsTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gearup-accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['business-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
     },
     onSettled: () => {
       setTogglingId(null);
