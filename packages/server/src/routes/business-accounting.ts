@@ -493,15 +493,20 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
-// Extract type from Vyapar description (e.g., "Sale: Party Name" -> "Sale")
+// Known Vyapar type prefixes (check longer ones first to match "Sale Order" before "Sale")
+const VYAPAR_TYPE_PREFIXES = ['Sale Order', 'Payment In', 'Payment-In', 'Payment Out', 'Payment-Out', 'Record', 'Sale', 'Expense', 'Purchase', 'Invoice'];
+
+// Extract type from Vyapar description prefix (e.g., "Sale: Party Name" -> "Sale")
 function extractVyaparTypeFromDescription(description: string | null): string | null {
   if (!description) return null;
 
-  // Match pattern like "Sale:", "Sale Order:", "Invoice:", "Expense:", "Purchase:", "Payment-In:", etc.
-  const match = description.match(/^([^:]+):/);
-  if (match) {
-    return match[1].trim();
+  // Check for known prefixes
+  for (const prefix of VYAPAR_TYPE_PREFIXES) {
+    if (description.startsWith(prefix + ':') || description.startsWith(prefix + ' :')) {
+      return prefix;
+    }
   }
+
   return null;
 }
 
@@ -513,8 +518,9 @@ function mapVyaparTypeToBizType(vyaparType: string | null, description: string |
 
   const upperType = typeToCheck.toUpperCase();
 
-  // Sales/Income types
-  if (upperType.includes('SALE') || upperType.includes('INVOICE') || upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN') {
+  // Sales/Income types (Record, Sale, Sale Order, Payment In, Invoice)
+  if (upperType.includes('SALE') || upperType.includes('INVOICE') || upperType === 'RECORD' ||
+      upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN') {
     return 'SALES_INCOME';
   }
 
@@ -528,22 +534,29 @@ function mapVyaparTypeToBizType(vyaparType: string | null, description: string |
     return 'OTHER';
   }
 
-  // Default based on common patterns
+  // Default
   return 'OTHER';
 }
 
 // Extract the actual description (after the type prefix)
 function extractVyaparDescription(description: string | null, partyName: string | null): string {
   if (!description) {
-    return partyName || 'Unknown';
+    return partyName || '';
   }
 
-  // Remove the type prefix (e.g., "Sale: Party Name" -> "Party Name")
-  const match = description.match(/^[^:]+:\s*(.*)$/);
-  if (match && match[1]) {
-    return match[1].trim() || partyName || description;
+  // Check for known prefixes and remove them
+  for (const prefix of VYAPAR_TYPE_PREFIXES) {
+    if (description.startsWith(prefix + ':')) {
+      const rest = description.slice(prefix.length + 1).trim();
+      return rest || partyName || '';
+    }
+    if (description.startsWith(prefix + ' :')) {
+      const rest = description.slice(prefix.length + 2).trim();
+      return rest || partyName || '';
+    }
   }
 
+  // If no known prefix found, return original description
   return description;
 }
 
