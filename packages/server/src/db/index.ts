@@ -887,6 +887,13 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add GearUp Mods business account flag
+  try {
+    sqlite.exec('ALTER TABLE accounts ADD COLUMN is_gearup_business INTEGER DEFAULT 0');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
   // Migration: Add reconciliation fingerprint fields to vyapar_transactions
   const vyaparFingerprintMigrations = [
     'ALTER TABLE vyapar_transactions ADD COLUMN matched_bank_date TEXT',

@@ -32,6 +32,7 @@ import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/
 import { TransactionDetailModal } from '@/components/business-accounting/TransactionDetailModal';
 import { GSTManagementTab } from '@/components/business-accounting/GSTManagementTab';
 import { VendorsTab } from '@/components/business-accounting/VendorsTab';
+import { GearupAccountsTab } from '@/components/business-accounting/GearupAccountsTab';
 import type { BusinessTransaction, BusinessAccountingSummary, BizType } from '@/types';
 
 const BIZ_TYPE_COLORS: Record<string, string> = {
@@ -391,6 +392,7 @@ export function BusinessAccounting() {
             <TabsTrigger value="transactions">Transactions</TabsTrigger>
             <TabsTrigger value="vendors">Vendors</TabsTrigger>
             <TabsTrigger value="gst">GST Summary</TabsTrigger>
+            <TabsTrigger value="accounts">Accounts</TabsTrigger>
           </TabsList>
 
           {activeTab === 'transactions' && (
@@ -446,6 +448,10 @@ export function BusinessAccounting() {
 
         <TabsContent value="gst">
           <GSTManagementTab startDate={startDate} endDate={endDate} />
+        </TabsContent>
+
+        <TabsContent value="accounts">
+          <GearupAccountsTab />
         </TabsContent>
       </Tabs>
 

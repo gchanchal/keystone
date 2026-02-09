@@ -593,6 +593,19 @@ export const businessAccountingApi = {
   // Rename a vendor
   renameVendor: (oldName: string, newName: string) =>
     api.patch(`/business-accounting/vendors/${encodeURIComponent(oldName)}`, { newName }).then((r) => r.data),
+
+  // GearUp Mods Account Management
+  getGearupAccounts: () =>
+    api.get('/business-accounting/gearup-accounts').then((r) => r.data),
+
+  toggleGearupAccount: (accountId: string) =>
+    api.post(`/business-accounting/gearup-accounts/${accountId}/toggle`).then((r) => r.data),
+
+  bulkUpdateGearupAccounts: (accountIds: string[], isGearupBusiness: boolean) =>
+    api.post('/business-accounting/gearup-accounts/bulk-update', { accountIds, isGearupBusiness }).then((r) => r.data),
+
+  getGearupTransactions: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/gearup-transactions', { params }).then((r) => r.data),
 };
 
 // Investment Advisor (AI-powered)

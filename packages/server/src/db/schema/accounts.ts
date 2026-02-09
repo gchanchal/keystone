@@ -26,6 +26,8 @@ export const accounts = sqliteTable('accounts', {
   cardNetwork: text('card_network'), // Visa, Mastercard, RuPay, Amex, Diners
   cardHolderName: text('card_holder_name'), // Name on the card
   cardImage: text('card_image'), // Custom card image URL (optional)
+  // GearUp Mods business account flag (exclusive to g.chanchal@gmail.com)
+  isGearupBusiness: integer('is_gearup_business', { mode: 'boolean' }).default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

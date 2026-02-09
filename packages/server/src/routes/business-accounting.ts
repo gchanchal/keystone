@@ -2641,4 +2641,183 @@ router.post('/import-amazon-csv', upload.single('file'), async (req, res) => {
   }
 });
 
+// ============================================================
+// GearUp Mods Account Management (exclusive to g.chanchal@gmail.com)
+// ============================================================
+
+const GEARUP_USER_EMAIL = 'g.chanchal@gmail.com';
+
+// Check if user is authorized for GearUp features
+function isGearupAuthorized(req: any): boolean {
+  return req.user?.email === GEARUP_USER_EMAIL;
+}
+
+// Get all accounts with GearUp business status
+router.get('/gearup-accounts', async (req: any, res) => {
+  try {
+    if (!isGearupAuthorized(req)) {
+      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    }
+
+    const userId = req.user.id;
+
+    // Get all user accounts (both bank and credit cards)
+    const allAccounts = await db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.userId, userId), eq(accounts.isActive, true)));
+
+    // Separate into personal and gearup accounts
+    const result = {
+      personal: allAccounts.filter(a => !a.isGearupBusiness),
+      gearup: allAccounts.filter(a => a.isGearupBusiness),
+      all: allAccounts.map(a => ({
+        id: a.id,
+        name: a.name,
+        bankName: a.bankName,
+        accountNumber: a.accountNumber,
+        accountType: a.accountType,
+        cardName: a.cardName,
+        isGearupBusiness: a.isGearupBusiness || false,
+      })),
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching GearUp accounts:', error);
+    res.status(500).json({ error: 'Failed to fetch accounts' });
+  }
+});
+
+// Update account GearUp business status (share/unshare with GearUp)
+router.post('/gearup-accounts/:accountId/toggle', async (req: any, res) => {
+  try {
+    if (!isGearupAuthorized(req)) {
+      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    }
+
+    const { accountId } = req.params;
+    const userId = req.user.id;
+
+    // Get current status
+    const [account] = await db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)));
+
+    if (!account) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    // Toggle the status
+    const newStatus = !account.isGearupBusiness;
+
+    await db
+      .update(accounts)
+      .set({ isGearupBusiness: newStatus, updatedAt: new Date().toISOString() })
+      .where(eq(accounts.id, accountId));
+
+    res.json({
+      accountId,
+      isGearupBusiness: newStatus,
+      message: newStatus ? 'Account added to GearUp Mods' : 'Account removed from GearUp Mods',
+    });
+  } catch (error) {
+    console.error('Error toggling GearUp account:', error);
+    res.status(500).json({ error: 'Failed to update account' });
+  }
+});
+
+// Bulk update GearUp account status
+router.post('/gearup-accounts/bulk-update', async (req: any, res) => {
+  try {
+    if (!isGearupAuthorized(req)) {
+      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    }
+
+    const { accountIds, isGearupBusiness } = z
+      .object({
+        accountIds: z.array(z.string()),
+        isGearupBusiness: z.boolean(),
+      })
+      .parse(req.body);
+
+    const userId = req.user.id;
+
+    // Update all specified accounts
+    for (const accountId of accountIds) {
+      await db
+        .update(accounts)
+        .set({ isGearupBusiness, updatedAt: new Date().toISOString() })
+        .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)));
+    }
+
+    res.json({
+      updated: accountIds.length,
+      isGearupBusiness,
+      message: isGearupBusiness
+        ? `${accountIds.length} account(s) added to GearUp Mods`
+        : `${accountIds.length} account(s) removed from GearUp Mods`,
+    });
+  } catch (error) {
+    console.error('Error bulk updating GearUp accounts:', error);
+    res.status(500).json({ error: 'Failed to update accounts' });
+  }
+});
+
+// Get transactions from all GearUp business accounts
+router.get('/gearup-transactions', async (req: any, res) => {
+  try {
+    if (!isGearupAuthorized(req)) {
+      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    }
+
+    const userId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    // Get all GearUp business accounts
+    const gearupAccounts = await db
+      .select()
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, userId),
+          eq(accounts.isActive, true),
+          eq(accounts.isGearupBusiness, true)
+        )
+      );
+
+    if (gearupAccounts.length === 0) {
+      return res.json({ transactions: [], accounts: [] });
+    }
+
+    const accountIds = gearupAccounts.map(a => a.id);
+
+    // Build date conditions
+    const conditions = [sql`${bankTransactions.accountId} IN (${sql.join(accountIds.map(id => sql`${id}`), sql`, `)})`];
+
+    if (startDate) {
+      conditions.push(sql`${bankTransactions.date} >= ${startDate}`);
+    }
+    if (endDate) {
+      conditions.push(sql`${bankTransactions.date} <= ${endDate}`);
+    }
+
+    // Get transactions from all GearUp accounts
+    const transactions = await db
+      .select()
+      .from(bankTransactions)
+      .where(and(...conditions))
+      .orderBy(desc(bankTransactions.date));
+
+    res.json({
+      transactions,
+      accounts: gearupAccounts,
+    });
+  } catch (error) {
+    console.error('Error fetching GearUp transactions:', error);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
 export default router;
