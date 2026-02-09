@@ -1,12 +1,12 @@
 /**
  * Invoice Parser Service
  * Extracts GST information from uploaded invoice PDFs and images
- * Uses Claude Vision API for accurate image OCR
+ * Uses Tesseract OCR with improved configuration for images
  */
 
 import pdf from 'pdf-parse';
 import fs from 'fs';
-import Anthropic from '@anthropic-ai/sdk';
+import Tesseract from 'tesseract.js';
 
 export interface InvoiceGSTInfo {
   gstAmount: number | null;
@@ -25,24 +25,25 @@ export interface InvoiceGSTInfo {
 }
 
 // Common GST patterns in Indian invoices
+// Made more flexible to handle OCR errors (common substitutions: 0/O, 1/I/l, 5/S, 8/B)
 const PATTERNS = {
-  // GSTIN: 22AAAAA0000A1Z5 format
-  gstin: /\b(\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1})\b/gi,
+  // GSTIN: 22AAAAA0000A1Z5 format (relaxed for OCR errors)
+  gstin: /\b(\d{2}[A-Z]{5}\d{4}[A-Z0-9]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1})\b/gi,
 
-  // GST amounts - various formats
+  // GST amounts - various formats (more flexible number matching)
   // Pattern 1: "CGST2.5 (2.5%)16.67" - amount after percentage in parentheses
   // Pattern 2: "CGST @ 9%: 1500.00" - amount after colon
   // Pattern 3: "CGST: ₹1500.00" - amount after label
-  cgstWithPct: /(?:CGST|C\.G\.S\.T|Central\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
-  sgstWithPct: /(?:SGST|S\.G\.S\.T|State\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
-  igstWithPct: /(?:IGST|I\.G\.S\.T|Integrated\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  cgstWithPct: /(?:CGST|C\.?G\.?S\.?T|Central\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  sgstWithPct: /(?:SGST|S\.?G\.?S\.?T|State\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  igstWithPct: /(?:IGST|I\.?G\.?S\.?T|Integrated\s*GST)\s*\d*\.?\d*\s*\(\d+(?:\.\d+)?%\)\s*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
 
-  // Fallback patterns without percentage format
-  cgst: /(?:CGST|C\.G\.S\.T|Central\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
-  sgst: /(?:SGST|S\.G\.S\.T|State\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
-  igst: /(?:IGST|I\.G\.S\.T|Integrated\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  // Fallback patterns without percentage format (very flexible)
+  cgst: /(?:CGST|C\.?G\.?S\.?T|Central\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:[,.\s]\d+)*)/gi,
+  sgst: /(?:SGST|S\.?G\.?S\.?T|State\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:[,.\s]\d+)*)/gi,
+  igst: /(?:IGST|I\.?G\.?S\.?T|Integrated\s*GST)[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:[,.\s]\d+)*)/gi,
   // Use word boundary to avoid matching GSTIN
-  gst: /(?<![A-Z])(?:GST|G\.S\.T)(?![IN])[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  gst: /(?<![A-Z])(?:GST|G\.?S\.?T)(?![IN])[\s:@]*(?:\d+(?:\.\d+)?%?)?\s*[₹Rs.INR\s:]*(\d+(?:[,.\s]\d+)*)/gi,
 
   // HSN table pattern: looks for "Total Tax Amount" header followed by totals row
   hsnTaxTable: /Total\s*Tax\s*Amount[\s\S]*?Total[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/i,
@@ -54,29 +55,36 @@ const PATTERNS = {
   igstTable: /IGST[\s\S]*?Total[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
 
   // Total amount - match "Grand Total" first (more specific), then fallback to "Total"
-  // Also handle formats like "Grand Total ₹ 39884" or "Grand Total: Rs. 39,884.00"
-  grandTotal: /Grand\s*Total\s*(?:\([^)]*\))?\s*[₹Rs.INR:]*\s*(\d+(?:,?\d+)*(?:\.\d{1,2})?)/gi,
-  totalAmount: /(?:Total\s*Amount|Net\s*Amount|Invoice\s*Total|Amount\s*Payable|Total\s*Payable|Total)\s*[₹Rs.INR():]*\s*(\d+(?:,?\d+)*(?:\.\d{1,2})?)/gi,
+  // More flexible patterns for OCR
+  grandTotal: /(?:Grand|Gross)\s*Total\s*(?:\([^)]*\))?\s*[₹Rs.INR:]*\s*(\d+(?:[,.\s]?\d+)*)/gi,
+  netTotal: /Net\s*(?:Amount|Total|Payable)\s*[₹Rs.INR():]*\s*(\d+(?:[,.\s]?\d+)*)/gi,
+  totalAmount: /(?:Total\s*(?:Amount)?|Amount\s*(?:Payable|Due)|Payable)\s*[₹Rs.INR():]*\s*(\d+(?:[,.\s]?\d+)*)/gi,
   // Rupee symbol followed by large number (likely a total)
-  rupeeAmount: /[₹Rs.]\s*(\d{4,}(?:,?\d+)*(?:\.\d{1,2})?)/gi,
+  rupeeAmount: /[₹Rs.]\s*(\d{4,}(?:[,.\s]?\d+)*)/gi,
 
   // Taxable amount - also look for "Taxable amount" in table
   taxableAmount: /(?:Taxable\s*(?:Value|Amount)|Sub\s*Total|Subtotal|Base\s*Amount)[\s:]*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
 
   // Invoice number - also match Estimate No, Proforma No, Quotation No (with colon support)
-  invoiceNumber: /(?:Invoice\s*(?:No\.?|Number|#):?|Estimate\s*(?:No\.?|Number):?|Proforma\s*(?:No\.?|Number):?|Quotation\s*(?:No\.?|Number):?|Bill\s*No\.?:?|Inv\.?\s*No\.?:?)\s*([A-Z0-9\-\/]+)/gi,
+  // More flexible for OCR errors
+  invoiceNumber: /(?:Invoice|Inv|Bill|Estimate|Proforma|Quotation)\s*(?:No\.?|Number|#|Num)?[\s.:]*([A-Z0-9][A-Z0-9\-\/\.]+)/gi,
 
   // Bill To / Ship To - extract customer name (stop at newline or common keywords)
-  billTo: /(?:BILL\s*TO|BILLED\s*TO|INVOICE\s*TO|CUSTOMER|CLIENT)[\s:]*\n*([A-Z][A-Z0-9\s&.,]+?(?:PRIVATE\s+LIMITED|PVT\.?\s*LTD\.?|LIMITED|LTD\.?|LLP|INC\.?)?)(?=\n|Invoice|Address|GSTIN|$)/i,
+  billTo: /(?:BILL\s*TO|BILLED\s*TO|INVOICE\s*TO|CUSTOMER|CLIENT|SOLD\s*TO)[\s:]*\n*([A-Z][A-Z0-9\s&.,]+?)(?=\n|Invoice|Address|GSTIN|Phone|Mobile|$)/i,
 
-  // Invoice/Estimate date
-  invoiceDate: /(?:Invoice\s*Date|Estimate\s*Date|Bill\s*Date|Date)[\s:]*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})/gi,
+  // Invoice/Estimate date - more flexible date formats
+  invoiceDate: /(?:Invoice|Estimate|Bill|Inv)?\s*Date[\s:]*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*[,']?\s*\d{2,4})/gi,
 
   // Document type detection
-  documentType: /^(Estimate|Invoice|Tax Invoice|Proforma Invoice|Proforma|Quotation|Quote)/im,
+  documentType: /\b(Estimate|Invoice|Tax\s*Invoice|Proforma\s*Invoice|Proforma|Quotation|Quote|Bill)\b/i,
 
-  // Party/Company name - typically appears after document title, before address
-  partyName: /^(Estimate|Invoice|Tax Invoice|Proforma Invoice|Proforma|Quotation|Quote)\s*\n+([A-Z][A-Z\s&.,]+)(?:\n|$)/im,
+  // Party/Company name patterns - multiple strategies
+  // Pattern 1: Company name at top of document (usually bold/large)
+  partyNameTop: /^[\s\n]*([A-Z][A-Z\s&.,]+?)[\s\n]*(?:GSTIN|GST|Address|Ph|Tel|Invoice)/im,
+  // Pattern 2: After "From" or company marker
+  partyNameFrom: /(?:From|Seller|Vendor|Company)[\s:]*\n*([A-Z][A-Z0-9\s&.,]+?)(?=\n|GSTIN|Address|Phone|$)/i,
+  // Pattern 3: M/s pattern (common in Indian invoices)
+  partyNameMs: /M\/s\.?\s+([A-Z][A-Z0-9\s&.,]+?)(?=\n|,|\d|GSTIN|$)/i,
 };
 
 /**
@@ -158,50 +166,92 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
   }
 
   // Extract vendor/seller name (for input invoices, this is the company issuing the invoice)
-  // Strategy: Look for company name near the top, before "To" or "Bill To" section
+  // Multiple strategies for OCR text which may have errors
 
-  // Try 1: Look for name right after "TAX INVOICE" or "INVOICE" header
-  const afterInvoiceMatch = text.match(/(?:TAX\s*)?INVOICE[\s\n]+([A-Z][A-Z\s&]+?)(?:\n|No\.|GSTIN|Address)/i);
-  if (afterInvoiceMatch && afterInvoiceMatch[1] && afterInvoiceMatch[1].trim().length > 2) {
-    result.partyName = afterInvoiceMatch[1].trim();
+  // Helper to clean up OCR names
+  const cleanName = (name: string): string => {
+    return name
+      .replace(/\s+/g, ' ')  // Normalize spaces
+      .replace(/[|]/g, '')   // Remove pipe chars (common OCR error)
+      .trim();
+  };
+
+  // Try 1: Look for name at the very top of the document (first few lines)
+  // This is often the company name in bold/large font
+  const lines = text.split(/\n/).filter(l => l.trim().length > 0);
+  if (lines.length > 0) {
+    // Look at first 5 lines for company name
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const line = lines[i].trim();
+      // Skip lines that are clearly headers or numbers
+      if (line.match(/^(TAX\s*)?INVOICE|^ESTIMATE|^QUOTATION|^BILL|^Date|^No\.|^\d+$/i)) continue;
+      // Skip very short lines
+      if (line.length < 3) continue;
+      // Check if it looks like a company name (mostly letters, maybe & or .)
+      if (line.match(/^[A-Z][A-Za-z\s&.,]+$/i) && line.length >= 3) {
+        result.partyName = cleanName(line);
+        break;
+      }
+    }
   }
 
-  // Try 2: Look for prominent company name before first GSTIN
+  // Try 2: Look for name right after "TAX INVOICE" or "INVOICE" header
+  if (!result.partyName) {
+    const afterInvoiceMatch = text.match(/(?:TAX\s*)?INVOICE[\s\n]+([A-Za-z][A-Za-z\s&.,]+?)(?:\n|No\.|GSTIN|Address|Ph)/i);
+    if (afterInvoiceMatch && afterInvoiceMatch[1] && afterInvoiceMatch[1].trim().length > 2) {
+      result.partyName = cleanName(afterInvoiceMatch[1]);
+    }
+  }
+
+  // Try 3: Look for prominent company name before first GSTIN
   if (!result.partyName && result.gstinVendor) {
-    const beforeGstinMatch = text.match(/([A-Z][A-Z\s&]+?)\s*(?:\n|GSTIN|GST\s*(?:IN|No))/i);
+    const beforeGstinMatch = text.match(/([A-Za-z][A-Za-z\s&.,]+?)\s*(?:\n|GSTIN|GST\s*(?:IN|No))/i);
     if (beforeGstinMatch && beforeGstinMatch[1] && beforeGstinMatch[1].trim().length > 2) {
-      const name = beforeGstinMatch[1].trim();
+      const name = cleanName(beforeGstinMatch[1]);
       // Filter out common header text
-      if (!name.match(/^(TAX|INVOICE|ESTIMATE|QUOTATION|BILL|PROFORMA)/i)) {
+      if (!name.match(/^(TAX|INVOICE|ESTIMATE|QUOTATION|BILL|PROFORMA|Date)/i)) {
         result.partyName = name;
       }
     }
   }
 
-  // Try 3: Look for company name on line containing/near GSTIN
-  if (!result.partyName && result.gstinVendor) {
-    // Find the line with GSTIN and look for company name nearby
-    const gstinLineMatch = text.match(/([A-Z][A-Z\s&]+?)\s*[\n\r].*GSTIN\s*:?\s*\d{2}[A-Z]{5}/i);
-    if (gstinLineMatch && gstinLineMatch[1]) {
-      result.partyName = gstinLineMatch[1].trim();
-    }
-  }
-
-  // Try 4: M/s pattern (common in Indian invoices) - this finds the BUYER, not seller
-  // Only use this as last resort and note it might be the buyer
+  // Try 4: Pattern using new PATTERNS
   if (!result.partyName) {
-    const msMatch = text.match(/M\/s\.?\s+([A-Z][A-Z0-9\s&.,]+?)(?:\n|,|\d)/i);
-    if (msMatch && msMatch[1]) {
-      // This is likely the buyer, but use it if we have nothing else
-      result.partyName = msMatch[1].trim();
+    const topMatch = text.match(PATTERNS.partyNameTop);
+    if (topMatch && topMatch[1]) {
+      result.partyName = cleanName(topMatch[1]);
     }
   }
 
-  // Try 5: Look for "BILL TO" pattern - this finds the BUYER
+  // Try 5: From/Seller/Vendor pattern
+  if (!result.partyName) {
+    const fromMatch = text.match(PATTERNS.partyNameFrom);
+    if (fromMatch && fromMatch[1]) {
+      result.partyName = cleanName(fromMatch[1]);
+    }
+  }
+
+  // Try 6: M/s pattern (common in Indian invoices)
+  if (!result.partyName) {
+    const msMatch = text.match(PATTERNS.partyNameMs);
+    if (msMatch && msMatch[1]) {
+      result.partyName = cleanName(msMatch[1]);
+    }
+  }
+
+  // Try 7: Look for company name on line containing/near GSTIN
+  if (!result.partyName && result.gstinVendor) {
+    const gstinLineMatch = text.match(/([A-Za-z][A-Za-z\s&.,]+?)\s*[\n\r].*GSTIN\s*:?\s*\d{2}[A-Z]{5}/i);
+    if (gstinLineMatch && gstinLineMatch[1]) {
+      result.partyName = cleanName(gstinLineMatch[1]);
+    }
+  }
+
+  // Try 8: Look for "BILL TO" pattern - this finds the BUYER (use as last resort)
   if (!result.partyName) {
     const billToMatch = text.match(PATTERNS.billTo);
     if (billToMatch && billToMatch[1]) {
-      result.partyName = billToMatch[1].trim();
+      result.partyName = cleanName(billToMatch[1]);
     }
   }
 
@@ -343,6 +393,16 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
       result.totalAmount = Math.max(...amounts);
     }
   }
+  // Try Net Amount/Total pattern
+  if (!result.totalAmount) {
+    const netMatches = extractAll(text, PATTERNS.netTotal);
+    if (netMatches.length > 0) {
+      const amounts = netMatches.map(parseIndianNumber).filter(n => n > 0);
+      if (amounts.length > 0) {
+        result.totalAmount = Math.max(...amounts);
+      }
+    }
+  }
   // Fallback to generic total patterns
   if (!result.totalAmount) {
     const totalMatches = extractAll(text, PATTERNS.totalAmount);
@@ -419,103 +479,6 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
   return result;
 }
 
-/**
- * Extract invoice info using Claude API from text
- */
-async function extractWithClaudeFromText(text: string): Promise<InvoiceGSTInfo> {
-  const emptyResult: InvoiceGSTInfo = {
-    gstAmount: null,
-    cgstAmount: null,
-    sgstAmount: null,
-    igstAmount: null,
-    gstType: 'input',
-    gstinVendor: null,
-    partyName: null,
-    invoiceNumber: null,
-    invoiceDate: null,
-    totalAmount: null,
-    taxableAmount: null,
-    documentType: null,
-    isEstimate: false,
-  };
-
-  try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error('[InvoiceParser] ANTHROPIC_API_KEY not set, falling back to regex parsing');
-      return extractGSTFromText(text);
-    }
-
-    const anthropic = new Anthropic({ apiKey });
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: `Extract the following information from this invoice text and return ONLY a JSON object (no markdown, no explanation):
-
-{
-  "vendorName": "The seller/vendor company name (who issued the invoice)",
-  "gstinVendor": "Vendor's GSTIN number (format: 22AAAAA0000A1Z5)",
-  "invoiceNumber": "Invoice number",
-  "invoiceDate": "Invoice date in YYYY-MM-DD format",
-  "totalAmount": numeric grand total/net amount,
-  "taxableAmount": numeric taxable/subtotal amount before GST,
-  "cgstAmount": numeric CGST amount (or null if not applicable),
-  "sgstAmount": numeric SGST amount (or null if not applicable),
-  "igstAmount": numeric IGST amount (or null if not applicable),
-  "documentType": "invoice" or "estimate" or "proforma" or "quotation"
-}
-
-Return null for any field you cannot find. Numbers should be plain numbers without currency symbols or commas.
-
-Invoice text:
-${text}`,
-        },
-      ],
-    });
-
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      return extractGSTFromText(text);
-    }
-
-    let jsonStr = content.text.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```$/g, '').trim();
-    }
-
-    const parsed = JSON.parse(jsonStr);
-    console.log('[InvoiceParser] Claude extracted from PDF text:', parsed);
-
-    const result: InvoiceGSTInfo = {
-      gstAmount: null,
-      cgstAmount: parsed.cgstAmount || null,
-      sgstAmount: parsed.sgstAmount || null,
-      igstAmount: parsed.igstAmount || null,
-      gstType: 'input',
-      gstinVendor: parsed.gstinVendor || null,
-      partyName: parsed.vendorName || null,
-      invoiceNumber: parsed.invoiceNumber || null,
-      invoiceDate: parsed.invoiceDate || null,
-      totalAmount: parsed.totalAmount || null,
-      taxableAmount: parsed.taxableAmount || null,
-      documentType: parsed.documentType || 'invoice',
-      isEstimate: ['estimate', 'proforma', 'quotation'].includes(parsed.documentType?.toLowerCase()),
-    };
-
-    if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
-      result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
-    }
-
-    return result;
-  } catch (error) {
-    console.error('[InvoiceParser] Error with Claude API, falling back to regex:', error);
-    return extractGSTFromText(text);
-  }
-}
 
 /**
  * Extract GST information from PDF buffer
@@ -527,9 +490,10 @@ export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInf
     const text = data.text;
 
     console.log('[InvoiceParser] PDF text length:', text.length);
+    console.log('[InvoiceParser] PDF text preview:', text.substring(0, 500));
 
-    // Use Claude API for intelligent extraction
-    return extractWithClaudeFromText(text);
+    // Use regex-based extraction
+    return extractGSTFromText(text);
   } catch (error) {
     console.error('[InvoiceParser] Error extracting GST from PDF:', error);
     return {
@@ -593,7 +557,7 @@ function normalizeDate(dateStr: string): string | null {
 }
 
 /**
- * Extract GST info from image using Claude Vision API
+ * Extract GST info from image using Tesseract OCR
  */
 export async function extractGSTFromImage(filePath: string): Promise<InvoiceGSTInfo> {
   const emptyResult: InvoiceGSTInfo = {
@@ -613,113 +577,31 @@ export async function extractGSTFromImage(filePath: string): Promise<InvoiceGSTI
   };
 
   try {
-    console.log('[InvoiceParser] Using Claude Vision API for image:', filePath);
+    console.log('[InvoiceParser] Using Tesseract OCR for image:', filePath);
 
-    // Check if API key is available
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error('[InvoiceParser] ANTHROPIC_API_KEY not set, falling back to empty result');
-      return emptyResult;
-    }
-
-    // Read image and convert to base64
-    const imageBuffer = fs.readFileSync(filePath);
-    const base64Image = imageBuffer.toString('base64');
-
-    // Determine media type from file extension
-    const ext = filePath.toLowerCase().split('.').pop();
-    let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
-    if (ext === 'png') mediaType = 'image/png';
-    else if (ext === 'gif') mediaType = 'image/gif';
-    else if (ext === 'webp') mediaType = 'image/webp';
-
-    // Initialize Anthropic client
-    const anthropic = new Anthropic({ apiKey });
-
-    // Call Claude Vision API
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: base64Image,
-              },
-            },
-            {
-              type: 'text',
-              text: `Extract the following information from this invoice image and return ONLY a JSON object (no markdown, no explanation):
-
-{
-  "vendorName": "The seller/vendor company name (who issued the invoice)",
-  "gstinVendor": "Vendor's GSTIN number (format: 22AAAAA0000A1Z5)",
-  "invoiceNumber": "Invoice number",
-  "invoiceDate": "Invoice date in YYYY-MM-DD format",
-  "totalAmount": numeric grand total amount,
-  "taxableAmount": numeric taxable/subtotal amount before GST,
-  "cgstAmount": numeric CGST amount (or null if not applicable),
-  "sgstAmount": numeric SGST amount (or null if not applicable),
-  "igstAmount": numeric IGST amount (or null if not applicable),
-  "documentType": "invoice" or "estimate" or "proforma" or "quotation"
-}
-
-Return null for any field you cannot find. Numbers should be plain numbers without currency symbols or commas.`,
-            },
-          ],
-        },
-      ],
+    // Use Tesseract with optimized settings for invoices
+    const result = await Tesseract.recognize(filePath, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          console.log(`[InvoiceParser] OCR progress: ${Math.round(m.progress * 100)}%`);
+        }
+      },
     });
 
-    // Parse the response
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      console.error('[InvoiceParser] Unexpected response type from Claude');
+    const text = result.data.text;
+    console.log('[InvoiceParser] OCR text length:', text.length);
+    console.log('[InvoiceParser] OCR text preview:', text.substring(0, 500));
+    console.log('[InvoiceParser] OCR confidence:', result.data.confidence);
+
+    if (!text || text.trim().length < 10) {
+      console.log('[InvoiceParser] OCR produced insufficient text');
       return emptyResult;
     }
 
-    console.log('[InvoiceParser] Claude response:', content.text);
-
-    // Extract JSON from response (handle potential markdown formatting)
-    let jsonStr = content.text.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```$/g, '').trim();
-    }
-
-    const parsed = JSON.parse(jsonStr);
-    console.log('[InvoiceParser] Parsed invoice data:', parsed);
-
-    // Map to our result format
-    const result: InvoiceGSTInfo = {
-      gstAmount: null,
-      cgstAmount: parsed.cgstAmount || null,
-      sgstAmount: parsed.sgstAmount || null,
-      igstAmount: parsed.igstAmount || null,
-      gstType: 'input',
-      gstinVendor: parsed.gstinVendor || null,
-      partyName: parsed.vendorName || null,
-      invoiceNumber: parsed.invoiceNumber || null,
-      invoiceDate: parsed.invoiceDate || null,
-      totalAmount: parsed.totalAmount || null,
-      taxableAmount: parsed.taxableAmount || null,
-      documentType: parsed.documentType || 'invoice',
-      isEstimate: ['estimate', 'proforma', 'quotation'].includes(parsed.documentType?.toLowerCase()),
-    };
-
-    // Calculate total GST
-    if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
-      result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
-    }
-
-    console.log('[InvoiceParser] Final extracted info:', result);
-    return result;
+    // Use regex-based extraction on OCR text
+    return extractGSTFromText(text);
   } catch (error) {
-    console.error('[InvoiceParser] Error using Claude Vision API:', error);
+    console.error('[InvoiceParser] Error using Tesseract OCR:', error);
     return emptyResult;
   }
 }

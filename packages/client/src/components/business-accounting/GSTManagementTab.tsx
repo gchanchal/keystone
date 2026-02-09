@@ -18,6 +18,8 @@ import {
   ChevronDown,
   ChevronRight,
   Link2,
+  Search,
+  Filter,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1012,7 +1014,58 @@ function InvoiceList({
 }) {
   const [previewInvoice, setPreviewInvoice] = useState<BusinessInvoice | null>(null);
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
-  const allSelected = invoices.length > 0 && invoices.every(i => selectedInvoices.has(i.id));
+
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'invoice' | 'estimate'>('all');
+  const [hasGstinFilter, setHasGstinFilter] = useState<'all' | 'yes' | 'no'>('all');
+
+  // Helper to detect if invoice is an estimate
+  const isEstimateInvoice = (invoice: BusinessInvoice) => {
+    const invoiceNum = (invoice.invoiceNumber || '').toLowerCase();
+    const notes = (invoice.notes || '').toLowerCase();
+    const filename = (invoice.filename || '').toLowerCase();
+    const docType = (invoice.documentType || '').toLowerCase();
+    return docType === 'estimate' || docType === 'proforma' || docType === 'quotation' ||
+      invoiceNum.includes('estimate') || invoiceNum.includes('est/') ||
+      invoiceNum.includes('proforma') || invoiceNum.includes('quote') ||
+      notes.includes('estimate') || notes.includes('proforma') ||
+      filename.includes('estimate') || filename.includes('proforma');
+  };
+
+  // Filter invoices
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter(invoice => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch =
+          (invoice.partyName || '').toLowerCase().includes(query) ||
+          (invoice.vendorName || '').toLowerCase().includes(query) ||
+          (invoice.invoiceNumber || '').toLowerCase().includes(query) ||
+          (invoice.partyGstin || '').toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+
+      // Document type filter
+      if (docTypeFilter !== 'all') {
+        const isEstimate = isEstimateInvoice(invoice);
+        if (docTypeFilter === 'estimate' && !isEstimate) return false;
+        if (docTypeFilter === 'invoice' && isEstimate) return false;
+      }
+
+      // GSTIN filter
+      if (hasGstinFilter !== 'all') {
+        const hasGstin = !!invoice.partyGstin;
+        if (hasGstinFilter === 'yes' && !hasGstin) return false;
+        if (hasGstinFilter === 'no' && hasGstin) return false;
+      }
+
+      return true;
+    });
+  }, [invoices, searchQuery, docTypeFilter, hasGstinFilter]);
+
+  const allSelected = filteredInvoices.length > 0 && filteredInvoices.every(i => selectedInvoices.has(i.id));
 
   // Group invoices by vendor/party name
   const groupedInvoices = useMemo(() => {
@@ -1027,7 +1080,7 @@ function InvoiceList({
       igst: number;
     }> = {};
 
-    invoices.forEach(invoice => {
+    filteredInvoices.forEach(invoice => {
       const vendorName = invoice.partyName || invoice.vendorName || 'Unknown';
       if (!groups[vendorName]) {
         groups[vendorName] = {
@@ -1052,7 +1105,7 @@ function InvoiceList({
 
     // Sort by total amount descending
     return Object.values(groups).sort((a, b) => b.totalAmount - a.totalAmount);
-  }, [invoices]);
+  }, [filteredInvoices]);
 
   const toggleVendorExpand = (vendorName: string) => {
     const newSet = new Set(expandedVendors);
@@ -1085,17 +1138,65 @@ function InvoiceList({
 
       {/* Invoice List */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">
-            {type === 'input' ? 'Input Invoices (Purchases)' : 'Output Invoices (Sales)'}
-            <span className="text-muted-foreground font-normal ml-2">
-              ({groupedInvoices.length} vendors, {invoices.length} invoices)
-            </span>
-          </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onSelectAll}>
-            {allSelected ? <CheckSquare className="h-4 w-4 mr-2" /> : <Square className="h-4 w-4 mr-2" />}
-            {allSelected ? 'Deselect All' : 'Select All'}
-          </Button>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm">
+              {type === 'input' ? 'Input Invoices (Purchases)' : 'Output Invoices (Sales)'}
+              <span className="text-muted-foreground font-normal ml-2">
+                ({groupedInvoices.length} vendors, {filteredInvoices.length} invoices)
+                {filteredInvoices.length !== invoices.length && (
+                  <span className="text-xs"> (filtered from {invoices.length})</span>
+                )}
+              </span>
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={onSelectAll}>
+              {allSelected ? <CheckSquare className="h-4 w-4 mr-2" /> : <Square className="h-4 w-4 mr-2" />}
+              {allSelected ? 'Deselect All' : 'Select All'}
+            </Button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Search vendor, invoice #, GSTIN..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-64"
+            />
+            <Select value={docTypeFilter} onValueChange={(v: 'all' | 'invoice' | 'estimate') => setDocTypeFilter(v)}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Document Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Documents</SelectItem>
+                <SelectItem value="invoice">Tax Invoices Only</SelectItem>
+                <SelectItem value="estimate">Estimates Only</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={hasGstinFilter} onValueChange={(v: 'all' | 'yes' | 'no') => setHasGstinFilter(v)}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="GSTIN" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="yes">Has GSTIN</SelectItem>
+                <SelectItem value="no">No GSTIN</SelectItem>
+              </SelectContent>
+            </Select>
+            {(searchQuery || docTypeFilter !== 'all' || hasGstinFilter !== 'all') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery('');
+                  setDocTypeFilter('all');
+                  setHasGstinFilter('all');
+                }}
+              >
+                Clear Filters
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {invoices.length === 0 ? (
@@ -1178,22 +1279,15 @@ function InvoiceList({
                     {isExpanded && (
                       <div className="divide-y">
                         {group.invoices.map((invoice) => {
-                          const invoiceNum = (invoice.invoiceNumber || '').toLowerCase();
-                          const notes = (invoice.notes || '').toLowerCase();
-                          const filename = (invoice.filename || '').toLowerCase();
-                          const isEstimate = invoiceNum.includes('estimate') || invoiceNum.includes('est') ||
-                            invoiceNum.includes('proforma') || invoiceNum.includes('quote') ||
-                            notes.includes('estimate') || notes.includes('proforma') ||
-                            filename.includes('estimate') || filename.includes('proforma');
+                          const isEstimate = isEstimateInvoice(invoice);
                           const hasNoGSTIN = !invoice.partyGstin;
-                          const hasNoInvoiceNumber = !invoice.invoiceNumber;
 
                           return (
                             <div
                               key={invoice.id}
                               className={`p-3 pl-12 cursor-pointer hover:bg-muted/50 ${
                                 selectedInvoices.has(invoice.id) ? 'bg-primary/5' : ''
-                              } ${isEstimate ? 'bg-amber-50/50' : ''}`}
+                              } ${isEstimate ? 'bg-amber-50/30 dark:bg-amber-900/10 border-l-4 border-l-amber-400' : 'border-l-4 border-l-green-500'}`}
                               onClick={() => setPreviewInvoice(invoice)}
                             >
                               <div className="flex items-center gap-3">
@@ -1208,17 +1302,34 @@ function InvoiceList({
                                   )}
                                 </button>
 
+                                {/* Invoice Date - prominent */}
+                                <div className="w-24 text-center flex-shrink-0">
+                                  <div className="text-sm font-medium">
+                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM') : '-'}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'yyyy') : ''}
+                                  </div>
+                                </div>
+
+                                {/* Document Type Badge */}
+                                <div className="w-20 flex-shrink-0">
+                                  {isEstimate ? (
+                                    <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400">
+                                      Estimate
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400">
+                                      Tax Inv
+                                    </Badge>
+                                  )}
+                                </div>
+
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm font-medium">
                                       {invoice.invoiceNumber || 'No Invoice #'}
                                     </span>
-                                    <span className="text-sm text-muted-foreground">
-                                      {invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'dd MMM yyyy') : ''}
-                                    </span>
-                                    {isEstimate && (
-                                      <Badge variant="destructive" className="text-xs">Estimate</Badge>
-                                    )}
                                     {hasNoGSTIN && !isEstimate && (
                                       <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">No GSTIN</Badge>
                                     )}
