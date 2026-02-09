@@ -454,7 +454,7 @@ router.get('/transactions', async (req, res) => {
           uploadId: v.uploadId,
           bizType: mapVyaparTypeToBizType(v.transactionType, v.description),
           bizDescription: extractVyaparDescription(v.description, v.partyName),
-          vendorName: v.partyName,
+          vendorName: getVyaparVendorName(v.partyName, v.transactionType, v.description),
           needsInvoice: false,
           invoiceFileId: null,
           gstAmount: null,
@@ -571,6 +571,26 @@ function extractVyaparDescription(description: string | null, partyName: string 
 
   // If no known prefix found, return original description
   return description;
+}
+
+// Get vendor name for Vyapar transactions - handle "Unknown" cases
+function getVyaparVendorName(partyName: string | null, transactionType: string | null, description: string | null): string | null {
+  // If partyName is valid (not null, not empty, not "Unknown"), use it
+  if (partyName && partyName.trim() !== '' && partyName.toLowerCase() !== 'unknown') {
+    return partyName;
+  }
+
+  // For Expense with Unknown party, use "GUM: Expense"
+  if (transactionType === 'Expense' || (description && description.toLowerCase().startsWith('expense:'))) {
+    return 'GUM: Expense';
+  }
+
+  // For other types with Unknown party, use "GUM: {Type}"
+  if (transactionType) {
+    return `GUM: ${transactionType}`;
+  }
+
+  return null;
 }
 
 // Run auto-enrichment on transactions
@@ -850,8 +870,51 @@ router.patch('/transaction/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const data = updateSchema.parse(req.body);
+    const now = new Date().toISOString();
 
-    // Verify transaction belongs to user
+    // Check if this is a Vyapar transaction
+    const isVyaparTransaction = id.startsWith('vyapar-');
+
+    if (isVyaparTransaction) {
+      // Extract actual Vyapar ID (remove 'vyapar-' prefix)
+      const vyaparId = id.replace('vyapar-', '');
+
+      // Verify Vyapar transaction belongs to user
+      const [vyaparTx] = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, req.userId!)));
+
+      if (!vyaparTx) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      // Update Vyapar transaction - map vendorName to partyName
+      const vyaparUpdates: any = {
+        updatedAt: now,
+      };
+      if (data.vendorName !== undefined) {
+        vyaparUpdates.partyName = data.vendorName;
+      }
+      if (data.notes !== undefined) {
+        vyaparUpdates.notes = data.notes;
+      }
+
+      await db
+        .update(vyaparTransactions)
+        .set(vyaparUpdates)
+        .where(eq(vyaparTransactions.id, vyaparId));
+
+      // Return updated transaction
+      const [updated] = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(eq(vyaparTransactions.id, vyaparId));
+
+      return res.json({ ...updated, id: `vyapar-${updated.id}`, vendorName: updated.partyName });
+    }
+
+    // Bank transaction - existing logic
     const [tx] = await db
       .select()
       .from(bankTransactions)
@@ -861,7 +924,6 @@ router.patch('/transaction/:id', async (req, res) => {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const now = new Date().toISOString();
     await db
       .update(bankTransactions)
       .set({
@@ -1336,6 +1398,7 @@ router.get('/vendors', async (req, res) => {
       const vyaparVendors = await db
         .select({
           partyName: vyaparTransactions.partyName,
+          transactionType: vyaparTransactions.transactionType,
           totalAmount: sql<number>`SUM(${vyaparTransactions.amount})`,
           transactionCount: sql<number>`COUNT(*)`,
           lastPaymentDate: sql<string>`MAX(${vyaparTransactions.date})`,
@@ -1345,19 +1408,21 @@ router.get('/vendors', async (req, res) => {
         .where(
           and(
             eq(vyaparTransactions.userId, req.userId!),
-            sql`${vyaparTransactions.partyName} IS NOT NULL AND ${vyaparTransactions.partyName} != ''`,
             // Only include outgoing transaction types for vendors
             sql`${vyaparTransactions.transactionType} IN ('Purchase', 'Payment-Out', 'Expense')`,
             ...vyaparDateConditions
           )
         )
-        .groupBy(vyaparTransactions.partyName);
+        .groupBy(vyaparTransactions.partyName, vyaparTransactions.transactionType);
 
       for (const v of vyaparVendors) {
-        if (!v.partyName) continue;
-        const existing = vendorMap.get(v.partyName);
+        // Use helper function to get vendor name (handles "Unknown" -> "GUM: Expense" etc)
+        const vendorName = getVyaparVendorName(v.partyName, v.transactionType, null);
+        if (!vendorName) continue;
+
+        const existing = vendorMap.get(vendorName);
         if (existing) {
-          // Merge with existing bank vendor
+          // Merge with existing vendor
           existing.totalAmount += v.totalAmount || 0;
           existing.transactionCount += v.transactionCount || 0;
           if (v.lastPaymentDate && v.lastPaymentDate > existing.lastPaymentDate) {
@@ -1366,18 +1431,20 @@ router.get('/vendors', async (req, res) => {
           if (v.firstPaymentDate && (!existing.firstPaymentDate || v.firstPaymentDate < existing.firstPaymentDate)) {
             existing.firstPaymentDate = v.firstPaymentDate;
           }
-          existing.source = 'both';
+          if (existing.source === 'bank') {
+            existing.source = 'both';
+          }
           existing.accountNames.add('Vyapar');
         } else {
-          vendorMap.set(v.partyName, {
-            vendorName: v.partyName,
+          vendorMap.set(vendorName, {
+            vendorName: vendorName,
             totalAmount: v.totalAmount || 0,
             transactionCount: v.transactionCount || 0,
             lastPaymentDate: v.lastPaymentDate || '',
             firstPaymentDate: v.firstPaymentDate || '',
             invoiceCount: 0,
             source: 'vyapar',
-            primaryType: null,
+            primaryType: v.transactionType ? v.transactionType.toUpperCase().replace('-', '_') : null,
             accountNames: new Set(['Vyapar']),
           });
         }
