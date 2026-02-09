@@ -516,7 +516,7 @@ function extractVyaparTypeFromDescription(description: string | null): string | 
   return null;
 }
 
-// Map Vyapar transaction types to business types
+// Map Vyapar transaction types to specific business types
 function mapVyaparTypeToBizType(vyaparType: string | null, description: string | null): string {
   // First try to extract type from description
   const descType = extractVyaparTypeFromDescription(description);
@@ -524,20 +524,27 @@ function mapVyaparTypeToBizType(vyaparType: string | null, description: string |
 
   const upperType = typeToCheck.toUpperCase();
 
-  // Sales/Income types (Record, Sale, Sale Order, Payment In, Invoice)
-  if (upperType.includes('SALE') || upperType.includes('INVOICE') || upperType === 'RECORD' ||
-      upperType === 'PAYMENT-IN' || upperType === 'PAYMENT IN') {
-    return 'SALES_INCOME';
+  // Specific Vyapar types
+  if (upperType === 'SALE ORDER') {
+    return 'SALE_ORDER';
   }
-
-  // Purchase/Vendor types
-  if (upperType.includes('PURCHASE') || upperType === 'PAYMENT-OUT' || upperType === 'PAYMENT OUT') {
-    return 'VENDOR';
+  if (upperType === 'SALE' || upperType === 'INVOICE') {
+    return 'SALE';
   }
-
-  // Expense types
-  if (upperType.includes('EXPENSE')) {
-    return 'OTHER';
+  if (upperType === 'PAYMENT IN' || upperType === 'PAYMENT-IN') {
+    return 'PAYMENT_IN';
+  }
+  if (upperType === 'RECORD') {
+    return 'RECORD';
+  }
+  if (upperType === 'EXPENSE') {
+    return 'EXPENSE';
+  }
+  if (upperType === 'PURCHASE') {
+    return 'PURCHASE';
+  }
+  if (upperType === 'PAYMENT OUT' || upperType === 'PAYMENT-OUT') {
+    return 'PAYMENT_OUT';
   }
 
   // Default

@@ -40,6 +40,7 @@ import { GearupAccountsTab } from '@/components/business-accounting/GearupAccoun
 import type { BusinessTransaction, BusinessAccountingSummary, BizType } from '@/types';
 
 const BIZ_TYPE_COLORS: Record<string, string> = {
+  // Bank transaction types
   SALARY: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
   PETROL: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300',
   PORTER: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
@@ -52,11 +53,20 @@ const BIZ_TYPE_COLORS: Record<string, string> = {
   SUPPLIES: 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-300',
   MARKETING: 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300',
   MAINTENANCE: 'bg-lime-100 text-lime-800 dark:bg-lime-900 dark:text-lime-300',
+  // Vyapar transaction types
+  SALE: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300',
+  SALE_ORDER: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300',
+  PAYMENT_IN: 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-300',
+  RECORD: 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-300',
+  EXPENSE: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+  PURCHASE: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300',
+  PAYMENT_OUT: 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300',
 };
 
 const DEFAULT_TYPE_COLOR = 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-300';
 
 const BIZ_TYPE_LABELS: Record<string, string> = {
+  // Bank transaction types
   SALARY: 'Salary',
   PETROL: 'Petrol/Fuel',
   PORTER: 'Porter/Delivery',
@@ -69,6 +79,14 @@ const BIZ_TYPE_LABELS: Record<string, string> = {
   SUPPLIES: 'Supplies',
   MARKETING: 'Marketing',
   MAINTENANCE: 'Maintenance',
+  // Vyapar transaction types
+  SALE: 'Sale',
+  SALE_ORDER: 'Sale Order',
+  PAYMENT_IN: 'Payment In',
+  RECORD: 'Record',
+  EXPENSE: 'Expense',
+  PURCHASE: 'Purchase',
+  PAYMENT_OUT: 'Payment Out',
 };
 
 // Helper to get type label (handles custom types)
