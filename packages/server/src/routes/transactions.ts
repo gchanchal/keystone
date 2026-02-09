@@ -389,7 +389,19 @@ router.get('/vyapar-items', async (req, res) => {
     }
 
     const items = await dbQuery;
-    res.json(items);
+
+    // Deduplicate items based on date + invoiceNumber + itemName + amount
+    const seen = new Set<string>();
+    const uniqueItems = items.filter(item => {
+      const signature = `${item.date}|${item.invoiceNumber || ''}|${item.itemName}|${item.amount}`;
+      if (seen.has(signature)) {
+        return false;
+      }
+      seen.add(signature);
+      return true;
+    });
+
+    res.json(uniqueItems);
   } catch (error) {
     console.error('Error fetching vyapar item details:', error);
     res.status(500).json({ error: 'Failed to fetch item details' });
