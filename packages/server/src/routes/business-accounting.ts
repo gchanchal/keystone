@@ -263,24 +263,21 @@ const upload = multer({
 
 const router = Router();
 
-// ASG Technologies account ID - this should be configured properly
-// For now, we'll filter by account name containing "ASG" or "Kotak Current"
-const ASG_ACCOUNT_FILTER = ['ASG', 'Kotak Current', 'GearUp'];
-
-// Get ASG account IDs for the user
+// Get GearUp business account IDs for the user
+// Uses the isGearupBusiness flag set via the Accounts tab toggle
 async function getASGAccountIds(userId: string): Promise<string[]> {
-  const userAccounts = await db
-    .select({ id: accounts.id, name: accounts.name })
+  const gearupAccounts = await db
+    .select({ id: accounts.id })
     .from(accounts)
-    .where(eq(accounts.userId, userId));
-
-  return userAccounts
-    .filter((acc) =>
-      ASG_ACCOUNT_FILTER.some((filter) =>
-        acc.name.toLowerCase().includes(filter.toLowerCase())
+    .where(
+      and(
+        eq(accounts.userId, userId),
+        eq(accounts.isActive, true),
+        eq(accounts.isGearupBusiness, true)
       )
-    )
-    .map((acc) => acc.id);
+    );
+
+  return gearupAccounts.map((acc) => acc.id);
 }
 
 // Query schema for transactions
