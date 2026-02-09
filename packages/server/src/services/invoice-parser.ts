@@ -53,8 +53,11 @@ const PATTERNS = {
   igstTable: /IGST[\s\S]*?Total[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
 
   // Total amount - match "Grand Total" first (more specific), then fallback to "Total"
-  grandTotal: /Grand\s*Total\s*(?:\([^)]*\))?\s*[₹Rs.INR]*\s*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
-  totalAmount: /(?:Total\s*Amount|Net\s*Amount|Invoice\s*Total|Amount\s*Payable|Total\s*Payable|Total)\s*[₹Rs.INR()]*\s*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
+  // Also handle formats like "Grand Total ₹ 39884" or "Grand Total: Rs. 39,884.00"
+  grandTotal: /Grand\s*Total\s*(?:\([^)]*\))?\s*[₹Rs.INR:]*\s*(\d+(?:,?\d+)*(?:\.\d{1,2})?)/gi,
+  totalAmount: /(?:Total\s*Amount|Net\s*Amount|Invoice\s*Total|Amount\s*Payable|Total\s*Payable|Total)\s*[₹Rs.INR():]*\s*(\d+(?:,?\d+)*(?:\.\d{1,2})?)/gi,
+  // Rupee symbol followed by large number (likely a total)
+  rupeeAmount: /[₹Rs.]\s*(\d{4,}(?:,?\d+)*(?:\.\d{1,2})?)/gi,
 
   // Taxable amount - also look for "Taxable amount" in table
   taxableAmount: /(?:Taxable\s*(?:Value|Amount)|Sub\s*Total|Subtotal|Base\s*Amount)[\s:]*[₹Rs.INR\s]*(\d+(?:,\d+)*(?:\.\d{1,2})?)/gi,
@@ -146,29 +149,59 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
     }
   }
 
-  // Extract party/company name - try "BILL TO" first, then "To" or "M/s"
-  const billToMatch = text.match(PATTERNS.billTo);
-  if (billToMatch && billToMatch[1]) {
-    result.partyName = billToMatch[1].trim();
-  } else {
-    // Try M/s pattern (common in Indian invoices)
-    const msMatch = text.match(/M\/s\.?\s+([A-Z][A-Z0-9\s&.,]+?)(?:\n|,|\d)/i);
-    if (msMatch && msMatch[1]) {
-      result.partyName = msMatch[1].trim();
-    } else {
-      // Fallback: try seller name pattern (after document title)
-      const partyMatch = text.match(PATTERNS.partyName);
-      if (partyMatch && partyMatch[2]) {
-        result.partyName = partyMatch[2].trim();
-      }
-    }
-  }
-
-  // Extract GSTIN (vendor's GST number)
+  // Extract GSTIN (vendor's GST number) - do this first as it helps identify vendor
   const gstins = extractAll(text, PATTERNS.gstin);
   if (gstins.length > 0) {
     // Usually the first GSTIN is the vendor's
     result.gstinVendor = gstins[0];
+  }
+
+  // Extract vendor/seller name (for input invoices, this is the company issuing the invoice)
+  // Strategy: Look for company name near the top, before "To" or "Bill To" section
+
+  // Try 1: Look for name right after "TAX INVOICE" or "INVOICE" header
+  const afterInvoiceMatch = text.match(/(?:TAX\s*)?INVOICE[\s\n]+([A-Z][A-Z\s&]+?)(?:\n|No\.|GSTIN|Address)/i);
+  if (afterInvoiceMatch && afterInvoiceMatch[1] && afterInvoiceMatch[1].trim().length > 2) {
+    result.partyName = afterInvoiceMatch[1].trim();
+  }
+
+  // Try 2: Look for prominent company name before first GSTIN
+  if (!result.partyName && result.gstinVendor) {
+    const beforeGstinMatch = text.match(/([A-Z][A-Z\s&]+?)\s*(?:\n|GSTIN|GST\s*(?:IN|No))/i);
+    if (beforeGstinMatch && beforeGstinMatch[1] && beforeGstinMatch[1].trim().length > 2) {
+      const name = beforeGstinMatch[1].trim();
+      // Filter out common header text
+      if (!name.match(/^(TAX|INVOICE|ESTIMATE|QUOTATION|BILL|PROFORMA)/i)) {
+        result.partyName = name;
+      }
+    }
+  }
+
+  // Try 3: Look for company name on line containing/near GSTIN
+  if (!result.partyName && result.gstinVendor) {
+    // Find the line with GSTIN and look for company name nearby
+    const gstinLineMatch = text.match(/([A-Z][A-Z\s&]+?)\s*[\n\r].*GSTIN\s*:?\s*\d{2}[A-Z]{5}/i);
+    if (gstinLineMatch && gstinLineMatch[1]) {
+      result.partyName = gstinLineMatch[1].trim();
+    }
+  }
+
+  // Try 4: M/s pattern (common in Indian invoices) - this finds the BUYER, not seller
+  // Only use this as last resort and note it might be the buyer
+  if (!result.partyName) {
+    const msMatch = text.match(/M\/s\.?\s+([A-Z][A-Z0-9\s&.,]+?)(?:\n|,|\d)/i);
+    if (msMatch && msMatch[1]) {
+      // This is likely the buyer, but use it if we have nothing else
+      result.partyName = msMatch[1].trim();
+    }
+  }
+
+  // Try 5: Look for "BILL TO" pattern - this finds the BUYER
+  if (!result.partyName) {
+    const billToMatch = text.match(PATTERNS.billTo);
+    if (billToMatch && billToMatch[1]) {
+      result.partyName = billToMatch[1].trim();
+    }
   }
 
   // Extract CGST amount - try percentage format first (e.g., "CGST2.5 (2.5%)16.67")
@@ -334,6 +367,51 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
   // Calculate taxable amount if we have total and GST but no taxable
   if (!result.taxableAmount && result.totalAmount && result.gstAmount) {
     result.taxableAmount = result.totalAmount - result.gstAmount;
+  }
+
+  // Fallback: If no amounts found, try to find large numbers that might be totals
+  if (!result.totalAmount && !result.gstAmount) {
+    // Look for rupee amounts
+    const rupeeMatches = extractAll(text, PATTERNS.rupeeAmount);
+    if (rupeeMatches.length > 0) {
+      const amounts = rupeeMatches.map(parseIndianNumber).filter(n => n > 100);
+      if (amounts.length > 0) {
+        amounts.sort((a, b) => b - a); // Sort descending
+        result.totalAmount = amounts[0]; // Largest is likely grand total
+        // If we have at least 3 amounts, try to infer GST
+        if (amounts.length >= 3) {
+          // Check if two smaller amounts are equal (likely CGST = SGST)
+          for (let i = 1; i < amounts.length - 1; i++) {
+            if (Math.abs(amounts[i] - amounts[i + 1]) < 1) {
+              result.cgstAmount = amounts[i];
+              result.sgstAmount = amounts[i + 1];
+              result.gstAmount = amounts[i] + amounts[i + 1];
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Try finding any 5-digit numbers which might be totals (common in Indian invoices)
+    if (!result.totalAmount) {
+      const largeNumbers = text.match(/\b(\d{5,})\b/g);
+      if (largeNumbers && largeNumbers.length > 0) {
+        const amounts = largeNumbers.map(n => parseInt(n, 10)).filter(n => n > 1000);
+        if (amounts.length > 0) {
+          amounts.sort((a, b) => b - a);
+          result.totalAmount = amounts[0];
+          console.log('[InvoiceParser] Found large numbers (fallback):', amounts.slice(0, 5));
+        }
+      }
+    }
+  }
+
+  // Log all numbers found for debugging
+  const allNumbers = text.match(/\d+(?:,\d+)*(?:\.\d+)?/g);
+  if (allNumbers) {
+    const parsed = allNumbers.map(parseIndianNumber).filter(n => n > 100).sort((a, b) => b - a);
+    console.log('[InvoiceParser] Top numbers found:', parsed.slice(0, 10));
   }
 
   console.log('[InvoiceParser] Extracted GST info:', result);
