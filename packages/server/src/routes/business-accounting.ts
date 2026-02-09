@@ -464,7 +464,7 @@ router.get('/transactions', async (req, res) => {
           gstType: isIncome ? 'output' : 'input',
           createdAt: v.createdAt,
           updatedAt: v.updatedAt,
-          accountName: 'Vyapar (GearUp Mods)',
+          accountName: 'Vyapar',
         };
       });
 
@@ -2997,7 +2997,7 @@ router.get('/gearup-accounts', async (req: any, res) => {
       await db.insert(accounts).values({
         id: vyaparId,
         userId,
-        name: 'Vyapar (GearUp Mods)',
+        name: 'Vyapar',
         bankName: 'Vyapar App',
         accountNumber: null,
         accountType: 'vyapar',
