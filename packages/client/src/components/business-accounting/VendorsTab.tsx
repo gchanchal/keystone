@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X, Search } from 'lucide-react';
+import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X, Building2, FileSpreadsheet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,10 +14,42 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { DataTable, ColumnDef } from '@/components/ui/data-table';
 import { businessAccountingApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import type { VendorSummary, VendorPaymentHistory, BusinessTransaction } from '@/types';
+
+// Type labels and colors
+const TYPE_LABELS: Record<string, string> = {
+  SALARY: 'Salary',
+  PETROL: 'Petrol/Fuel',
+  PORTER: 'Porter/Delivery',
+  HELPER: 'Helper',
+  VENDOR: 'Vendor',
+  SALE: 'Sale',
+  SALE_ORDER: 'Sale Order',
+  PAYMENT_IN: 'Payment In',
+  EXPENSE: 'Expense',
+  PURCHASE: 'Purchase',
+  PAYMENT_OUT: 'Payment Out',
+};
+
+const TYPE_COLORS: Record<string, string> = {
+  VENDOR: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+  SALE: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300',
+  SALE_ORDER: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300',
+  PAYMENT_IN: 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-300',
+  EXPENSE: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+  PURCHASE: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300',
+  PAYMENT_OUT: 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300',
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  bank: 'Bank',
+  vyapar: 'Vyapar',
+  both: 'Bank + Vyapar',
+};
 
 export function VendorsTab() {
   const queryClient = useQueryClient();
@@ -303,10 +335,154 @@ export function VendorsTab() {
     );
   }
 
+  // Extract unique values for filters
+  const uniqueSources = useMemo(() => {
+    const sources = new Set<string>();
+    vendors.forEach(v => sources.add(v.source));
+    return Array.from(sources);
+  }, [vendors]);
+
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>();
+    vendors.forEach(v => {
+      if (v.primaryType) types.add(v.primaryType);
+    });
+    return Array.from(types);
+  }, [vendors]);
+
+  const uniqueAccounts = useMemo(() => {
+    const accts = new Set<string>();
+    vendors.forEach(v => {
+      v.accountNames?.forEach(a => accts.add(a));
+    });
+    return Array.from(accts);
+  }, [vendors]);
+
+  // Column definitions
+  const columns: ColumnDef<VendorSummary>[] = useMemo(() => [
+    {
+      id: 'vendorName',
+      header: 'Vendor Name',
+      accessorKey: 'vendorName',
+      sortable: true,
+      filterable: true,
+      cell: (row) => (
+        <span className="font-medium">{row.vendorName}</span>
+      ),
+    },
+    {
+      id: 'source',
+      header: 'Source',
+      accessorKey: 'source',
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: uniqueSources.map(s => ({ label: SOURCE_LABELS[s] || s, value: s })),
+      cell: (row) => (
+        <div className="flex items-center gap-1">
+          {row.source === 'bank' && <Building2 className="h-3 w-3 text-blue-500" />}
+          {row.source === 'vyapar' && <FileSpreadsheet className="h-3 w-3 text-green-500" />}
+          {row.source === 'both' && (
+            <>
+              <Building2 className="h-3 w-3 text-blue-500" />
+              <FileSpreadsheet className="h-3 w-3 text-green-500" />
+            </>
+          )}
+          <span className="text-xs text-muted-foreground ml-1">{SOURCE_LABELS[row.source] || row.source}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'accounts',
+      header: 'Accounts',
+      accessorKey: (row) => row.accountNames?.join(', ') || '-',
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: uniqueAccounts.map(a => ({ label: a, value: a })),
+      cell: (row) => (
+        <div className="text-sm text-muted-foreground max-w-[150px] truncate" title={row.accountNames?.join(', ')}>
+          {row.accountNames?.join(', ') || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'primaryType',
+      header: 'Type',
+      accessorKey: 'primaryType',
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: uniqueTypes.map(t => ({ label: TYPE_LABELS[t] || t, value: t })),
+      cell: (row) => row.primaryType ? (
+        <Badge className={TYPE_COLORS[row.primaryType] || 'bg-slate-100 text-slate-800'}>
+          {TYPE_LABELS[row.primaryType] || row.primaryType}
+        </Badge>
+      ) : (
+        <span className="text-muted-foreground">-</span>
+      ),
+    },
+    {
+      id: 'transactionCount',
+      header: 'Txns',
+      accessorKey: 'transactionCount',
+      sortable: true,
+      align: 'right',
+      cell: (row) => row.transactionCount,
+    },
+    {
+      id: 'totalAmount',
+      header: 'Total Amount',
+      accessorKey: 'totalAmount',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="font-medium">{formatCurrency(row.totalAmount)}</span>
+      ),
+    },
+    {
+      id: 'avgPayment',
+      header: 'Avg Payment',
+      accessorKey: 'avgPayment',
+      sortable: true,
+      align: 'right',
+      cell: (row) => (
+        <span className="text-muted-foreground">{formatCurrency(row.avgPayment)}</span>
+      ),
+    },
+    {
+      id: 'invoiceCount',
+      header: 'Invoices',
+      accessorKey: 'invoiceCount',
+      sortable: true,
+      align: 'right',
+      cell: (row) => row.invoiceCount > 0 ? (
+        <span className="text-green-600">{row.invoiceCount}</span>
+      ) : (
+        <span className="text-muted-foreground">0</span>
+      ),
+    },
+    {
+      id: 'lastPaymentDate',
+      header: 'Last Payment',
+      accessorKey: 'lastPaymentDate',
+      sortable: true,
+      cell: (row) => formatDate(row.lastPaymentDate),
+    },
+    {
+      id: 'actions',
+      header: '',
+      accessorKey: 'vendorName',
+      cell: () => (
+        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+      ),
+    },
+  ], [uniqueSources, uniqueTypes, uniqueAccounts]);
+
   // Vendors list view
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Vendors</CardTitle>
@@ -314,16 +490,30 @@ export function VendorsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{vendors.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {vendors.filter(v => v.source === 'bank').length} bank, {vendors.filter(v => v.source === 'vyapar').length} vyapar
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {formatCurrency(vendors.reduce((sum, v) => sum + v.totalAmount, 0))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Avg per Vendor</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {formatCurrency(vendors.length > 0 ? Math.round(vendors.reduce((sum, v) => sum + v.totalAmount, 0) / vendors.length) : 0)}
             </div>
           </CardContent>
         </Card>
@@ -343,62 +533,16 @@ export function VendorsTab() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>All Vendors</CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search vendors..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
+          <CardTitle>All Vendors</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Vendor Name</TableHead>
-                <TableHead className="text-right">Transactions</TableHead>
-                <TableHead className="text-right">Total Amount</TableHead>
-                <TableHead className="text-right">Invoices</TableHead>
-                <TableHead>Last Payment</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {vendors
-                .filter((vendor) =>
-                  vendor.vendorName.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                .map((vendor) => (
-                <TableRow
-                  key={vendor.vendorName}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => setSelectedVendor(vendor.vendorName)}
-                >
-                  <TableCell className="font-medium">{vendor.vendorName}</TableCell>
-                  <TableCell className="text-right">{vendor.transactionCount}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatCurrency(vendor.totalAmount)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {vendor.invoiceCount > 0 ? (
-                      <span className="text-green-600">{vendor.invoiceCount}</span>
-                    ) : (
-                      <span className="text-muted-foreground">0</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatDate(vendor.lastPaymentDate)}</TableCell>
-                  <TableCell>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <CardContent>
+          <DataTable
+            data={vendors}
+            columns={columns}
+            onRowClick={(row) => setSelectedVendor(row.vendorName)}
+            defaultSortColumn="totalAmount"
+            defaultSortDirection="desc"
+          />
         </CardContent>
       </Card>
     </div>

@@ -573,7 +573,12 @@ export interface VendorSummary {
   totalAmount: number;
   transactionCount: number;
   lastPaymentDate: string;
+  firstPaymentDate: string;
   invoiceCount: number;
+  source: 'bank' | 'vyapar' | 'both';
+  primaryType: string | null;
+  accountNames: string[];
+  avgPayment: number;
 }
 
 export interface VendorPaymentHistory {

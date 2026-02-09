@@ -1244,32 +1244,137 @@ router.get('/vendors', async (req, res) => {
   try {
     const asgAccountIds = await getASGAccountIds(req.userId!);
 
-    if (asgAccountIds.length === 0) {
-      return res.json([]);
-    }
-
-    const result = await db
-      .select({
-        vendorName: bankTransactions.vendorName,
-        totalAmount: sql<number>`SUM(${bankTransactions.amount})`,
-        transactionCount: sql<number>`COUNT(*)`,
-        lastPaymentDate: sql<string>`MAX(${bankTransactions.date})`,
-        invoiceCount: sql<number>`SUM(CASE WHEN ${bankTransactions.invoiceFileId} IS NOT NULL THEN 1 ELSE 0 END)`,
-      })
-      .from(bankTransactions)
+    // Check if Vyapar is enabled
+    const [vyaparAccount] = await db
+      .select()
+      .from(accounts)
       .where(
         and(
-          eq(bankTransactions.userId, req.userId!),
-          sql`${bankTransactions.accountId} IN (${sql.join(
-            asgAccountIds.map((id) => sql`${id}`),
-            sql`, `
-          )})`,
-          sql`${bankTransactions.vendorName} IS NOT NULL`,
-          eq(bankTransactions.transactionType, 'debit')
+          eq(accounts.userId, req.userId!),
+          eq(accounts.accountType, 'vyapar'),
+          eq(accounts.isGearupBusiness, true)
         )
-      )
-      .groupBy(bankTransactions.vendorName)
-      .orderBy(desc(sql`SUM(${bankTransactions.amount})`));
+      );
+    const includeVyapar = !!vyaparAccount;
+
+    // Filter out Vyapar from bank account IDs
+    const bankAccountIds = asgAccountIds.filter(id => id !== vyaparAccount?.id);
+
+    // Collect all vendors
+    const vendorMap = new Map<string, {
+      vendorName: string;
+      totalAmount: number;
+      transactionCount: number;
+      lastPaymentDate: string;
+      firstPaymentDate: string;
+      invoiceCount: number;
+      source: 'bank' | 'vyapar' | 'both';
+      primaryType: string | null;
+      accountNames: Set<string>;
+    }>();
+
+    // Fetch bank vendors
+    if (bankAccountIds.length > 0) {
+      const bankVendors = await db
+        .select({
+          vendorName: bankTransactions.vendorName,
+          totalAmount: sql<number>`SUM(${bankTransactions.amount})`,
+          transactionCount: sql<number>`COUNT(*)`,
+          lastPaymentDate: sql<string>`MAX(${bankTransactions.date})`,
+          firstPaymentDate: sql<string>`MIN(${bankTransactions.date})`,
+          invoiceCount: sql<number>`SUM(CASE WHEN ${bankTransactions.invoiceFileId} IS NOT NULL THEN 1 ELSE 0 END)`,
+          primaryType: sql<string>`(SELECT bt2.biz_type FROM bank_transactions bt2 WHERE bt2.vendor_name = bank_transactions.vendor_name AND bt2.biz_type IS NOT NULL GROUP BY bt2.biz_type ORDER BY COUNT(*) DESC LIMIT 1)`,
+          accountName: accounts.name,
+        })
+        .from(bankTransactions)
+        .leftJoin(accounts, eq(bankTransactions.accountId, accounts.id))
+        .where(
+          and(
+            eq(bankTransactions.userId, req.userId!),
+            sql`${bankTransactions.accountId} IN (${sql.join(
+              bankAccountIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`,
+            sql`${bankTransactions.vendorName} IS NOT NULL AND ${bankTransactions.vendorName} != ''`,
+            eq(bankTransactions.transactionType, 'debit')
+          )
+        )
+        .groupBy(bankTransactions.vendorName);
+
+      for (const v of bankVendors) {
+        if (!v.vendorName) continue;
+        vendorMap.set(v.vendorName, {
+          vendorName: v.vendorName,
+          totalAmount: v.totalAmount || 0,
+          transactionCount: v.transactionCount || 0,
+          lastPaymentDate: v.lastPaymentDate || '',
+          firstPaymentDate: v.firstPaymentDate || '',
+          invoiceCount: v.invoiceCount || 0,
+          source: 'bank',
+          primaryType: v.primaryType,
+          accountNames: new Set(v.accountName ? [v.accountName] : []),
+        });
+      }
+    }
+
+    // Fetch Vyapar vendors (party names)
+    if (includeVyapar) {
+      const vyaparVendors = await db
+        .select({
+          partyName: vyaparTransactions.partyName,
+          totalAmount: sql<number>`SUM(${vyaparTransactions.amount})`,
+          transactionCount: sql<number>`COUNT(*)`,
+          lastPaymentDate: sql<string>`MAX(${vyaparTransactions.date})`,
+          firstPaymentDate: sql<string>`MIN(${vyaparTransactions.date})`,
+        })
+        .from(vyaparTransactions)
+        .where(
+          and(
+            eq(vyaparTransactions.userId, req.userId!),
+            sql`${vyaparTransactions.partyName} IS NOT NULL AND ${vyaparTransactions.partyName} != ''`
+          )
+        )
+        .groupBy(vyaparTransactions.partyName);
+
+      for (const v of vyaparVendors) {
+        if (!v.partyName) continue;
+        const existing = vendorMap.get(v.partyName);
+        if (existing) {
+          // Merge with existing bank vendor
+          existing.totalAmount += v.totalAmount || 0;
+          existing.transactionCount += v.transactionCount || 0;
+          if (v.lastPaymentDate && v.lastPaymentDate > existing.lastPaymentDate) {
+            existing.lastPaymentDate = v.lastPaymentDate;
+          }
+          if (v.firstPaymentDate && (!existing.firstPaymentDate || v.firstPaymentDate < existing.firstPaymentDate)) {
+            existing.firstPaymentDate = v.firstPaymentDate;
+          }
+          existing.source = 'both';
+          existing.accountNames.add('Vyapar');
+        } else {
+          vendorMap.set(v.partyName, {
+            vendorName: v.partyName,
+            totalAmount: v.totalAmount || 0,
+            transactionCount: v.transactionCount || 0,
+            lastPaymentDate: v.lastPaymentDate || '',
+            firstPaymentDate: v.firstPaymentDate || '',
+            invoiceCount: 0,
+            source: 'vyapar',
+            primaryType: null,
+            accountNames: new Set(['Vyapar']),
+          });
+        }
+      }
+    }
+
+    // Convert to array and sort by total amount
+    const result = Array.from(vendorMap.values())
+      .map(v => ({
+        ...v,
+        accountNames: Array.from(v.accountNames),
+        avgPayment: v.transactionCount > 0 ? Math.round(v.totalAmount / v.transactionCount) : 0,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
 
     res.json(result);
   } catch (error) {
