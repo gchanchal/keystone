@@ -1,11 +1,18 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, Edit2, Check, X } from 'lucide-react';
+import { Users, FileText, ChevronRight, ArrowLeft, ChevronDown, ChevronUp, Edit2, Check, X, Search, Filter } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -14,7 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-// import { DataTable, ColumnDef } from '@/components/ui/data-table';
 import { businessAccountingApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { TransactionDetailModal } from './TransactionDetailModal';
@@ -46,6 +52,9 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 
+type SortColumn = 'vendorName' | 'accountNames' | 'primaryType' | 'transactionCount' | 'totalAmount' | 'avgPayment' | 'invoiceCount' | 'lastPaymentDate';
+type SortDirection = 'asc' | 'desc';
+
 export function VendorsTab() {
   const queryClient = useQueryClient();
   const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
@@ -54,6 +63,14 @@ export function VendorsTab() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<SortColumn>('totalAmount');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  // Filter state
+  const [accountFilter, setAccountFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
 
   // Fetch vendors list
   const { data: vendors = [], isLoading } = useQuery<VendorSummary[]>({
@@ -331,6 +348,100 @@ export function VendorsTab() {
   }
 
 
+  // Extract unique values for filters
+  const uniqueAccounts = useMemo(() => {
+    const accts = new Set<string>();
+    vendors.forEach(v => {
+      if (v.accountNames && Array.isArray(v.accountNames)) {
+        v.accountNames.forEach(a => accts.add(a));
+      }
+    });
+    return Array.from(accts).sort();
+  }, [vendors]);
+
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>();
+    vendors.forEach(v => {
+      if (v.primaryType) types.add(v.primaryType);
+    });
+    return Array.from(types).sort();
+  }, [vendors]);
+
+  // Handle sort
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
+  // Sort icon component
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return null;
+    return sortDirection === 'asc' ? (
+      <ChevronUp className="h-3 w-3 ml-1 inline" />
+    ) : (
+      <ChevronDown className="h-3 w-3 ml-1 inline" />
+    );
+  };
+
+  // Filter and sort vendors
+  const filteredAndSortedVendors = useMemo(() => {
+    let result = [...vendors];
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(v => v.vendorName.toLowerCase().includes(query));
+    }
+
+    // Apply account filter
+    if (accountFilter !== 'all') {
+      result = result.filter(v => v.accountNames?.includes(accountFilter));
+    }
+
+    // Apply type filter
+    if (typeFilter !== 'all') {
+      result = result.filter(v => v.primaryType === typeFilter);
+    }
+
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case 'vendorName':
+          comparison = a.vendorName.localeCompare(b.vendorName);
+          break;
+        case 'accountNames':
+          comparison = (a.accountNames?.join(',') || '').localeCompare(b.accountNames?.join(',') || '');
+          break;
+        case 'primaryType':
+          comparison = (a.primaryType || '').localeCompare(b.primaryType || '');
+          break;
+        case 'transactionCount':
+          comparison = a.transactionCount - b.transactionCount;
+          break;
+        case 'totalAmount':
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+        case 'avgPayment':
+          comparison = (a.avgPayment || 0) - (b.avgPayment || 0);
+          break;
+        case 'invoiceCount':
+          comparison = a.invoiceCount - b.invoiceCount;
+          break;
+        case 'lastPaymentDate':
+          comparison = (a.lastPaymentDate || '').localeCompare(b.lastPaymentDate || '');
+          break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return result;
+  }, [vendors, searchQuery, accountFilter, typeFilter, sortColumn, sortDirection]);
+
   // Vendors list view
   return (
     <div className="space-y-4">
@@ -343,7 +454,7 @@ export function VendorsTab() {
           <CardContent>
             <div className="text-2xl font-bold">{vendors.length}</div>
             <p className="text-xs text-muted-foreground">
-              {vendors.filter(v => v.source === 'bank').length} bank, {vendors.filter(v => v.source === 'vyapar').length} vyapar
+              {filteredAndSortedVendors.length} shown
             </p>
           </CardContent>
         </Card>
@@ -354,7 +465,7 @@ export function VendorsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(vendors.reduce((sum, v) => sum + v.totalAmount, 0))}
+              {formatCurrency(filteredAndSortedVendors.reduce((sum, v) => sum + v.totalAmount, 0))}
             </div>
           </CardContent>
         </Card>
@@ -365,7 +476,7 @@ export function VendorsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(vendors.length > 0 ? Math.round(vendors.reduce((sum, v) => sum + v.totalAmount, 0) / vendors.length) : 0)}
+              {formatCurrency(filteredAndSortedVendors.length > 0 ? Math.round(filteredAndSortedVendors.reduce((sum, v) => sum + v.totalAmount, 0) / filteredAndSortedVendors.length) : 0)}
             </div>
           </CardContent>
         </Card>
@@ -377,7 +488,7 @@ export function VendorsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {vendors.reduce((sum, v) => sum + v.invoiceCount, 0)}
+              {filteredAndSortedVendors.reduce((sum, v) => sum + v.invoiceCount, 0)}
             </div>
           </CardContent>
         </Card>
@@ -385,32 +496,110 @@ export function VendorsTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Vendors</CardTitle>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>All Vendors</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search vendors..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-48"
+                />
+              </div>
+              {/* Account Filter */}
+              <Select value={accountFilter} onValueChange={setAccountFilter}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Account" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {uniqueAccounts.map(acc => (
+                    <SelectItem key={acc} value={acc}>{acc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Type Filter */}
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {uniqueTypes.map(type => (
+                    <SelectItem key={type} value={type}>{TYPE_LABELS[type] || type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Vendor Name</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Txns</TableHead>
-                <TableHead className="text-right">Total Amount</TableHead>
-                <TableHead className="text-right">Avg</TableHead>
-                <TableHead className="text-right">Invoices</TableHead>
-                <TableHead>Last Payment</TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('vendorName')}
+                >
+                  Vendor Name <SortIcon column="vendorName" />
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('accountNames')}
+                >
+                  Account <SortIcon column="accountNames" />
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('primaryType')}
+                >
+                  Type <SortIcon column="primaryType" />
+                </TableHead>
+                <TableHead
+                  className="text-right cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('transactionCount')}
+                >
+                  Txns <SortIcon column="transactionCount" />
+                </TableHead>
+                <TableHead
+                  className="text-right cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('totalAmount')}
+                >
+                  Total Amount <SortIcon column="totalAmount" />
+                </TableHead>
+                <TableHead
+                  className="text-right cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('avgPayment')}
+                >
+                  Avg <SortIcon column="avgPayment" />
+                </TableHead>
+                <TableHead
+                  className="text-right cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('invoiceCount')}
+                >
+                  Invoices <SortIcon column="invoiceCount" />
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => handleSort('lastPaymentDate')}
+                >
+                  Last Payment <SortIcon column="lastPaymentDate" />
+                </TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {vendors.length === 0 ? (
+              {filteredAndSortedVendors.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     No vendors found
                   </TableCell>
                 </TableRow>
               ) : (
-                vendors.map((vendor) => (
+                filteredAndSortedVendors.map((vendor) => (
                   <TableRow
                     key={vendor.vendorName}
                     className="cursor-pointer hover:bg-muted/50"

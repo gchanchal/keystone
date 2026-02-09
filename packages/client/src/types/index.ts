@@ -534,6 +534,8 @@ export interface BusinessInvoice {
   gstAmount: number | null;
   totalAmount: number | null;
   notes: string | null;
+  documentType: 'invoice' | 'estimate' | 'proforma' | 'quotation' | null;
+  isEstimate: boolean;
   createdAt: string;
   updatedAt: string | null;
 }
