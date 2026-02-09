@@ -19,6 +19,12 @@ import {
   Check,
   Wifi,
   Pencil,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Mail,
+  Loader2,
+  Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,6 +59,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { PieChart } from '@/components/charts/PieChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { BarChart } from '@/components/charts/BarChart';
@@ -67,6 +79,10 @@ import type {
   CardHolder,
   CreditCardAccountSummary,
 } from '@/types';
+
+// Sorting types
+type SortField = 'date' | 'amount' | 'description' | 'category' | 'points' | 'source';
+type SortDirection = 'asc' | 'desc';
 
 // Category colors
 const CATEGORY_COLORS: Record<string, string> = {
@@ -204,6 +220,12 @@ export function CreditCards() {
   const [cardHolderFilter, setCardHolderFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [emiOnly, setEmiOnly] = useState(false);
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
+
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Edit card dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -213,6 +235,21 @@ export function CreditCards() {
     cardNetwork: '',
     cardHolderName: '',
   });
+
+  // Custom categories state
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('cc-custom-categories');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [addCategoryDialogOpen, setAddCategoryDialogOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [pendingTxnForCategory, setPendingTxnForCategory] = useState<CreditCardTransaction | null>(null);
+
+  // All categories (built-in + custom)
+  const allCategories = useMemo(() => {
+    const builtIn = Object.keys(CATEGORY_COLORS);
+    return [...builtIn, ...customCategories.filter(c => !builtIn.includes(c))];
+  }, [customCategories]);
 
   // Get available card variants based on bank name
   const availableCardVariants = useMemo(() => {
@@ -243,6 +280,55 @@ export function CreditCards() {
       setEditingCard(null);
     },
   });
+
+  // Gmail sync mutation
+  const [syncResult, setSyncResult] = useState<{ matched: number; processed: number } | null>(null);
+  const syncGmailMutation = useMutation({
+    mutationFn: () => creditCardsApi.syncGmail(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['credit-card-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-cards-summary'] });
+      setSyncResult({ matched: data.matchedCount || 0, processed: data.processedCount || 0 });
+      // Clear result after 5 seconds
+      setTimeout(() => setSyncResult(null), 5000);
+    },
+  });
+
+  // Update transaction category mutation
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ accountId, transactionId, category }: { accountId: string; transactionId: string; category: string | null }) =>
+      creditCardsApi.updateTransactionCategory(accountId, transactionId, category),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit-card-transactions'] });
+    },
+  });
+
+  // Handle category change
+  const handleCategoryChange = (txn: CreditCardTransaction, newCategory: string) => {
+    updateCategoryMutation.mutate({
+      accountId: txn.accountId,
+      transactionId: txn.id,
+      category: newCategory === '_none' ? null : newCategory,
+    });
+  };
+
+  // Add new category
+  const handleAddCategory = () => {
+    if (!newCategoryName.trim()) return;
+    const catName = newCategoryName.trim().toUpperCase();
+    if (!allCategories.includes(catName)) {
+      const updated = [...customCategories, catName];
+      setCustomCategories(updated);
+      localStorage.setItem('cc-custom-categories', JSON.stringify(updated));
+    }
+    // Apply to pending transaction if any
+    if (pendingTxnForCategory) {
+      handleCategoryChange(pendingTxnForCategory, catName);
+    }
+    setNewCategoryName('');
+    setAddCategoryDialogOpen(false);
+    setPendingTxnForCategory(null);
+  };
 
   // Handle edit card
   const handleEditCard = (account: CreditCardAccountSummary) => {
@@ -319,6 +405,75 @@ export function CreditCards() {
     enabled: activeTab === 'transactions' && (!!selectedAccountId || !!summary?.accounts?.[0]?.id),
   });
 
+  // Handle sort toggle
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  // Get sort icon for a field
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-3 w-3 ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 ml-1" />
+    );
+  };
+
+  // Filter and sort transactions
+  const sortedTransactions = useMemo(() => {
+    if (!transactionsData?.transactions) return [];
+
+    let filtered = [...transactionsData.transactions];
+
+    // Apply transaction type filter
+    if (transactionTypeFilter !== 'all') {
+      filtered = filtered.filter((txn: CreditCardTransaction) => txn.transactionType === transactionTypeFilter);
+    }
+
+    // Apply source filter
+    if (sourceFilter !== 'all') {
+      filtered = filtered.filter((txn: CreditCardTransaction) => (txn.source || 'statement') === sourceFilter);
+    }
+
+    // Sort
+    filtered.sort((a: CreditCardTransaction, b: CreditCardTransaction) => {
+      let comparison = 0;
+
+      switch (sortField) {
+        case 'date':
+          comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+          break;
+        case 'amount':
+          comparison = a.amount - b.amount;
+          break;
+        case 'description':
+          comparison = (a.description || '').localeCompare(b.description || '');
+          break;
+        case 'category':
+          comparison = (a.piCategory || '').localeCompare(b.piCategory || '');
+          break;
+        case 'points':
+          comparison = (a.rewardPoints || 0) - (b.rewardPoints || 0);
+          break;
+        case 'source':
+          comparison = (a.source || 'statement').localeCompare(b.source || 'statement');
+          break;
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return filtered;
+  }, [transactionsData?.transactions, sortField, sortDirection, transactionTypeFilter, sourceFilter]);
+
   const { data: analytics, isLoading: analyticsLoading } = useQuery<CreditCardAnalytics>({
     queryKey: ['credit-cards-analytics', selectedAccountId, startDate, endDate],
     queryFn: () =>
@@ -354,6 +509,62 @@ export function CreditCards() {
     });
     return holders;
   }, [summary]);
+
+  // Computed summary based on selected cards
+  const filteredSummary = useMemo(() => {
+    if (!summary) return null;
+
+    // If all cards selected, return original summary
+    if (isAllSelected) {
+      return {
+        totalOutstanding: summary.totalOutstanding,
+        totalAvailableLimit: summary.totalAvailableLimit,
+        totalCreditLimit: summary.totalCreditLimit,
+        totalRewardPoints: summary.totalRewardPoints,
+        nextDueDate: summary.nextDueDate,
+        nextDueAmount: summary.nextDueAmount,
+      };
+    }
+
+    // Filter accounts based on selection
+    const selectedAccounts = summary.accounts.filter(acc => selectedAccountIds.includes(acc.id));
+
+    // Calculate totals from selected accounts
+    let totalOutstanding = 0;
+    let totalCreditLimit = 0;
+    let totalAvailableLimit = 0;
+    let totalRewardPoints = 0;
+    let nextDueDate: string | null = null;
+    let nextDueAmount = 0;
+
+    selectedAccounts.forEach(account => {
+      const stmt = account.latestStatement;
+      const outstanding = stmt?.totalDue || Math.abs(account.currentBalance || 0);
+      const creditLimit = stmt?.creditLimit || 0;
+
+      totalOutstanding += outstanding;
+      totalCreditLimit += creditLimit;
+      totalAvailableLimit += Math.max(0, creditLimit - outstanding);
+      totalRewardPoints += stmt?.rewardPointsBalance || 0;
+
+      // Find earliest due date
+      if (stmt?.dueDate) {
+        if (!nextDueDate || new Date(stmt.dueDate) < new Date(nextDueDate)) {
+          nextDueDate = stmt.dueDate;
+          nextDueAmount = stmt.totalDue || 0;
+        }
+      }
+    });
+
+    return {
+      totalOutstanding,
+      totalAvailableLimit,
+      totalCreditLimit,
+      totalRewardPoints,
+      nextDueDate,
+      nextDueAmount,
+    };
+  }, [summary, selectedAccountIds, isAllSelected]);
 
   // Navigation handlers
   const handlePreviousStartMonth = () => {
@@ -476,12 +687,35 @@ export function CreditCards() {
               </PopoverContent>
             </Popover>
           )}
+          <Button
+            variant="outline"
+            onClick={() => syncGmailMutation.mutate()}
+            disabled={syncGmailMutation.isPending}
+            className="gap-2"
+          >
+            {syncGmailMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4" />
+            )}
+            {syncGmailMutation.isPending ? 'Syncing...' : 'Sync Gmail'}
+          </Button>
           <Button onClick={() => navigate('/uploads')} className="gap-2">
             <Upload className="h-4 w-4" />
             Upload Statement
           </Button>
         </div>
       </div>
+
+      {/* Gmail Sync Result */}
+      {syncResult && (
+        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-center gap-2">
+          <Check className="h-4 w-4 text-green-600" />
+          <span className="text-sm text-green-700 dark:text-green-400">
+            Gmail sync complete: {syncResult.matched} transactions matched to your cards from {syncResult.processed} emails processed
+          </span>
+        </div>
+      )}
 
       {!hasAccounts ? (
         <Card>
@@ -535,7 +769,7 @@ export function CreditCards() {
                 <div>
                   <p className="text-sm text-muted-foreground">Outstanding</p>
                   <p className="text-2xl font-bold text-red-600">
-                    {formatCurrency(summary?.totalOutstanding || 0)}
+                    {formatCurrency(filteredSummary?.totalOutstanding || 0)}
                   </p>
                 </div>
               </CardContent>
@@ -549,10 +783,10 @@ export function CreditCards() {
                 <div>
                   <p className="text-sm text-muted-foreground">Available Limit</p>
                   <p className="text-2xl font-bold">
-                    {formatCurrency(summary?.totalAvailableLimit || 0)}
+                    {formatCurrency(filteredSummary?.totalAvailableLimit || 0)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    of {formatCurrency(summary?.totalCreditLimit || 0)}
+                    of {formatCurrency(filteredSummary?.totalCreditLimit || 0)}
                   </p>
                 </div>
               </CardContent>
@@ -566,12 +800,12 @@ export function CreditCards() {
                 <div>
                   <p className="text-sm text-muted-foreground">Next Due</p>
                   <p className="text-2xl font-bold">
-                    {summary?.nextDueDate
-                      ? format(new Date(summary.nextDueDate), 'dd MMM')
+                    {filteredSummary?.nextDueDate
+                      ? format(new Date(filteredSummary.nextDueDate), 'dd MMM')
                       : '-'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {formatCurrency(summary?.nextDueAmount || 0)}
+                    {formatCurrency(filteredSummary?.nextDueAmount || 0)}
                   </p>
                 </div>
               </CardContent>
@@ -585,7 +819,7 @@ export function CreditCards() {
                 <div>
                   <p className="text-sm text-muted-foreground">Reward Points</p>
                   <p className="text-2xl font-bold">
-                    {(summary?.totalRewardPoints || 0).toLocaleString()}
+                    {(filteredSummary?.totalRewardPoints || 0).toLocaleString()}
                   </p>
                 </div>
               </CardContent>
@@ -792,19 +1026,19 @@ export function CreditCards() {
                           <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20">
                             <p className="text-sm text-muted-foreground">Points Earned</p>
                             <p className="text-2xl font-bold text-green-600">
-                              +{analytics.rewardsSummary.totalEarned.toLocaleString()}
+                              +{(analytics.rewardsSummary.totalEarned || 0).toLocaleString()}
                             </p>
                           </div>
                           <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20">
                             <p className="text-sm text-muted-foreground">Points Redeemed</p>
                             <p className="text-2xl font-bold text-red-600">
-                              -{analytics.rewardsSummary.totalRedeemed.toLocaleString()}
+                              -{(analytics.rewardsSummary.totalRedeemed || 0).toLocaleString()}
                             </p>
                           </div>
                           <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950/20">
                             <p className="text-sm text-muted-foreground">Current Balance</p>
                             <p className="text-2xl font-bold text-purple-600">
-                              {(summary?.totalRewardPoints || 0).toLocaleString()}
+                              {(filteredSummary?.totalRewardPoints || 0).toLocaleString()}
                             </p>
                           </div>
                         </div>
@@ -866,6 +1100,28 @@ export function CreditCards() {
                       </SelectContent>
                     </Select>
 
+                    <Select value={transactionTypeFilter} onValueChange={setTransactionTypeFilter}>
+                      <SelectTrigger className="w-[130px]">
+                        <SelectValue placeholder="Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        <SelectItem value="debit">Debits</SelectItem>
+                        <SelectItem value="credit">Credits</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                      <SelectTrigger className="w-[130px]">
+                        <SelectValue placeholder="Source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="gmail">Gmail</SelectItem>
+                        <SelectItem value="statement">Statement</SelectItem>
+                      </SelectContent>
+                    </Select>
+
                     <Button
                       variant={emiOnly ? 'default' : 'outline'}
                       size="sm"
@@ -885,21 +1141,68 @@ export function CreditCards() {
                     <div className="flex h-64 items-center justify-center">
                       <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                     </div>
-                  ) : transactionsData?.transactions?.length > 0 ? (
+                  ) : sortedTransactions.length > 0 ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead>Card Holder</TableHead>
-                          <TableHead>Category</TableHead>
-                          <TableHead>EMI</TableHead>
-                          <TableHead className="text-right">Amount</TableHead>
-                          <TableHead className="text-right">Points</TableHead>
+                          <TableHead
+                            className="cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('date')}
+                          >
+                            <div className="flex items-center">
+                              Date
+                              {getSortIcon('date')}
+                            </div>
+                          </TableHead>
+                          <TableHead
+                            className="cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('description')}
+                          >
+                            <div className="flex items-center">
+                              Description
+                              {getSortIcon('description')}
+                            </div>
+                          </TableHead>
+                          <TableHead
+                            className="cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('source')}
+                          >
+                            <div className="flex items-center">
+                              Source
+                              {getSortIcon('source')}
+                            </div>
+                          </TableHead>
+                          <TableHead
+                            className="cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('category')}
+                          >
+                            <div className="flex items-center">
+                              Category
+                              {getSortIcon('category')}
+                            </div>
+                          </TableHead>
+                          <TableHead
+                            className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('amount')}
+                          >
+                            <div className="flex items-center justify-end">
+                              Amount
+                              {getSortIcon('amount')}
+                            </div>
+                          </TableHead>
+                          <TableHead
+                            className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                            onClick={() => handleSort('points')}
+                          >
+                            <div className="flex items-center justify-end">
+                              Points
+                              {getSortIcon('points')}
+                            </div>
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {transactionsData.transactions.map((txn: CreditCardTransaction) => (
+                        {sortedTransactions.map((txn: CreditCardTransaction) => (
                           <TableRow key={txn.id}>
                             <TableCell className="whitespace-nowrap">
                               {formatDate(txn.date)}
@@ -910,41 +1213,93 @@ export function CreditCards() {
                               )}
                             </TableCell>
                             <TableCell>
-                              <div className="max-w-[300px] truncate" title={txn.description}>
-                                {txn.description}
-                              </div>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="max-w-[250px] truncate cursor-help">
+                                      {txn.description}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[400px] text-sm">
+                                    <p className="font-medium">{txn.description}</p>
+                                    {txn.merchantLocation && (
+                                      <p className="text-xs opacity-80 mt-1">{txn.merchantLocation}</p>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                               {txn.merchantLocation && (
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-xs text-muted-foreground block">
                                   {txn.merchantLocation}
                                 </span>
                               )}
-                            </TableCell>
-                            <TableCell>
                               {txn.cardHolderName && (
-                                <Badge variant="outline">{txn.cardHolderName}</Badge>
+                                <Badge variant="outline" className="mt-1 text-xs">{txn.cardHolderName}</Badge>
                               )}
                             </TableCell>
                             <TableCell>
-                              {txn.piCategory && (
-                                <Badge
-                                  style={{
-                                    backgroundColor: `${
-                                      CATEGORY_COLORS[txn.piCategory] || CATEGORY_COLORS.OTHER
-                                    }20`,
-                                    color:
-                                      CATEGORY_COLORS[txn.piCategory] || CATEGORY_COLORS.OTHER,
-                                  }}
-                                >
-                                  {txn.piCategory}
-                                </Badge>
-                              )}
+                              <Badge
+                                variant={txn.source === 'gmail' ? 'default' : 'secondary'}
+                                className={txn.source === 'gmail' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                              >
+                                {txn.source === 'gmail' ? (
+                                  <><Mail className="h-3 w-3 mr-1" />Gmail</>
+                                ) : (
+                                  <><Receipt className="h-3 w-3 mr-1" />Statement</>
+                                )}
+                              </Badge>
                             </TableCell>
                             <TableCell>
-                              {txn.isEmi && (
-                                <Badge variant="secondary">
-                                  EMI {txn.emiTenure && `(${txn.emiTenure}m)`}
-                                </Badge>
-                              )}
+                              <Select
+                                value={txn.piCategory || '_none'}
+                                onValueChange={(value) => {
+                                  if (value === '_add_new') {
+                                    setPendingTxnForCategory(txn);
+                                    setAddCategoryDialogOpen(true);
+                                  } else {
+                                    handleCategoryChange(txn, value);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="w-[130px] h-8 text-xs">
+                                  <SelectValue>
+                                    {txn.piCategory ? (
+                                      <Badge
+                                        variant="outline"
+                                        style={{
+                                          backgroundColor: `${CATEGORY_COLORS[txn.piCategory] || CATEGORY_COLORS.OTHER}20`,
+                                          color: CATEGORY_COLORS[txn.piCategory] || CATEGORY_COLORS.OTHER,
+                                          border: 'none',
+                                        }}
+                                      >
+                                        {txn.piCategory}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-muted-foreground">Select...</span>
+                                    )}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_none">-- None --</SelectItem>
+                                  {allCategories.map((cat) => (
+                                    <SelectItem key={cat} value={cat}>
+                                      <div className="flex items-center gap-2">
+                                        <div
+                                          className="w-3 h-3 rounded-full"
+                                          style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }}
+                                        />
+                                        {cat}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="_add_new">
+                                    <div className="flex items-center gap-2 text-primary">
+                                      <Plus className="h-3 w-3" />
+                                      Add New Category
+                                    </div>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
                             </TableCell>
                             <TableCell
                               className={`text-right font-medium ${
@@ -982,8 +1337,8 @@ export function CreditCards() {
 
               {transactionsData?.totalCount > 0 && (
                 <div className="text-sm text-muted-foreground text-center">
-                  Showing {transactionsData.transactions.length} of {transactionsData.totalCount}{' '}
-                  transactions
+                  Showing {sortedTransactions.length} of {transactionsData.totalCount} transactions
+                  {transactionTypeFilter !== 'all' && ` (filtered by ${transactionTypeFilter})`}
                 </div>
               )}
             </TabsContent>
@@ -1189,6 +1544,50 @@ export function CreditCards() {
             </Button>
             <Button onClick={handleSaveCard} disabled={updateCardMutation.isPending}>
               {updateCardMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Category Dialog */}
+      <Dialog open={addCategoryDialogOpen} onOpenChange={(open) => { setAddCategoryDialogOpen(open); if (!open) { setNewCategoryName(''); setPendingTxnForCategory(null); } }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Add New Category</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="categoryName">Category Name</Label>
+              <Input
+                id="categoryName"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value.toUpperCase())}
+                placeholder="e.g., SUBSCRIPTION, TRANSPORT"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Category will be saved and available for all future transactions.
+              </p>
+            </div>
+            {customCategories.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Your Custom Categories</Label>
+                <div className="flex flex-wrap gap-1">
+                  {customCategories.map((cat) => (
+                    <Badge key={cat} variant="secondary" className="text-xs">
+                      {cat}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAddCategoryDialogOpen(false); setNewCategoryName(''); setPendingTxnForCategory(null); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddCategory} disabled={!newCategoryName.trim()}>
+              Add Category
             </Button>
           </DialogFooter>
         </DialogContent>

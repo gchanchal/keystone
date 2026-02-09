@@ -22,6 +22,7 @@ export const creditCardTransactions = sqliteTable('credit_card_transactions', {
   transactionTime: text('transaction_time'),
   piCategory: text('pi_category'), // HDFC's Purchase Indicator category
   statementId: text('statement_id'),
+  source: text('source').default('statement'), // 'gmail' or 'statement'
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

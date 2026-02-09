@@ -1106,6 +1106,25 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add source column to credit_card_transactions for tracking Gmail vs Statement
+  try {
+    sqlite.exec("ALTER TABLE credit_card_transactions ADD COLUMN source TEXT DEFAULT 'statement'");
+    console.log('Migration: Added source column to credit_card_transactions');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  // Update existing transactions to have source based on notes containing [Gmail Sync]
+  try {
+    sqlite.exec(`
+      UPDATE credit_card_transactions
+      SET source = 'gmail'
+      WHERE notes LIKE '%[Gmail Sync]%' AND (source IS NULL OR source = 'statement')
+    `);
+  } catch (e) {
+    // Ignore errors
+  }
+
   // Seed default categories if none exist
   const categoryCount = sqlite.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
   if (categoryCount.count === 0) {

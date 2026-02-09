@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db, creditCardTransactions, creditCardStatements, cardHolders, accounts } from '../db/index.js';
 import { eq, desc, and, gte, lte, sql, isNotNull, like, or } from 'drizzle-orm';
+import * as gmailService from '../services/gmail-service.js';
+import * as gmailSyncService from '../services/gmail-sync-service.js';
 
 const router = Router();
 
@@ -395,15 +397,92 @@ router.patch('/:accountId/transactions/:id/category', async (req, res) => {
 
     const now = new Date().toISOString();
 
+    // Update both categoryId and piCategory (display category)
     await db
       .update(creditCardTransactions)
-      .set({ categoryId, updatedAt: now })
+      .set({ categoryId, piCategory: categoryId, updatedAt: now })
       .where(eq(creditCardTransactions.id, id));
 
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating transaction category:', error);
     res.status(500).json({ error: 'Failed to update category' });
+  }
+});
+
+// Sync credit card transactions from Gmail
+// Fetches emails from connected Gmail account and matches to credit cards by last 4 digits
+router.post('/sync-gmail', async (req, res) => {
+  try {
+    const { afterDate } = z.object({
+      afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }).parse(req.body);
+
+    // Get all credit card accounts for user
+    const ccAccounts = await db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.accountType, 'credit_card'), eq(accounts.userId, req.userId!)));
+
+    if (ccAccounts.length === 0) {
+      return res.status(400).json({ error: 'No credit card accounts found' });
+    }
+
+    // Extract last 4 digits from each card
+    const cardLastFours = ccAccounts.map(acc => {
+      const accountNum = acc.accountNumber || '';
+      return accountNum.replace(/[^0-9]/g, '').slice(-4);
+    }).filter(Boolean);
+
+    // Get Gmail connection
+    const connections = await gmailService.getConnections(req.userId!);
+    if (connections.length === 0) {
+      return res.status(400).json({
+        error: 'No Gmail account connected',
+        message: 'Please connect your Gmail account in Settings first.'
+      });
+    }
+
+    const connection = connections[0];
+
+    // Determine banks to sync based on credit card accounts
+    const bankNames = [...new Set(ccAccounts.map(acc => {
+      const name = (acc.bankName || '').toLowerCase();
+      if (name.includes('hdfc')) return 'HDFC';
+      if (name.includes('icici')) return 'ICICI';
+      if (name.includes('axis')) return 'Axis';
+      if (name.includes('kotak')) return 'Kotak';
+      return null;
+    }).filter(Boolean))] as ('HDFC' | 'ICICI' | 'Axis' | 'Kotak')[];
+
+    if (bankNames.length === 0) {
+      bankNames.push('HDFC'); // Default to HDFC if no match
+    }
+
+    // Default to last 30 days if no date provided
+    const syncAfterDate = afterDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // Run sync
+    const result = await gmailSyncService.syncGmailTransactions(connection.id, {
+      syncType: 'incremental',
+      afterDate: syncAfterDate,
+      banks: bankNames,
+      maxEmails: 200,
+    });
+
+    res.json({
+      success: true,
+      syncId: result.syncId,
+      totalEmailsProcessed: result.processedCount,
+      successfullyParsed: result.matchedCount,
+      creditCardTransactions: result.newTransactions,
+      cardLastFours,
+      banks: bankNames,
+      afterDate: syncAfterDate,
+    });
+  } catch (error) {
+    console.error('Error syncing Gmail for credit cards:', error);
+    res.status(500).json({ error: 'Failed to sync Gmail' });
   }
 });
 

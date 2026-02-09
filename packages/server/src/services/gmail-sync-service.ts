@@ -66,6 +66,10 @@ export async function syncGmailTransactions(
       banks: options.banks,
     });
 
+    console.log(`[Gmail Sync] Search query: ${searchQuery}`);
+    console.log(`[Gmail Sync] Date range: after ${options.afterDate}, before ${options.beforeDate || 'now'}`);
+    console.log(`[Gmail Sync] Banks: ${options.banks?.join(', ') || 'all'}`);
+
     // Fetch emails with pagination
     let pageToken: string | undefined;
     let totalFetched = 0;
@@ -81,6 +85,13 @@ export async function syncGmailTransactions(
       const messages = searchResult.messages;
       pageToken = searchResult.nextPageToken || undefined;
 
+      console.log(`[Gmail Sync] Fetched ${messages.length} messages (page token: ${pageToken ? 'yes' : 'no'}, total so far: ${totalFetched + messages.length})`);
+
+      // Log first 3 message IDs to help debug
+      if (totalFetched === 0 && messages.length > 0) {
+        console.log(`[Gmail Sync] First 3 message IDs: ${messages.slice(0, 3).map(m => m.id).join(', ')}`);
+      }
+
       // Process each message
       for (const message of messages) {
         if (!message.id) continue;
@@ -88,6 +99,13 @@ export async function syncGmailTransactions(
         try {
           const processResult = await processEmail(connectionId, message.id);
           result.processedCount++;
+
+          if (processResult.status === 'skipped') {
+            // Log first few skipped for debugging
+            if (result.processedCount <= 5) {
+              console.log(`[Gmail Sync] Skipped (already processed): ${message.id}`);
+            }
+          }
 
           if (processResult.status === 'success') {
             result.matchedCount++;
@@ -203,12 +221,16 @@ async function processEmail(
 
   const parsed = parseResult.transaction;
 
+  console.log(`[Gmail Sync] Parsed: ${parsed.bank} ${parsed.sourceType} ${parsed.accountLastFour} ${parsed.amount}`);
+
   // Find matching account
   const account = await findAccountByLastFour(
     parsed.accountLastFour,
     parsed.sourceType,
     parsed.bank
   );
+
+  console.log(`[Gmail Sync] Account found: ${account ? account.id : 'NONE'}`);
 
   if (!account) {
     const errorMsg = `No matching account found for last 4 digits: ${parsed.accountLastFour}`;
@@ -237,7 +259,7 @@ async function processEmail(
   }
 
   // Save the transaction
-  const transactionId = await saveTransaction(parsed, account.id);
+  const transactionId = await saveTransaction(parsed, account.id, account.userId);
 
   // Save processed email record
   await db.insert(processedEmails).values({
@@ -258,7 +280,7 @@ async function findAccountByLastFour(
   lastFour: string,
   sourceType: 'bank' | 'credit_card',
   bankName: string
-): Promise<{ id: string; accountNumber: string | null } | null> {
+): Promise<{ id: string; accountNumber: string | null; userId: string | null } | null> {
   // Determine account type based on source
   const accountTypes = sourceType === 'credit_card'
     ? ['credit_card']
@@ -274,7 +296,7 @@ async function findAccountByLastFour(
   const bankNameNormalized = bankName.toLowerCase();
 
   const results = await db
-    .select({ id: accounts.id, accountNumber: accounts.accountNumber, bankName: accounts.bankName, accountType: accounts.accountType })
+    .select({ id: accounts.id, accountNumber: accounts.accountNumber, bankName: accounts.bankName, accountType: accounts.accountType, userId: accounts.userId })
     .from(accounts)
     .where(and(...conditions));
 
@@ -342,27 +364,38 @@ async function isDuplicateTransaction(
  */
 async function saveTransaction(
   parsed: ParsedEmailTransaction,
-  accountId: string
+  accountId: string,
+  userId: string | null
 ): Promise<string> {
   const now = new Date().toISOString();
   const id = uuidv4();
   const gmailNote = `[Gmail Sync] ${parsed.bank}`;
 
   if (parsed.sourceType === 'credit_card') {
-    await db.insert(creditCardTransactions).values({
-      id,
-      accountId,
-      date: parsed.date,
-      description: parsed.merchantOrDescription,
-      amount: parsed.amount,
-      transactionType: parsed.transactionType,
-      notes: gmailNote,
-      createdAt: now,
-      updatedAt: now,
-    });
+    console.log(`[Gmail Sync] Saving credit card txn: ${id} to account ${accountId} for user ${userId}`);
+    try {
+      await db.insert(creditCardTransactions).values({
+        id,
+        userId,
+        accountId,
+        date: parsed.date,
+        description: parsed.merchantOrDescription,
+        amount: parsed.amount,
+        transactionType: parsed.transactionType,
+        notes: gmailNote,
+        source: 'gmail',
+        createdAt: now,
+        updatedAt: now,
+      });
+      console.log(`[Gmail Sync] Saved credit card txn: ${id}`);
+    } catch (e) {
+      console.error(`[Gmail Sync] ERROR saving credit card txn:`, e);
+      throw e;
+    }
   } else {
     await db.insert(bankTransactions).values({
       id,
+      userId,
       accountId,
       date: parsed.date,
       narration: parsed.merchantOrDescription,

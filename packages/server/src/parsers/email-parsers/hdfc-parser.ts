@@ -23,6 +23,9 @@ const HDFC_PATTERNS = {
   // Credit card debited: "Rs.X debited via Credit Card **1234"
   ccDebited: /(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)\s*(?:has been\s+)?debited\s+(?:via|from|on)\s+(?:Credit\s*Card|CC)\s*\*{0,2}(\d{4})/i,
 
+  // Credit card debited from HDFC Bank: "Rs.X is debited from your HDFC Bank Credit Card ending 7124 towards MERCHANT on DD MMM, YYYY"
+  ccDebitedHDFC: /(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)\s*is\s+debited\s+from\s+your\s+HDFC\s+Bank\s+Credit\s+Card\s+ending\s+(\d{4})\s+towards\s+(.+?)\s+on\s+(\d{1,2}\s+\w+,?\s+\d{4})/i,
+
   // Credit card refund: "Rs.X refunded to HDFC Card x1234"
   ccRefund: /Rs\.?\s*([\d,]+(?:\.\d{2})?)\s*(?:has been\s+)?refunded\s+to\s+HDFC\s*(?:Bank)?\s*Card\s*x?(\d{4})/i,
 
@@ -37,6 +40,9 @@ const HDFC_PATTERNS = {
 
   // Alternative credit pattern: "INR X credited to your account XX1234"
   altCredit: /INR\s*([\d,]+(?:\.\d{2})?)\s*(?:has been\s+)?credited\s+to\s+(?:your\s+)?(?:a\/c|account)\s*[xX*]*(\d{4})/i,
+
+  // UPI credit with "is successfully credited": "Rs. X is successfully credited to your account **7526 by VPA xxx@xxx NAME on DD-MM-YY"
+  upiCreditSuccess: /Rs\.?\s*([\d,]+(?:\.\d{2})?)\s*is\s+successfully\s+credited\s+to\s+your\s+account\s*\*{0,2}(\d{4})\s+by\s+VPA\s+(\S+)\s+(.+?)\s+on\s+(\d{2}-\d{2}-\d{2,4})/i,
 
   // Account number pattern to extract from body
   accountNumber: /(?:a\/c|account|acct)\.?\s*(?:no\.?|number|ending)?\s*[xX*]*(\d{4})/i,
@@ -68,6 +74,25 @@ function parseDate(dateStr: string): string {
     return `${year}-${month}-${day}`;
   }
   return dateStr;
+}
+
+function parseDateAlt(dateStr: string): string {
+  // Convert "21 Jan, 2026" or "21 Jan 2026" to YYYY-MM-DD
+  const months: Record<string, string> = {
+    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+    'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+  };
+
+  const match = dateStr.match(/(\d{1,2})\s+(\w{3}),?\s+(\d{4})/i);
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const monthName = match[2].toLowerCase();
+    const month = months[monthName] || '01';
+    const year = match[3];
+    return `${year}-${month}-${day}`;
+  }
+  return new Date().toISOString().split('T')[0];
 }
 
 function extractBalance(body: string): number | undefined {
@@ -113,6 +138,23 @@ export const hdfcParser: BankEmailParser = {
     // Try UPI credit pattern
     // Format: "Rs.X has been credited to account XXXX from VPA xxx@xxx NAME on DD-MM-YY"
     match = fullText.match(HDFC_PATTERNS.upiCredit);
+    if (match) {
+      const transaction: ParsedEmailTransaction = {
+        amount: parseAmount(match[1]),
+        transactionType: 'credit',
+        accountLastFour: match[2],
+        merchantOrDescription: `UPI from ${match[4].trim()}`,
+        date: parseDate(match[5]),
+        reference: extractReference(body),
+        bank: 'HDFC',
+        sourceType: 'bank',
+      };
+      return { success: true, transaction, rawPatternMatch: match[0] };
+    }
+
+    // Try UPI credit "is successfully credited" pattern
+    // Format: "Rs. X is successfully credited to your account **7526 by VPA xxx@xxx NAME on DD-MM-YY"
+    match = fullText.match(HDFC_PATTERNS.upiCreditSuccess);
     if (match) {
       const transaction: ParsedEmailTransaction = {
         amount: parseAmount(match[1]),
@@ -202,6 +244,22 @@ export const hdfcParser: BankEmailParser = {
         accountLastFour: match[2],
         merchantOrDescription: extractMerchant(body) || 'Card Transaction',
         date: new Date().toISOString().split('T')[0],
+        reference: extractReference(body),
+        bank: 'HDFC',
+        sourceType: 'credit_card',
+      };
+      return { success: true, transaction, rawPatternMatch: match[0] };
+    }
+
+    // Try HDFC Bank Credit Card debited pattern: "Rs.X is debited from your HDFC Bank Credit Card ending 7124 towards MERCHANT on DD MMM, YYYY"
+    match = fullText.match(HDFC_PATTERNS.ccDebitedHDFC);
+    if (match) {
+      const transaction: ParsedEmailTransaction = {
+        amount: parseAmount(match[1]),
+        transactionType: 'debit',
+        accountLastFour: match[2],
+        merchantOrDescription: match[3].trim(),
+        date: parseDateAlt(match[4]),
         reference: extractReference(body),
         bank: 'HDFC',
         sourceType: 'credit_card',

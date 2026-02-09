@@ -717,11 +717,12 @@ router.post('/vyapar/bulk-delete', async (req, res) => {
 // Bulk delete credit card transactions
 router.post('/credit-card/bulk-delete', async (req, res) => {
   try {
-    const { accountId, startDate, endDate, deleteAll } = z
+    const { accountId, startDate, endDate, source, deleteAll } = z
       .object({
         accountId: z.string().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        source: z.enum(['gmail', 'statement']).optional(),
         deleteAll: z.boolean().optional(),
       })
       .parse(req.body);
@@ -734,10 +735,13 @@ router.post('/credit-card/bulk-delete', async (req, res) => {
     if (startDate && endDate) {
       conditions.push(between(creditCardTransactions.date, startDate, endDate));
     }
+    if (source) {
+      conditions.push(eq(creditCardTransactions.source, source));
+    }
 
     // Safety check
     if (conditions.length === 1 && !deleteAll) {
-      return res.status(400).json({ error: 'Please specify accountId or date range, or set deleteAll: true' });
+      return res.status(400).json({ error: 'Please specify accountId, date range, or source, or set deleteAll: true' });
     }
 
     // Count
@@ -762,12 +766,13 @@ router.post('/credit-card/bulk-delete', async (req, res) => {
 // Get transaction counts for bulk delete preview
 router.get('/counts', async (req, res) => {
   try {
-    const { type, accountId, startDate, endDate } = z
+    const { type, accountId, startDate, endDate, source } = z
       .object({
         type: z.enum(['bank', 'vyapar', 'credit-card']),
         accountId: z.string().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        source: z.enum(['gmail', 'statement']).optional(),
       })
       .parse(req.query);
 
@@ -788,6 +793,7 @@ router.get('/counts', async (req, res) => {
       conditions.push(eq(creditCardTransactions.userId, req.userId!));
       if (accountId) conditions.push(eq(creditCardTransactions.accountId, accountId));
       if (startDate && endDate) conditions.push(between(creditCardTransactions.date, startDate, endDate));
+      if (source) conditions.push(eq(creditCardTransactions.source, source));
     }
 
     let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(table);

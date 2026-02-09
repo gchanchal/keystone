@@ -97,9 +97,9 @@ export const transactionsApi = {
     api.post('/transactions/bank/bulk-delete', params).then((r) => r.data),
   bulkDeleteVyapar: (params: { startDate?: string; endDate?: string; transactionType?: string; deleteAll?: boolean }) =>
     api.post('/transactions/vyapar/bulk-delete', params).then((r) => r.data),
-  bulkDeleteCreditCard: (params: { accountId?: string; startDate?: string; endDate?: string; deleteAll?: boolean }) =>
+  bulkDeleteCreditCard: (params: { accountId?: string; startDate?: string; endDate?: string; source?: 'gmail' | 'statement'; deleteAll?: boolean }) =>
     api.post('/transactions/credit-card/bulk-delete', params).then((r) => r.data),
-  getCounts: (params: { type: 'bank' | 'vyapar' | 'credit-card'; accountId?: string; startDate?: string; endDate?: string }) =>
+  getCounts: (params: { type: 'bank' | 'vyapar' | 'credit-card'; accountId?: string; startDate?: string; endDate?: string; source?: 'gmail' | 'statement' }) =>
     api.get('/transactions/counts', { params }).then((r) => r.data),
 };
 
@@ -394,6 +394,9 @@ export const creditCardsApi = {
     api.get('/credit-cards/analytics', { params }).then((r) => r.data),
   updateTransactionCategory: (accountId: string, transactionId: string, categoryId: string | null) =>
     api.patch(`/credit-cards/${accountId}/transactions/${transactionId}/category`, { categoryId }).then((r) => r.data),
+  // Sync credit card transactions from Gmail
+  syncGmail: (params?: { afterDate?: string }) =>
+    api.post('/credit-cards/sync-gmail', params || {}).then((r) => r.data),
 };
 
 // Gmail Integration
@@ -590,6 +593,45 @@ export const businessAccountingApi = {
   // Rename a vendor
   renameVendor: (oldName: string, newName: string) =>
     api.patch(`/business-accounting/vendors/${encodeURIComponent(oldName)}`, { newName }).then((r) => r.data),
+};
+
+// Investment Advisor (AI-powered)
+export const investmentAdvisorApi = {
+  // Chat with AI advisor
+  chat: (data: {
+    message: string;
+    portfolio: Array<{
+      name: string;
+      symbol?: string;
+      type: string;
+      country: 'IN' | 'US';
+      quantity: number;
+      purchasePrice: number;
+      currentPrice?: number;
+      currentValue?: number;
+      purchaseDate: string;
+      platform?: string;
+    }>;
+    conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    exchangeRate?: number;
+  }) => api.post('/investment-advisor/chat', data).then((r) => r.data),
+
+  // Get initial portfolio analysis
+  analyze: (data: {
+    portfolio: Array<{
+      name: string;
+      symbol?: string;
+      type: string;
+      country: 'IN' | 'US';
+      quantity: number;
+      purchasePrice: number;
+      currentPrice?: number;
+      currentValue?: number;
+      purchaseDate: string;
+      platform?: string;
+    }>;
+    exchangeRate?: number;
+  }) => api.post('/investment-advisor/analyze', data).then((r) => r.data),
 };
 
 export default api;

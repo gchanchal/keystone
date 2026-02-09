@@ -70,6 +70,7 @@ export function Settings() {
   const [deleteType, setDeleteType] = useState<'bank' | 'vyapar' | 'credit-card'>('bank');
   const [deleteAccountId, setDeleteAccountId] = useState<string>('all');
   const [deleteMonth, setDeleteMonth] = useState<string>('all');
+  const [deleteSource, setDeleteSource] = useState<'all' | 'gmail' | 'statement'>('all');
   const [deleteCount, setDeleteCount] = useState<number | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -103,6 +104,10 @@ export function Settings() {
           params.endDate = format(endOfMonth(monthDate), 'yyyy-MM-dd');
         }
 
+        if (deleteType === 'credit-card' && deleteSource !== 'all') {
+          params.source = deleteSource;
+        }
+
         const result = await transactionsApi.getCounts(params);
         setDeleteCount(result.count);
       } catch (error) {
@@ -112,7 +117,7 @@ export function Settings() {
     };
 
     fetchCount();
-  }, [deleteType, deleteAccountId, deleteMonth]);
+  }, [deleteType, deleteAccountId, deleteMonth, deleteSource]);
 
   const handleBulkDelete = async () => {
     setIsDeleting(true);
@@ -129,8 +134,13 @@ export function Settings() {
         params.endDate = format(endOfMonth(monthDate), 'yyyy-MM-dd');
       }
 
+      if (deleteType === 'credit-card' && deleteSource !== 'all') {
+        params.source = deleteSource;
+      }
+
       // If no filters, require explicit deleteAll
-      if (deleteAccountId === 'all' && deleteMonth === 'all') {
+      const hasFilter = deleteAccountId !== 'all' || deleteMonth !== 'all' || (deleteType === 'credit-card' && deleteSource !== 'all');
+      if (!hasFilter) {
         params.deleteAll = true;
       }
 
@@ -146,6 +156,10 @@ export function Settings() {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-cards'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-cards-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-card-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-cards-analytics'] });
 
       setDeleteDialogOpen(false);
       setDeleteCount(0);
@@ -281,12 +295,13 @@ export function Settings() {
           <CardDescription>Delete transactions by type, account, or date range</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-2">
               <Label>Transaction Type</Label>
               <Select value={deleteType} onValueChange={(v: 'bank' | 'vyapar' | 'credit-card') => {
                 setDeleteType(v);
                 setDeleteAccountId('all');
+                setDeleteSource('all');
               }}>
                 <SelectTrigger>
                   <SelectValue />
@@ -318,6 +333,22 @@ export function Settings() {
               </div>
             )}
 
+            {deleteType === 'credit-card' && (
+              <div className="space-y-2">
+                <Label>Source</Label>
+                <Select value={deleteSource} onValueChange={(v: 'all' | 'gmail' | 'statement') => setDeleteSource(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sources</SelectItem>
+                    <SelectItem value="gmail">Gmail Only</SelectItem>
+                    <SelectItem value="statement">Statement Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Month</Label>
               <Select value={deleteMonth} onValueChange={setDeleteMonth}>
@@ -341,6 +372,7 @@ export function Settings() {
               <p className="font-medium">Transactions to delete</p>
               <p className="text-sm text-muted-foreground">
                 {deleteType === 'bank' ? 'Bank' : deleteType === 'vyapar' ? 'Vyapar' : 'Credit Card'} transactions
+                {deleteType === 'credit-card' && deleteSource !== 'all' && ` (${deleteSource === 'gmail' ? 'Gmail synced' : 'Statement imported'})`}
                 {deleteAccountId !== 'all' && ` from ${filteredAccounts.find((a: Account) => a.id === deleteAccountId)?.name}`}
                 {deleteMonth !== 'all' && ` in ${months.find(m => m.value === deleteMonth)?.label}`}
               </p>
@@ -598,6 +630,9 @@ export function Settings() {
             <AlertDescription>
               This action cannot be undone. You are about to permanently delete{' '}
               <strong>{deleteCount}</strong> {deleteType === 'bank' ? 'bank' : deleteType === 'vyapar' ? 'Vyapar' : 'credit card'} transactions
+              {deleteType === 'credit-card' && deleteSource !== 'all' && (
+                <> (<strong>{deleteSource === 'gmail' ? 'Gmail synced' : 'Statement imported'}</strong>)</>
+              )}
               {deleteAccountId !== 'all' && (
                 <> from <strong>{filteredAccounts.find((a: Account) => a.id === deleteAccountId)?.name}</strong></>
               )}

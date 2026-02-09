@@ -96,6 +96,7 @@ export interface CreditCardTransaction {
   transactionTime: string | null;
   piCategory: string | null;
   statementId: string | null;
+  source: 'gmail' | 'statement' | null;
   createdAt: string;
   updatedAt: string;
 }
