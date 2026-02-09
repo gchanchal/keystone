@@ -53,7 +53,12 @@ const TYPE_COLORS: Record<string, string> = {
 type SortColumn = 'vendorName' | 'accountNames' | 'primaryType' | 'transactionCount' | 'totalAmount' | 'avgPayment' | 'invoiceCount' | 'lastPaymentDate';
 type SortDirection = 'asc' | 'desc';
 
-export function VendorsTab() {
+interface VendorsTabProps {
+  startDate: string;
+  endDate: string;
+}
+
+export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
   const queryClient = useQueryClient();
   const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
@@ -75,10 +80,10 @@ export function VendorsTab() {
   const [avgFilter, setAvgFilter] = useState<{ min?: number; max?: number }>({});
   const [invoicesFilter, setInvoicesFilter] = useState<{ min?: number; max?: number }>({});
 
-  // Fetch vendors list
+  // Fetch vendors list (filtered by date range)
   const { data: vendors = [], isLoading } = useQuery<VendorSummary[]>({
-    queryKey: ['business-accounting-vendors'],
-    queryFn: businessAccountingApi.getVendors,
+    queryKey: ['business-accounting-vendors', startDate, endDate],
+    queryFn: () => businessAccountingApi.getVendors({ startDate, endDate }),
   });
 
   // Fetch selected vendor's payment history

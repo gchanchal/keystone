@@ -558,7 +558,7 @@ export function BusinessAccounting() {
         </TabsContent>
 
         <TabsContent value="vendors">
-          <VendorsTab />
+          <VendorsTab startDate={startDate} endDate={endDate} />
         </TabsContent>
 
         <TabsContent value="gst">

@@ -1242,6 +1242,7 @@ router.get('/transaction/:id/matches', async (req, res) => {
 // Get vendors with payment summaries
 router.get('/vendors', async (req, res) => {
   try {
+    const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
     const asgAccountIds = await getASGAccountIds(req.userId!);
 
     // Check if Vyapar is enabled
@@ -1273,6 +1274,18 @@ router.get('/vendors', async (req, res) => {
       accountNames: Set<string>;
     }>();
 
+    // Build date filter conditions
+    const bankDateConditions = [];
+    const vyaparDateConditions = [];
+    if (startDate) {
+      bankDateConditions.push(sql`${bankTransactions.date} >= ${startDate}`);
+      vyaparDateConditions.push(sql`${vyaparTransactions.date} >= ${startDate}`);
+    }
+    if (endDate) {
+      bankDateConditions.push(sql`${bankTransactions.date} <= ${endDate}`);
+      vyaparDateConditions.push(sql`${vyaparTransactions.date} <= ${endDate}`);
+    }
+
     // Fetch bank vendors
     if (bankAccountIds.length > 0) {
       const bankVendors = await db
@@ -1296,7 +1309,8 @@ router.get('/vendors', async (req, res) => {
               sql`, `
             )})`,
             sql`${bankTransactions.vendorName} IS NOT NULL AND ${bankTransactions.vendorName} != ''`,
-            eq(bankTransactions.transactionType, 'debit')
+            eq(bankTransactions.transactionType, 'debit'),
+            ...bankDateConditions
           )
         )
         .groupBy(bankTransactions.vendorName);
@@ -1331,7 +1345,8 @@ router.get('/vendors', async (req, res) => {
         .where(
           and(
             eq(vyaparTransactions.userId, req.userId!),
-            sql`${vyaparTransactions.partyName} IS NOT NULL AND ${vyaparTransactions.partyName} != ''`
+            sql`${vyaparTransactions.partyName} IS NOT NULL AND ${vyaparTransactions.partyName} != ''`,
+            ...vyaparDateConditions
           )
         )
         .groupBy(vyaparTransactions.partyName);

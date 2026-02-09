@@ -511,7 +511,8 @@ export const businessAccountingApi = {
     api.delete(`/business-accounting/invoice/${id}`).then((r) => r.data),
 
   // Vendor operations
-  getVendors: () => api.get('/business-accounting/vendors').then((r) => r.data),
+  getVendors: (params?: { startDate?: string; endDate?: string }) =>
+    api.get('/business-accounting/vendors', { params }).then((r) => r.data),
 
   getVendorPayments: (vendorName: string) =>
     api.get(`/business-accounting/vendors/${encodeURIComponent(vendorName)}/payments`).then((r) => r.data),
