@@ -54,6 +54,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { investmentsApi, mutualFundsApi, assetsApi, policiesApi, loansApi } from '@/lib/api';
 import { formatCurrency, getCurrencyFromCountry, formatDayMonth } from '@/lib/utils';
+import { InvestmentAdvisorChat } from '@/components/investments/InvestmentAdvisorChat';
 import type { Investment, Asset, Policy, Loan } from '@/types';
 
 interface MutualFundSummary {
@@ -757,10 +758,12 @@ export function Investments() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Investments</h1>
-      </div>
+    <div className="flex gap-6">
+      {/* Main Content - 75% */}
+      <div className="flex-1 min-w-0 space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Investments</h1>
+        </div>
 
       {/* Grand Total Summary Cards - Above Tabs */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -1358,6 +1361,18 @@ export function Investments() {
           )}
         </TabsContent>
       </Tabs>
+      </div>
+
+      {/* Right Sidebar - Investment Advisor Chat - 25% */}
+      <div className="hidden lg:block w-80 shrink-0">
+        <div className="sticky top-4 h-[calc(100vh-6rem)]">
+          <InvestmentAdvisorChat
+            investments={investments}
+            liveQuotes={liveQuotes}
+            exchangeRate={exchangeRate}
+          />
+        </div>
+      </div>
 
       {/* Fund Add/Edit Dialog */}
       <Dialog open={fundDialogOpen} onOpenChange={(open) => { setFundDialogOpen(open); if (!open) resetFundForm(); }}>

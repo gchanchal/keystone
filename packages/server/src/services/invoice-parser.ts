@@ -420,6 +420,104 @@ function extractGSTFromText(text: string): InvoiceGSTInfo {
 }
 
 /**
+ * Extract invoice info using Claude API from text
+ */
+async function extractWithClaudeFromText(text: string): Promise<InvoiceGSTInfo> {
+  const emptyResult: InvoiceGSTInfo = {
+    gstAmount: null,
+    cgstAmount: null,
+    sgstAmount: null,
+    igstAmount: null,
+    gstType: 'input',
+    gstinVendor: null,
+    partyName: null,
+    invoiceNumber: null,
+    invoiceDate: null,
+    totalAmount: null,
+    taxableAmount: null,
+    documentType: null,
+    isEstimate: false,
+  };
+
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.error('[InvoiceParser] ANTHROPIC_API_KEY not set, falling back to regex parsing');
+      return extractGSTFromText(text);
+    }
+
+    const anthropic = new Anthropic({ apiKey });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: `Extract the following information from this invoice text and return ONLY a JSON object (no markdown, no explanation):
+
+{
+  "vendorName": "The seller/vendor company name (who issued the invoice)",
+  "gstinVendor": "Vendor's GSTIN number (format: 22AAAAA0000A1Z5)",
+  "invoiceNumber": "Invoice number",
+  "invoiceDate": "Invoice date in YYYY-MM-DD format",
+  "totalAmount": numeric grand total/net amount,
+  "taxableAmount": numeric taxable/subtotal amount before GST,
+  "cgstAmount": numeric CGST amount (or null if not applicable),
+  "sgstAmount": numeric SGST amount (or null if not applicable),
+  "igstAmount": numeric IGST amount (or null if not applicable),
+  "documentType": "invoice" or "estimate" or "proforma" or "quotation"
+}
+
+Return null for any field you cannot find. Numbers should be plain numbers without currency symbols or commas.
+
+Invoice text:
+${text}`,
+        },
+      ],
+    });
+
+    const content = response.content[0];
+    if (content.type !== 'text') {
+      return extractGSTFromText(text);
+    }
+
+    let jsonStr = content.text.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```$/g, '').trim();
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    console.log('[InvoiceParser] Claude extracted from PDF text:', parsed);
+
+    const result: InvoiceGSTInfo = {
+      gstAmount: null,
+      cgstAmount: parsed.cgstAmount || null,
+      sgstAmount: parsed.sgstAmount || null,
+      igstAmount: parsed.igstAmount || null,
+      gstType: 'input',
+      gstinVendor: parsed.gstinVendor || null,
+      partyName: parsed.vendorName || null,
+      invoiceNumber: parsed.invoiceNumber || null,
+      invoiceDate: parsed.invoiceDate || null,
+      totalAmount: parsed.totalAmount || null,
+      taxableAmount: parsed.taxableAmount || null,
+      documentType: parsed.documentType || 'invoice',
+      isEstimate: ['estimate', 'proforma', 'quotation'].includes(parsed.documentType?.toLowerCase()),
+    };
+
+    if (result.cgstAmount || result.sgstAmount || result.igstAmount) {
+      result.gstAmount = (result.cgstAmount || 0) + (result.sgstAmount || 0) + (result.igstAmount || 0);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('[InvoiceParser] Error with Claude API, falling back to regex:', error);
+    return extractGSTFromText(text);
+  }
+}
+
+/**
  * Extract GST information from PDF buffer
  */
 export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInfo> {
@@ -429,7 +527,9 @@ export async function extractGSTFromPDF(filePath: string): Promise<InvoiceGSTInf
     const text = data.text;
 
     console.log('[InvoiceParser] PDF text length:', text.length);
-    return extractGSTFromText(text);
+
+    // Use Claude API for intelligent extraction
+    return extractWithClaudeFromText(text);
   } catch (error) {
     console.error('[InvoiceParser] Error extracting GST from PDF:', error);
     return {
