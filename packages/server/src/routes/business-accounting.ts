@@ -1331,7 +1331,7 @@ router.get('/vendors', async (req, res) => {
       }
     }
 
-    // Fetch Vyapar vendors (party names)
+    // Fetch Vyapar vendors (party names) - only outgoing transactions (Purchase, Payment-Out, Expense)
     if (includeVyapar) {
       const vyaparVendors = await db
         .select({
@@ -1346,6 +1346,8 @@ router.get('/vendors', async (req, res) => {
           and(
             eq(vyaparTransactions.userId, req.userId!),
             sql`${vyaparTransactions.partyName} IS NOT NULL AND ${vyaparTransactions.partyName} != ''`,
+            // Only include outgoing transaction types for vendors
+            sql`${vyaparTransactions.transactionType} IN ('Purchase', 'Payment-Out', 'Expense')`,
             ...vyaparDateConditions
           )
         )
