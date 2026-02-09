@@ -627,45 +627,40 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                           <Filter className="h-3 w-3" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-64" align="start">
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">Filter by Account</p>
-                          <Input
-                            placeholder="Search accounts..."
-                            value={accountFilterSearch}
-                            onChange={(e) => setAccountFilterSearch(e.target.value)}
-                            className="h-8"
-                          />
-                          <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-1">
-                            {uniqueAccounts
-                              .filter(acc => acc.toLowerCase().includes(accountFilterSearch.toLowerCase()))
-                              .map(acc => (
-                              <label key={acc} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
-                                <input
-                                  type="checkbox"
-                                  checked={accountFilters.includes(acc)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setAccountFilters([...accountFilters, acc]);
-                                    } else {
-                                      setAccountFilters(accountFilters.filter(a => a !== acc));
-                                    }
-                                  }}
-                                  className="rounded border-gray-300"
-                                />
-                                {acc}
-                              </label>
-                            ))}
-                            {uniqueAccounts.filter(acc => acc.toLowerCase().includes(accountFilterSearch.toLowerCase())).length === 0 && (
-                              <p className="text-xs text-muted-foreground text-center py-2">No accounts found</p>
-                            )}
-                          </div>
-                          {accountFilters.length > 0 && (
-                            <Button variant="ghost" size="sm" onClick={() => setAccountFilters([])}>
-                              Clear ({accountFilters.length})
-                            </Button>
-                          )}
+                      <PopoverContent className="w-48 p-2" align="start">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">Filter by Account</p>
+                        <Input
+                          placeholder="Search..."
+                          value={accountFilterSearch}
+                          onChange={(e) => setAccountFilterSearch(e.target.value)}
+                          className="h-7 text-xs mb-2"
+                        />
+                        <div className="max-h-32 overflow-y-auto">
+                          {uniqueAccounts
+                            .filter(acc => acc.toLowerCase().includes(accountFilterSearch.toLowerCase()))
+                            .map(acc => (
+                            <label key={acc} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={accountFilters.includes(acc)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAccountFilters([...accountFilters, acc]);
+                                  } else {
+                                    setAccountFilters(accountFilters.filter(a => a !== acc));
+                                  }
+                                }}
+                                className="h-3 w-3"
+                              />
+                              <span className="text-xs">{acc}</span>
+                            </label>
+                          ))}
                         </div>
+                        {accountFilters.length > 0 && (
+                          <Button variant="ghost" size="sm" className="w-full mt-2 h-6 text-xs" onClick={() => setAccountFilters([])}>
+                            Clear
+                          </Button>
+                        )}
                       </PopoverContent>
                     </Popover>
                   </div>
@@ -686,53 +681,44 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                           <Filter className="h-3 w-3" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-64" align="start">
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">Filter by Type</p>
-                          <Input
-                            placeholder="Search types..."
-                            value={typeFilterSearch}
-                            onChange={(e) => setTypeFilterSearch(e.target.value)}
-                            className="h-8"
-                          />
-                          <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-1">
-                            {uniqueTypes
-                              .filter(type => {
-                                const label = TYPE_LABELS[type] || type;
-                                return label.toLowerCase().includes(typeFilterSearch.toLowerCase()) ||
-                                       type.toLowerCase().includes(typeFilterSearch.toLowerCase());
-                              })
-                              .map(type => (
-                              <label key={type} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
-                                <input
-                                  type="checkbox"
-                                  checked={typeFilters.includes(type)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setTypeFilters([...typeFilters, type]);
-                                    } else {
-                                      setTypeFilters(typeFilters.filter(t => t !== type));
-                                    }
-                                  }}
-                                  className="rounded border-gray-300"
-                                />
-                                {TYPE_LABELS[type] || type}
-                              </label>
-                            ))}
-                            {uniqueTypes.filter(type => {
+                      <PopoverContent className="w-48 p-2" align="start">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">Filter by Type</p>
+                        <Input
+                          placeholder="Search..."
+                          value={typeFilterSearch}
+                          onChange={(e) => setTypeFilterSearch(e.target.value)}
+                          className="h-7 text-xs mb-2"
+                        />
+                        <div className="max-h-32 overflow-y-auto">
+                          {uniqueTypes
+                            .filter(type => {
                               const label = TYPE_LABELS[type] || type;
                               return label.toLowerCase().includes(typeFilterSearch.toLowerCase()) ||
                                      type.toLowerCase().includes(typeFilterSearch.toLowerCase());
-                            }).length === 0 && (
-                              <p className="text-xs text-muted-foreground text-center py-2">No types found</p>
-                            )}
-                          </div>
-                          {typeFilters.length > 0 && (
-                            <Button variant="ghost" size="sm" onClick={() => setTypeFilters([])}>
-                              Clear ({typeFilters.length})
-                            </Button>
-                          )}
+                            })
+                            .map(type => (
+                            <label key={type} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={typeFilters.includes(type)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setTypeFilters([...typeFilters, type]);
+                                  } else {
+                                    setTypeFilters(typeFilters.filter(t => t !== type));
+                                  }
+                                }}
+                                className="h-3 w-3"
+                              />
+                              <span className="text-xs">{TYPE_LABELS[type] || type}</span>
+                            </label>
+                          ))}
                         </div>
+                        {typeFilters.length > 0 && (
+                          <Button variant="ghost" size="sm" className="w-full mt-2 h-6 text-xs" onClick={() => setTypeFilters([])}>
+                            Clear
+                          </Button>
+                        )}
                       </PopoverContent>
                     </Popover>
                   </div>
