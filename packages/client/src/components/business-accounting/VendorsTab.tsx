@@ -80,6 +80,10 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
   const [avgFilter, setAvgFilter] = useState<{ min?: number; max?: number }>({});
   const [invoicesFilter, setInvoicesFilter] = useState<{ min?: number; max?: number }>({});
 
+  // Search within filter dropdowns
+  const [accountFilterSearch, setAccountFilterSearch] = useState('');
+  const [typeFilterSearch, setTypeFilterSearch] = useState('');
+
   // Fetch vendors list (filtered by date range)
   const { data: vendors = [], isLoading } = useQuery<VendorSummary[]>({
     queryKey: ['business-accounting-vendors', startDate, endDate],
@@ -623,11 +627,19 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                           <Filter className="h-3 w-3" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-60" align="start">
+                      <PopoverContent className="w-64" align="start">
                         <div className="space-y-2">
                           <p className="text-sm font-medium">Filter by Account</p>
-                          <div className="max-h-48 overflow-y-auto space-y-1">
-                            {uniqueAccounts.map(acc => (
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountFilterSearch}
+                            onChange={(e) => setAccountFilterSearch(e.target.value)}
+                            className="h-8"
+                          />
+                          <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-1">
+                            {uniqueAccounts
+                              .filter(acc => acc.toLowerCase().includes(accountFilterSearch.toLowerCase()))
+                              .map(acc => (
                               <label key={acc} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
                                 <input
                                   type="checkbox"
@@ -644,10 +656,13 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                                 {acc}
                               </label>
                             ))}
+                            {uniqueAccounts.filter(acc => acc.toLowerCase().includes(accountFilterSearch.toLowerCase())).length === 0 && (
+                              <p className="text-xs text-muted-foreground text-center py-2">No accounts found</p>
+                            )}
                           </div>
                           {accountFilters.length > 0 && (
                             <Button variant="ghost" size="sm" onClick={() => setAccountFilters([])}>
-                              Clear
+                              Clear ({accountFilters.length})
                             </Button>
                           )}
                         </div>
@@ -671,11 +686,23 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                           <Filter className="h-3 w-3" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-60" align="start">
+                      <PopoverContent className="w-64" align="start">
                         <div className="space-y-2">
                           <p className="text-sm font-medium">Filter by Type</p>
-                          <div className="max-h-48 overflow-y-auto space-y-1">
-                            {uniqueTypes.map(type => (
+                          <Input
+                            placeholder="Search types..."
+                            value={typeFilterSearch}
+                            onChange={(e) => setTypeFilterSearch(e.target.value)}
+                            className="h-8"
+                          />
+                          <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-1">
+                            {uniqueTypes
+                              .filter(type => {
+                                const label = TYPE_LABELS[type] || type;
+                                return label.toLowerCase().includes(typeFilterSearch.toLowerCase()) ||
+                                       type.toLowerCase().includes(typeFilterSearch.toLowerCase());
+                              })
+                              .map(type => (
                               <label key={type} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
                                 <input
                                   type="checkbox"
@@ -692,10 +719,17 @@ export function VendorsTab({ startDate, endDate }: VendorsTabProps) {
                                 {TYPE_LABELS[type] || type}
                               </label>
                             ))}
+                            {uniqueTypes.filter(type => {
+                              const label = TYPE_LABELS[type] || type;
+                              return label.toLowerCase().includes(typeFilterSearch.toLowerCase()) ||
+                                     type.toLowerCase().includes(typeFilterSearch.toLowerCase());
+                            }).length === 0 && (
+                              <p className="text-xs text-muted-foreground text-center py-2">No types found</p>
+                            )}
                           </div>
                           {typeFilters.length > 0 && (
                             <Button variant="ghost" size="sm" onClick={() => setTypeFilters([])}>
-                              Clear
+                              Clear ({typeFilters.length})
                             </Button>
                           )}
                         </div>
