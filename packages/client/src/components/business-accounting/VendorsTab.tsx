@@ -137,6 +137,100 @@ export function VendorsTab() {
     }
   };
 
+  // Extract unique values for filters - MUST be before any returns
+  const uniqueAccounts = useMemo(() => {
+    const accts = new Set<string>();
+    vendors.forEach(v => {
+      if (v.accountNames && Array.isArray(v.accountNames)) {
+        v.accountNames.forEach(a => accts.add(a));
+      }
+    });
+    return Array.from(accts).sort();
+  }, [vendors]);
+
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>();
+    vendors.forEach(v => {
+      if (v.primaryType) types.add(v.primaryType);
+    });
+    return Array.from(types).sort();
+  }, [vendors]);
+
+  // Handle sort
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
+  // Sort icon component
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return null;
+    return sortDirection === 'asc' ? (
+      <ChevronUp className="h-3 w-3 ml-1 inline" />
+    ) : (
+      <ChevronDown className="h-3 w-3 ml-1 inline" />
+    );
+  };
+
+  // Filter and sort vendors - MUST be before any returns
+  const filteredAndSortedVendors = useMemo(() => {
+    let result = [...vendors];
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(v => v.vendorName.toLowerCase().includes(query));
+    }
+
+    // Apply account filter
+    if (accountFilter !== 'all') {
+      result = result.filter(v => v.accountNames?.includes(accountFilter));
+    }
+
+    // Apply type filter
+    if (typeFilter !== 'all') {
+      result = result.filter(v => v.primaryType === typeFilter);
+    }
+
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      switch (sortColumn) {
+        case 'vendorName':
+          comparison = a.vendorName.localeCompare(b.vendorName);
+          break;
+        case 'accountNames':
+          comparison = (a.accountNames?.join(',') || '').localeCompare(b.accountNames?.join(',') || '');
+          break;
+        case 'primaryType':
+          comparison = (a.primaryType || '').localeCompare(b.primaryType || '');
+          break;
+        case 'transactionCount':
+          comparison = a.transactionCount - b.transactionCount;
+          break;
+        case 'totalAmount':
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+        case 'avgPayment':
+          comparison = (a.avgPayment || 0) - (b.avgPayment || 0);
+          break;
+        case 'invoiceCount':
+          comparison = a.invoiceCount - b.invoiceCount;
+          break;
+        case 'lastPaymentDate':
+          comparison = (a.lastPaymentDate || '').localeCompare(b.lastPaymentDate || '');
+          break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return result;
+  }, [vendors, searchQuery, accountFilter, typeFilter, sortColumn, sortDirection]);
+
   if (isLoading) {
     return (
       <Card>
@@ -346,101 +440,6 @@ export function VendorsTab() {
       </div>
     );
   }
-
-
-  // Extract unique values for filters
-  const uniqueAccounts = useMemo(() => {
-    const accts = new Set<string>();
-    vendors.forEach(v => {
-      if (v.accountNames && Array.isArray(v.accountNames)) {
-        v.accountNames.forEach(a => accts.add(a));
-      }
-    });
-    return Array.from(accts).sort();
-  }, [vendors]);
-
-  const uniqueTypes = useMemo(() => {
-    const types = new Set<string>();
-    vendors.forEach(v => {
-      if (v.primaryType) types.add(v.primaryType);
-    });
-    return Array.from(types).sort();
-  }, [vendors]);
-
-  // Handle sort
-  const handleSort = (column: SortColumn) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortColumn(column);
-      setSortDirection('desc');
-    }
-  };
-
-  // Sort icon component
-  const SortIcon = ({ column }: { column: SortColumn }) => {
-    if (sortColumn !== column) return null;
-    return sortDirection === 'asc' ? (
-      <ChevronUp className="h-3 w-3 ml-1 inline" />
-    ) : (
-      <ChevronDown className="h-3 w-3 ml-1 inline" />
-    );
-  };
-
-  // Filter and sort vendors
-  const filteredAndSortedVendors = useMemo(() => {
-    let result = [...vendors];
-
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(v => v.vendorName.toLowerCase().includes(query));
-    }
-
-    // Apply account filter
-    if (accountFilter !== 'all') {
-      result = result.filter(v => v.accountNames?.includes(accountFilter));
-    }
-
-    // Apply type filter
-    if (typeFilter !== 'all') {
-      result = result.filter(v => v.primaryType === typeFilter);
-    }
-
-    // Apply sorting
-    result.sort((a, b) => {
-      let comparison = 0;
-      switch (sortColumn) {
-        case 'vendorName':
-          comparison = a.vendorName.localeCompare(b.vendorName);
-          break;
-        case 'accountNames':
-          comparison = (a.accountNames?.join(',') || '').localeCompare(b.accountNames?.join(',') || '');
-          break;
-        case 'primaryType':
-          comparison = (a.primaryType || '').localeCompare(b.primaryType || '');
-          break;
-        case 'transactionCount':
-          comparison = a.transactionCount - b.transactionCount;
-          break;
-        case 'totalAmount':
-          comparison = a.totalAmount - b.totalAmount;
-          break;
-        case 'avgPayment':
-          comparison = (a.avgPayment || 0) - (b.avgPayment || 0);
-          break;
-        case 'invoiceCount':
-          comparison = a.invoiceCount - b.invoiceCount;
-          break;
-        case 'lastPaymentDate':
-          comparison = (a.lastPaymentDate || '').localeCompare(b.lastPaymentDate || '');
-          break;
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-
-    return result;
-  }, [vendors, searchQuery, accountFilter, typeFilter, sortColumn, sortDirection]);
 
   // Vendors list view
   return (
