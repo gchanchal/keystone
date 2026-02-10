@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2 } from 'lucide-react';
+import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2, FileSpreadsheet } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,8 @@ const accountTypeIcons: Record<string, typeof Wallet> = {
   savings: Wallet,
   current: Building2,
   credit_card: CreditCard,
-  loan: Building2, // Use Building2 for loan accounts
+  loan: Building2,
+  vyapar: FileSpreadsheet,
 };
 
 const accountTypeLabels: Record<string, string> = {
@@ -47,6 +48,7 @@ const accountTypeLabels: Record<string, string> = {
   current: 'Current',
   credit_card: 'Credit Card',
   loan: 'Loan Account',
+  vyapar: 'Data Source',
 };
 
 export function Accounts() {
@@ -261,7 +263,7 @@ export function Accounts() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {activeAccounts.map((account: Account) => {
-            const Icon = accountTypeIcons[account.accountType];
+            const Icon = accountTypeIcons[account.accountType] || Wallet; // Fallback to Wallet
             const isHighlighted = highlightedAccountId === account.id;
 
             const cardContent = (
