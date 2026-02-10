@@ -695,14 +695,34 @@ router.post('/vyapar/bulk-delete', async (req, res) => {
       return res.status(400).json({ error: 'Please specify date range or transactionType, or set deleteAll: true' });
     }
 
-    // Count
-    let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(vyaparTransactions);
-    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    const countResult = await countQuery;
-    const count = countResult[0]?.count || 0;
+    // Get IDs of vyapar transactions to be deleted (for clearing reconciliation links)
+    const toDelete = await db
+      .select({ id: vyaparTransactions.id })
+      .from(vyaparTransactions)
+      .where(and(...conditions));
 
-    // Delete
-    await db.delete(vyaparTransactions).where(and(...conditions));
+    const vyaparIds = toDelete.map(t => t.id);
+    const count = vyaparIds.length;
+
+    if (count > 0) {
+      // Clear reconciliation links on bank transactions that point to these vyapar transactions
+      await db
+        .update(bankTransactions)
+        .set({
+          reconciledWithId: null,
+          reconciledWithType: null,
+          isReconciled: false,
+        })
+        .where(
+          and(
+            eq(bankTransactions.reconciledWithType, 'vyapar'),
+            sql`${bankTransactions.reconciledWithId} IN (${sql.join(vyaparIds.map(id => sql`${id}`), sql`, `)})`
+          )
+        );
+
+      // Delete vyapar transactions
+      await db.delete(vyaparTransactions).where(and(...conditions));
+    }
 
     res.json({ success: true, deleted: count });
   } catch (error) {
