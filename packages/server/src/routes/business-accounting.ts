@@ -2013,16 +2013,21 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       }
     }
 
-    // Check for duplicate invoice by invoice number
+    // Check for duplicate invoice by invoice number + vendor GSTIN (more robust)
+    // Only consider it a duplicate if BOTH invoice number AND vendor GSTIN match
     const invoiceNumber = data.invoiceNumber || extractedInfo.invoiceNumber;
-    if (invoiceNumber) {
+    const vendorGstin = data.partyGstin || extractedInfo.gstinVendor;
+
+    if (invoiceNumber && vendorGstin) {
+      // Strict duplicate: same invoice number AND same vendor GSTIN
       const existingInvoice = await db
         .select()
         .from(businessInvoices)
         .where(
           and(
             eq(businessInvoices.userId, req.userId!),
-            eq(businessInvoices.invoiceNumber, invoiceNumber)
+            eq(businessInvoices.invoiceNumber, invoiceNumber),
+            eq(businessInvoices.partyGstin, vendorGstin)
           )
         )
         .limit(1);
@@ -2037,7 +2042,37 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
           }
         }
         return res.status(409).json({
-          error: `Duplicate invoice: Invoice #${invoiceNumber} already exists`,
+          error: `Duplicate invoice: Invoice #${invoiceNumber} from ${existingInvoice[0].partyName || vendorGstin} already exists`,
+          existingInvoiceId: existingInvoice[0].id,
+          existingPartyName: existingInvoice[0].partyName,
+        });
+      }
+    } else if (invoiceNumber) {
+      // Fallback: if no GSTIN, check invoice number + similar amount (within 1 rupee)
+      const totalAmount = data.totalAmount || extractedInfo.totalAmount;
+      const existingInvoice = await db
+        .select()
+        .from(businessInvoices)
+        .where(
+          and(
+            eq(businessInvoices.userId, req.userId!),
+            eq(businessInvoices.invoiceNumber, invoiceNumber),
+            totalAmount ? sql`ABS(${businessInvoices.totalAmount} - ${totalAmount}) < 1` : sql`1=1`
+          )
+        )
+        .limit(1);
+
+      if (existingInvoice.length > 0 && totalAmount) {
+        // Only reject if amounts also match (likely true duplicate)
+        if (req.file) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+        return res.status(409).json({
+          error: `Duplicate invoice: Invoice #${invoiceNumber} with amount ₹${totalAmount} already exists`,
           existingInvoiceId: existingInvoice[0].id,
           existingPartyName: existingInvoice[0].partyName,
         });
