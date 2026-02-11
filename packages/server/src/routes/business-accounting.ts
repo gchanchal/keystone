@@ -1696,7 +1696,7 @@ router.get('/gst-summary', async (req, res) => {
   }
 });
 
-// Get summary stats
+// Get summary stats - Uses Vyapar as single source of truth for income/expenses
 router.get('/summary', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -1712,7 +1712,29 @@ router.get('/summary', async (req, res) => {
       });
     }
 
-    const conditions = [
+    // Get income and expenses from Vyapar (single source of truth)
+    const vyaparConditions = [
+      eq(vyaparTransactions.userId, req.userId!),
+      // Exclude internal transfers (payment type "Gaurav")
+      sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
+    ];
+
+    if (startDate && endDate) {
+      vyaparConditions.push(between(vyaparTransactions.date, startDate as string, endDate as string));
+    }
+
+    const [vyaparTotals] = await db
+      .select({
+        // Income = Sale transactions
+        totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ABS(${vyaparTransactions.amount}) ELSE 0 END)`,
+        // Expenses = Expense + Purchase + Payment-Out
+        totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} IN ('Expense', 'Purchase', 'Payment-Out') THEN ABS(${vyaparTransactions.amount}) ELSE 0 END)`,
+      })
+      .from(vyaparTransactions)
+      .where(and(...vyaparConditions));
+
+    // Get bank-specific stats (pending invoices, GST, vendors) from bank transactions
+    const bankConditions = [
       eq(bankTransactions.userId, req.userId!),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
@@ -1722,40 +1744,36 @@ router.get('/summary', async (req, res) => {
       sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
 
-    // Add date filter if provided
     if (startDate && endDate) {
-      conditions.push(between(bankTransactions.date, startDate as string, endDate as string));
+      bankConditions.push(between(bankTransactions.date, startDate as string, endDate as string));
     }
 
-    const baseCondition = and(...conditions);
+    const bankCondition = and(...bankConditions);
 
-    // Get totals
-    const [totals] = await db
+    const [bankTotals] = await db
       .select({
-        totalExpenses: sql<number>`SUM(CASE WHEN ${bankTransactions.transactionType} = 'debit' THEN ${bankTransactions.amount} ELSE 0 END)`,
-        totalIncome: sql<number>`SUM(CASE WHEN ${bankTransactions.transactionType} = 'credit' THEN ${bankTransactions.amount} ELSE 0 END)`,
         pendingInvoices: sql<number>`SUM(CASE WHEN ${bankTransactions.needsInvoice} = 1 AND ${bankTransactions.invoiceFileId} IS NULL THEN 1 ELSE 0 END)`,
         gstInput: sql<number>`SUM(CASE WHEN ${bankTransactions.gstType} = 'input' THEN COALESCE(${bankTransactions.gstAmount}, 0) ELSE 0 END)`,
         gstOutput: sql<number>`SUM(CASE WHEN ${bankTransactions.gstType} = 'output' THEN COALESCE(${bankTransactions.gstAmount}, 0) ELSE 0 END)`,
       })
       .from(bankTransactions)
-      .where(baseCondition);
+      .where(bankCondition);
 
-    // Get vendor count
+    // Get vendor count from Vyapar
     const [vendorResult] = await db
       .select({
-        vendorCount: sql<number>`COUNT(DISTINCT ${bankTransactions.vendorName})`,
+        vendorCount: sql<number>`COUNT(DISTINCT ${vyaparTransactions.partyName})`,
       })
-      .from(bankTransactions)
+      .from(vyaparTransactions)
       .where(
-        and(baseCondition, sql`${bankTransactions.vendorName} IS NOT NULL`)
+        and(...vyaparConditions, sql`${vyaparTransactions.partyName} IS NOT NULL`)
       );
 
     res.json({
-      totalExpenses: totals.totalExpenses || 0,
-      totalIncome: totals.totalIncome || 0,
-      pendingInvoices: totals.pendingInvoices || 0,
-      gstPayable: (totals.gstOutput || 0) - (totals.gstInput || 0),
+      totalExpenses: vyaparTotals.totalExpenses || 0,
+      totalIncome: vyaparTotals.totalIncome || 0,
+      pendingInvoices: bankTotals.pendingInvoices || 0,
+      gstPayable: (bankTotals.gstOutput || 0) - (bankTotals.gstInput || 0),
       vendorCount: vendorResult.vendorCount || 0,
     });
   } catch (error) {
