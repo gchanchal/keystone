@@ -107,6 +107,25 @@ export function BusinessAccounting() {
   const [selectedTransaction, setSelectedTransaction] = useState<BusinessTransaction | null>(null);
   const [bizTypeFilter, setBizTypeFilter] = useState<string>('all');
   const [invoiceFilter, setInvoiceFilter] = useState<string>('all');
+  const [tileFilter, setTileFilter] = useState<'expenses' | 'income' | 'pending' | null>(null);
+
+  // Handle tile click - filter transactions and switch to transactions tab
+  const handleTileClick = (filter: 'expenses' | 'income' | 'pending' | 'gst' | 'vendors') => {
+    if (filter === 'gst') {
+      setActiveTab('gst');
+      setTileFilter(null);
+    } else if (filter === 'vendors') {
+      setActiveTab('vendors');
+      setTileFilter(null);
+    } else {
+      setActiveTab('transactions');
+      // Toggle filter if already active
+      setTileFilter(prev => prev === filter ? null : filter);
+      // Reset other filters when tile is clicked
+      setBizTypeFilter('all');
+      setInvoiceFilter(filter === 'pending' ? 'needs' : 'all');
+    }
+  };
 
   // Date range state
   const [startMonth, setStartMonth] = useState(() => format(subMonths(new Date(), 2), 'yyyy-MM'));
@@ -215,6 +234,22 @@ export function BusinessAccounting() {
     });
     return Array.from(names).sort();
   }, [transactions]);
+
+  // Filter transactions based on tile filter
+  const filteredTransactions = useMemo(() => {
+    if (!tileFilter) return transactions;
+
+    switch (tileFilter) {
+      case 'expenses':
+        return transactions.filter(tx => tx.transactionType === 'debit');
+      case 'income':
+        return transactions.filter(tx => tx.transactionType === 'credit');
+      case 'pending':
+        return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
+      default:
+        return transactions;
+    }
+  }, [transactions, tileFilter]);
 
   // Column definitions for DataTable - matching Transactions page layout
   const columns: ColumnDef<BusinessTransaction>[] = useMemo(() => [
@@ -459,9 +494,12 @@ export function BusinessAccounting() {
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - Clickable to filter transactions */}
       <div className="grid gap-4 md:grid-cols-5">
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-red-300 ${tileFilter === 'expenses' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
+          onClick={() => handleTileClick('expenses')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
             <TrendingDown className="h-4 w-4 text-red-500" />
@@ -470,9 +508,13 @@ export function BusinessAccounting() {
             <div className="text-2xl font-bold text-red-600">
               {formatCurrency(summary?.totalExpenses || 0)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">Click to filter debits</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-green-300 ${tileFilter === 'income' ? 'ring-2 ring-green-500 border-green-500' : ''}`}
+          onClick={() => handleTileClick('income')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Income</CardTitle>
             <TrendingUp className="h-4 w-4 text-green-500" />
@@ -481,9 +523,13 @@ export function BusinessAccounting() {
             <div className="text-2xl font-bold text-green-600">
               {formatCurrency(summary?.totalIncome || 0)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">Click to filter credits</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className="cursor-pointer transition-all hover:shadow-md hover:border-orange-300"
+          onClick={() => handleTileClick('gst')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">GST Payable</CardTitle>
             <Receipt className="h-4 w-4 text-orange-500" />
@@ -492,9 +538,13 @@ export function BusinessAccounting() {
             <div className="text-2xl font-bold">
               {formatCurrency(summary?.gstPayable || 0)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">Click for GST details</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-amber-300 ${tileFilter === 'pending' ? 'ring-2 ring-amber-500 border-amber-500' : ''}`}
+          onClick={() => handleTileClick('pending')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pending Invoices</CardTitle>
             <AlertCircle className="h-4 w-4 text-amber-500" />
@@ -503,15 +553,20 @@ export function BusinessAccounting() {
             <div className="text-2xl font-bold text-amber-600">
               {summary?.pendingInvoices || 0}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">Click to filter</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className="cursor-pointer transition-all hover:shadow-md hover:border-blue-300"
+          onClick={() => handleTileClick('vendors')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Vendors</CardTitle>
             <Users className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary?.vendorCount || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Click for details</p>
           </CardContent>
         </Card>
       </div>
@@ -528,6 +583,24 @@ export function BusinessAccounting() {
 
           {activeTab === 'transactions' && (
             <div className="flex flex-wrap items-center gap-4">
+              {/* Active tile filter indicator */}
+              {tileFilter && (
+                <Badge variant="secondary" className="gap-1">
+                  {tileFilter === 'expenses' && 'Debits only'}
+                  {tileFilter === 'income' && 'Credits only'}
+                  {tileFilter === 'pending' && 'Pending invoices'}
+                  <button
+                    onClick={() => {
+                      setTileFilter(null);
+                      setInvoiceFilter('all');
+                    }}
+                    className="ml-1 hover:text-destructive"
+                  >
+                    ×
+                  </button>
+                </Badge>
+              )}
+
               {/* Type Filter */}
               <Select value={bizTypeFilter} onValueChange={setBizTypeFilter}>
                 <SelectTrigger className="w-[140px]">
@@ -561,10 +634,10 @@ export function BusinessAccounting() {
 
         <TabsContent value="transactions" className="space-y-4">
           <DataTable
-            data={transactions}
+            data={filteredTransactions}
             columns={columns}
             isLoading={isLoading}
-            emptyMessage="No transactions found"
+            emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : 'pending invoice'} transactions found` : 'No transactions found'}
             onRowClick={(row) => setSelectedTransaction(row)}
             getRowId={(row) => row.id}
             showGlobalSearch={true}
