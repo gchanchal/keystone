@@ -289,13 +289,13 @@ export function Accounts() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEdit(account)}>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(account); }}>
                         <Pencil className="mr-2 h-4 w-4" />
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => deleteMutation.mutate(account.id)}
+                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(account.id); }}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete
