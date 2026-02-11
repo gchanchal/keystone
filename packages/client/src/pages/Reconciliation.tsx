@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft,
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { ItemDetailsPopover } from '@/components/reconciliation/ItemDetailsPopover';
+import { BankDetailsPopover } from '@/components/reconciliation/BankDetailsPopover';
 import { reconciliationApi, accountsApi, transactionsApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
 import { format, addMonths, subMonths, parseISO, differenceInDays } from 'date-fns';
@@ -76,6 +77,11 @@ export function Reconciliation() {
     queryKey: ['accounts'],
     queryFn: accountsApi.getAll,
   });
+
+  // Create account lookup map for displaying account names
+  const accountMap = useMemo(() => {
+    return new Map(accounts.map((a: Account) => [a.id, a.name]));
+  }, [accounts]);
 
   const { data: reconciliationData, isLoading } = useQuery({
     queryKey: ['reconciliation', startMonth, endMonth, selectedAccount],
@@ -1017,7 +1023,17 @@ export function Reconciliation() {
                             )}
                           </div>
                           <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
-                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                            <BankDetailsPopover
+                              narration={txn.narration}
+                              date={txn.date}
+                              amount={txn.amount}
+                              transactionType={txn.transactionType as 'credit' | 'debit'}
+                              balance={txn.balance}
+                              accountName={accountMap.get(txn.accountId)}
+                            />
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 ml-2">
                           <span
@@ -1064,7 +1080,17 @@ export function Reconciliation() {
                           )}
                         </div>
                         <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          <BankDetailsPopover
+                            narration={txn.narration}
+                            date={txn.date}
+                            amount={txn.amount}
+                            transactionType={txn.transactionType as 'credit' | 'debit'}
+                            balance={txn.balance}
+                            accountName={accountMap.get(txn.accountId)}
+                          />
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 ml-2">
                         <span
