@@ -358,6 +358,14 @@ function BankTransactionTable({
     },
   });
 
+  const updatePurposeMutation = useMutation({
+    mutationFn: ({ id, purpose }: { id: string; purpose: 'business' | 'personal' | null }) =>
+      transactionsApi.updateBankPurpose(id, purpose),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    },
+  });
+
   // Create bank lookup from accounts
   const accountToBankMap = new Map<string, string>(
     accounts.map((a: Account) => [a.id, a.bankName])
@@ -519,6 +527,41 @@ function BankTransactionTable({
       accessorKey: 'balance',
       cell: (row) => (row.balance !== null ? formatCurrency(row.balance) : '-'),
       align: 'right',
+    },
+    {
+      id: 'purpose',
+      header: 'Purpose',
+      accessorKey: (row) => row.purpose || 'business',
+      cell: (row) => (
+        <Select
+          value={row.purpose || 'business'}
+          onValueChange={(value) =>
+            updatePurposeMutation.mutate({
+              id: row.id,
+              purpose: value === 'business' ? null : (value as 'personal'),
+            })
+          }
+        >
+          <SelectTrigger className="h-8 w-[100px]">
+            <SelectValue>
+              {row.purpose === 'personal' ? (
+                <span className="text-muted-foreground">Personal</span>
+              ) : (
+                <span>Business</span>
+              )}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="business">Business</SelectItem>
+            <SelectItem value="personal">Personal</SelectItem>
+          </SelectContent>
+        </Select>
+      ),
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Business', value: 'business' },
+        { label: 'Personal', value: 'personal' },
+      ],
     },
     {
       id: 'status',
