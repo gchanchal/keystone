@@ -41,6 +41,8 @@ export interface ColumnDef<T> {
   filterType?: 'text' | 'select' | 'number' | 'date'
   filterOptions?: { label: string; value: string }[]
   width?: string
+  minWidth?: number
+  resizable?: boolean
   align?: 'left' | 'center' | 'right'
   className?: string
 }
@@ -88,6 +90,54 @@ export function DataTable<T extends Record<string, any>>({
   const [globalSearch, setGlobalSearch] = React.useState("")
   const [currentPage, setCurrentPage] = React.useState(1)
   const [activeFilterColumn, setActiveFilterColumn] = React.useState<string | null>(null)
+
+  // Column resizing state
+  const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>(() => {
+    const widths: Record<string, number> = {}
+    columns.forEach(col => {
+      if (col.width) {
+        const parsed = parseInt(col.width)
+        if (!isNaN(parsed)) widths[col.id] = parsed
+      }
+    })
+    return widths
+  })
+  const [resizingColumn, setResizingColumn] = React.useState<string | null>(null)
+  const resizeStartX = React.useRef<number>(0)
+  const resizeStartWidth = React.useRef<number>(0)
+
+  // Handle column resize
+  const handleResizeStart = React.useCallback((e: React.MouseEvent, columnId: string, currentWidth: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setResizingColumn(columnId)
+    resizeStartX.current = e.clientX
+    resizeStartWidth.current = currentWidth
+  }, [])
+
+  React.useEffect(() => {
+    if (!resizingColumn) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientX - resizeStartX.current
+      const column = columns.find(c => c.id === resizingColumn)
+      const minWidth = column?.minWidth || 50
+      const newWidth = Math.max(minWidth, resizeStartWidth.current + diff)
+      setColumnWidths(prev => ({ ...prev, [resizingColumn]: newWidth }))
+    }
+
+    const handleMouseUp = () => {
+      setResizingColumn(null)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [resizingColumn, columns])
 
   // Get value from row using accessor
   const getValue = React.useCallback((row: T, column: ColumnDef<T>): any => {
@@ -271,94 +321,118 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border bg-card">
-        <Table>
+      <div className={cn("rounded-lg border bg-card overflow-x-auto", resizingColumn && "select-none")}>
+        <Table style={{ tableLayout: 'fixed', width: '100%' }}>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              {columns.map((column) => (
-                <TableHead
-                  key={column.id}
-                  style={{ width: column.width }}
-                  className={cn(
-                    "whitespace-nowrap",
-                    column.align === 'center' && "text-center",
-                    column.align === 'right' && "text-right"
-                  )}
-                >
-                  <div className="flex items-center gap-1">
-                    {column.sortable !== false ? (
-                      <button
-                        onClick={() => handleSort(column.id)}
-                        className="flex items-center gap-1 hover:text-foreground transition-colors"
-                      >
+              {columns.map((column, colIndex) => {
+                const width = columnWidths[column.id]
+                const isResizable = column.resizable !== false
+                return (
+                  <TableHead
+                    key={column.id}
+                    style={{
+                      width: width ? `${width}px` : column.width,
+                      minWidth: column.minWidth || 50,
+                      position: 'relative',
+                    }}
+                    className={cn(
+                      "whitespace-nowrap",
+                      column.align === 'center' && "text-center",
+                      column.align === 'right' && "text-right"
+                    )}
+                  >
+                    <div className="flex items-center gap-1">
+                      {column.sortable !== false ? (
+                        <button
+                          onClick={() => handleSort(column.id)}
+                          className="flex items-center gap-1 hover:text-foreground transition-colors"
+                        >
+                          <span>{column.header}</span>
+                          {getSortIcon(column.id)}
+                        </button>
+                      ) : (
                         <span>{column.header}</span>
-                        {getSortIcon(column.id)}
-                      </button>
-                    ) : (
-                      <span>{column.header}</span>
-                    )}
+                      )}
 
-                    {column.filterable !== false && (
-                      <DropdownMenu
-                        open={activeFilterColumn === column.id}
-                        onOpenChange={(open) => setActiveFilterColumn(open ? column.id : null)}
+                      {column.filterable !== false && (
+                        <DropdownMenu
+                          open={activeFilterColumn === column.id}
+                          onOpenChange={(open) => setActiveFilterColumn(open ? column.id : null)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={cn(
+                                "h-6 w-6 p-0",
+                                filters[column.id] && "text-primary"
+                              )}
+                            >
+                              <Filter className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-56">
+                            <div className="p-2">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">
+                                Filter by {column.header}
+                              </p>
+                              {column.filterType === 'select' && column.filterOptions ? (
+                                <div className="space-y-1">
+                                  {column.filterOptions.map((option) => (
+                                    <DropdownMenuItem
+                                      key={option.value}
+                                      onClick={() => handleFilter(column.id, option.value)}
+                                      className={cn(
+                                        filters[column.id] === option.value && "bg-primary/10"
+                                      )}
+                                    >
+                                      {option.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </div>
+                              ) : (
+                                <Input
+                                  placeholder={`Filter ${column.header.toLowerCase()}...`}
+                                  value={filters[column.id] || ''}
+                                  onChange={(e) => handleFilter(column.id, e.target.value)}
+                                  className="h-8"
+                                  autoFocus
+                                />
+                              )}
+                            </div>
+                            {filters[column.id] && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => clearFilter(column.id)}>
+                                  <X className="mr-2 h-4 w-4" />
+                                  Clear filter
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    {/* Resize handle */}
+                    {isResizable && colIndex < columns.length - 1 && (
+                      <div
+                        className={cn(
+                          "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50 group",
+                          resizingColumn === column.id && "bg-primary"
+                        )}
+                        onMouseDown={(e) => {
+                          const headerEl = e.currentTarget.parentElement
+                          const currentWidth = headerEl?.offsetWidth || 100
+                          handleResizeStart(e, column.id, currentWidth)
+                        }}
                       >
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                              "h-6 w-6 p-0",
-                              filters[column.id] && "text-primary"
-                            )}
-                          >
-                            <Filter className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-56">
-                          <div className="p-2">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">
-                              Filter by {column.header}
-                            </p>
-                            {column.filterType === 'select' && column.filterOptions ? (
-                              <div className="space-y-1">
-                                {column.filterOptions.map((option) => (
-                                  <DropdownMenuItem
-                                    key={option.value}
-                                    onClick={() => handleFilter(column.id, option.value)}
-                                    className={cn(
-                                      filters[column.id] === option.value && "bg-primary/10"
-                                    )}
-                                  >
-                                    {option.label}
-                                  </DropdownMenuItem>
-                                ))}
-                              </div>
-                            ) : (
-                              <Input
-                                placeholder={`Filter ${column.header.toLowerCase()}...`}
-                                value={filters[column.id] || ''}
-                                onChange={(e) => handleFilter(column.id, e.target.value)}
-                                className="h-8"
-                                autoFocus
-                              />
-                            )}
-                          </div>
-                          {filters[column.id] && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => clearFilter(column.id)}>
-                                <X className="mr-2 h-4 w-4" />
-                                Clear filter
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        <div className="absolute right-0 top-0 h-full w-4 -translate-x-1/2" />
+                      </div>
                     )}
-                  </div>
-                </TableHead>
-              ))}
+                  </TableHead>
+                )
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -378,18 +452,25 @@ export function DataTable<T extends Record<string, any>>({
                     rowClassName?.(row)
                   )}
                 >
-                  {columns.map((column) => (
-                    <TableCell
-                      key={column.id}
-                      className={cn(
-                        column.align === 'center' && "text-center",
-                        column.align === 'right' && "text-right",
-                        column.className
-                      )}
-                    >
-                      {column.cell ? column.cell(row) : getValue(row, column)}
-                    </TableCell>
-                  ))}
+                  {columns.map((column) => {
+                    const width = columnWidths[column.id]
+                    return (
+                      <TableCell
+                        key={column.id}
+                        style={{
+                          width: width ? `${width}px` : column.width,
+                          minWidth: column.minWidth || 50,
+                        }}
+                        className={cn(
+                          column.align === 'center' && "text-center",
+                          column.align === 'right' && "text-right",
+                          column.className
+                        )}
+                      >
+                        {column.cell ? column.cell(row) : getValue(row, column)}
+                      </TableCell>
+                    )
+                  })}
                 </TableRow>
               ))
             )}
