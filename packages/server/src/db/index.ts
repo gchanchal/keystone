@@ -962,6 +962,13 @@ export function initializeDatabase() {
     }
   }
 
+  // Add purpose column for business/personal categorization
+  try {
+    sqlite.exec('ALTER TABLE bank_transactions ADD COLUMN purpose TEXT');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
   // Create business_invoices table for invoice attachments
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS business_invoices (

@@ -333,6 +333,8 @@ router.get('/transactions', async (req, res) => {
           bankAccountIds.map((id) => sql`${id}`),
           sql`, `
         )})`,
+        // Exclude personal transactions (only show business or null/blank)
+        sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
       ];
 
       if (query.startDate && query.endDate) {
@@ -684,6 +686,8 @@ router.post('/enrich', async (req, res) => {
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
       )})`,
+      // Exclude personal transactions
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
 
     if (!overwrite) {
@@ -1524,6 +1528,8 @@ router.get('/vendors/:name/transactions', async (req, res) => {
         sql`, `
       )})`,
       eq(bankTransactions.vendorName, decodedName),
+      // Exclude personal transactions
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
 
     // Filter by month if provided
@@ -1626,6 +1632,8 @@ router.get('/gst-summary', async (req, res) => {
         sql`, `
       )})`,
       sql`${bankTransactions.gstType} IS NOT NULL`,
+      // Exclude personal transactions
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
 
     if (startDate && endDate) {
@@ -1710,6 +1718,8 @@ router.get('/summary', async (req, res) => {
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
       )})`,
+      // Exclude personal transactions
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
 
     // Add date filter if provided

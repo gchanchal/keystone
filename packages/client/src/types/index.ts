@@ -53,6 +53,7 @@ export interface BankTransaction {
   reconciledWithId: string | null;
   reconciledWithType: string | null;
   uploadId: string | null;
+  purpose: 'business' | 'personal' | null;
   createdAt: string;
   updatedAt: string;
 }

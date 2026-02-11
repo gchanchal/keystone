@@ -31,8 +31,12 @@ router.get('/', async (req, res) => {
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
-    // Get bank transactions
-    const bankConditions = [between(bankTransactions.date, startDate, endDate), eq(bankTransactions.userId, req.userId!)];
+    // Get bank transactions (exclude personal)
+    const bankConditions = [
+      between(bankTransactions.date, startDate, endDate),
+      eq(bankTransactions.userId, req.userId!),
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
+    ];
     if (accountId) {
       bankConditions.push(eq(bankTransactions.accountId, accountId));
     }
@@ -479,8 +483,12 @@ router.get('/export', async (req, res) => {
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
-    // Get bank transactions
-    const bankConditions = [between(bankTransactions.date, startDate, endDate), eq(bankTransactions.userId, req.userId!)];
+    // Get bank transactions (exclude personal)
+    const bankConditions = [
+      between(bankTransactions.date, startDate, endDate),
+      eq(bankTransactions.userId, req.userId!),
+      sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
+    ];
     if (accountId) {
       bankConditions.push(eq(bankTransactions.accountId, accountId));
     }

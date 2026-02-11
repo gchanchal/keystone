@@ -11,6 +11,7 @@ import {
   Unlink,
   Info,
   Search,
+  UserX,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ import {
 } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { ItemDetailsPopover } from '@/components/reconciliation/ItemDetailsPopover';
-import { reconciliationApi, accountsApi } from '@/lib/api';
+import { reconciliationApi, accountsApi, transactionsApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
 import { format, addMonths, subMonths, parseISO, differenceInDays } from 'date-fns';
 import type { BankTransaction, VyaparTransaction, Account, ReconciliationMatch } from '@/types';
@@ -132,6 +133,14 @@ export function Reconciliation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
       clearMatchHighlight();
+    },
+  });
+
+  // Mark bank transaction as personal (removes it from business reconciliation)
+  const markPersonalMutation = useMutation({
+    mutationFn: (bankId: string) => transactionsApi.updateBankPurpose(bankId, 'personal'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
     },
   });
 
@@ -1010,13 +1019,27 @@ export function Reconciliation() {
                           <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
                           <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
                         </div>
-                        <span
-                          className={`font-medium ml-2 ${
-                            txn.transactionType === 'credit' ? 'text-green-500' : 'text-red-500'
-                          }`}
-                        >
-                          {formatCurrency(txn.amount)}
-                        </span>
+                        <div className="flex items-center gap-2 ml-2">
+                          <span
+                            className={`font-medium ${
+                              txn.transactionType === 'credit' ? 'text-green-500' : 'text-red-500'
+                            }`}
+                          >
+                            {formatCurrency(txn.amount)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-orange-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markPersonalMutation.mutate(txn.id);
+                            }}
+                            title="Mark as Personal (exclude from business)"
+                          >
+                            <UserX className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}

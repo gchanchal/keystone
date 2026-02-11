@@ -307,6 +307,38 @@ router.patch('/bank/:id/category', async (req, res) => {
   }
 });
 
+// Update transaction purpose (business/personal)
+router.patch('/bank/:id/purpose', async (req, res) => {
+  try {
+    const { purpose } = z
+      .object({
+        purpose: z.enum(['business', 'personal']).nullable(),
+      })
+      .parse(req.body);
+
+    const now = new Date().toISOString();
+
+    await db
+      .update(bankTransactions)
+      .set({ purpose, updatedAt: now })
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)));
+
+    const updated = await db
+      .select()
+      .from(bankTransactions)
+      .where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)))
+      .limit(1);
+
+    res.json(updated[0]);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error updating transaction purpose:', error);
+    res.status(500).json({ error: 'Failed to update purpose' });
+  }
+});
+
 // Bulk update category
 router.patch('/bank/bulk-category', async (req, res) => {
   try {
