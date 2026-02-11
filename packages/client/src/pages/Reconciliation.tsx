@@ -1013,13 +1013,14 @@ export function Reconciliation() {
                           {formatCurrency(txn.amount)}
                         </span>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-destructive border-destructive/50 hover:bg-destructive hover:text-destructive-foreground"
                           onClick={(e) => { e.stopPropagation(); unmatchMutation.mutate(txn.id); }}
-                          title="Unmatch"
+                          title="Unmatch this transaction"
                         >
-                          <Unlink className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                          <Unlink className="h-3 w-3 mr-1" />
+                          Unmatch
                         </Button>
                       </div>
                     </div>
@@ -1158,13 +1159,14 @@ export function Reconciliation() {
                       <div className="flex items-center gap-2 ml-2">
                         <span className="font-medium">{formatCurrency(txn.amount)}</span>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-destructive border-destructive/50 hover:bg-destructive hover:text-destructive-foreground"
                           onClick={(e) => { e.stopPropagation(); unmatchVyaparMutation.mutate(txn.id); }}
-                          title="Unmatch"
+                          title="Unmatch this transaction"
                         >
-                          <Unlink className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                          <Unlink className="h-3 w-3 mr-1" />
+                          Unmatch
                         </Button>
                       </div>
                     </div>
