@@ -531,34 +531,44 @@ function BankTransactionTable({
     {
       id: 'purpose',
       header: 'Purpose',
-      accessorKey: (row) => row.purpose || 'business',
+      accessorKey: (row) => row.purpose || '',
       cell: (row) => (
         <Select
-          value={row.purpose || 'business'}
+          value={row.purpose || 'unclassified'}
           onValueChange={(value) =>
             updatePurposeMutation.mutate({
               id: row.id,
-              purpose: value === 'business' ? null : (value as 'personal'),
+              purpose: value === 'unclassified' ? null : (value as 'business' | 'personal'),
             })
           }
         >
           <SelectTrigger className="h-8 w-[100px]">
             <SelectValue>
               {row.purpose === 'personal' ? (
-                <span className="text-muted-foreground">Personal</span>
+                <span className="text-orange-600">Personal</span>
+              ) : row.purpose === 'business' ? (
+                <span className="text-green-600">Business</span>
               ) : (
-                <span>Business</span>
+                <span className="text-muted-foreground">-</span>
               )}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="business">Business</SelectItem>
-            <SelectItem value="personal">Personal</SelectItem>
+            <SelectItem value="unclassified">
+              <span className="text-muted-foreground">Unclassified</span>
+            </SelectItem>
+            <SelectItem value="business">
+              <span className="text-green-600">Business</span>
+            </SelectItem>
+            <SelectItem value="personal">
+              <span className="text-orange-600">Personal</span>
+            </SelectItem>
           </SelectContent>
         </Select>
       ),
       filterType: 'select',
       filterOptions: [
+        { label: 'Unclassified', value: '' },
         { label: 'Business', value: 'business' },
         { label: 'Personal', value: 'personal' },
       ],

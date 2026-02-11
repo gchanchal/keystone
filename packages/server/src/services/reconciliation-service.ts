@@ -369,13 +369,14 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
 
     if (!bankTxn[0]) continue;
 
-    // Update bank transaction
+    // Update bank transaction - also set purpose to 'business' since it's matched with Vyapar
     await db
       .update(bankTransactions)
       .set({
         isReconciled: true,
         reconciledWithId: match.vyaparTransactionId,
         reconciledWithType: 'vyapar',
+        purpose: 'business',
         updatedAt: now,
       })
       .where(eq(bankTransactions.id, match.bankTransactionId));
@@ -424,12 +425,14 @@ export async function manualMatch(
     .where(eq(vyaparTransactions.id, vyaparTransactionId))
     .limit(1);
 
+  // Update bank transaction - also set purpose to 'business' since it's matched with Vyapar
   await db
     .update(bankTransactions)
     .set({
       isReconciled: true,
       reconciledWithId: vyaparTransactionId,
       reconciledWithType: 'vyapar',
+      purpose: 'business',
       updatedAt: now,
     })
     .where(eq(bankTransactions.id, bankTransactionId));
@@ -604,13 +607,14 @@ export async function multiMatch(
       createdAt: now,
     });
 
-    // Mark bank transaction as reconciled
+    // Mark bank transaction as reconciled - also set purpose to 'business' since it's matched with Vyapar
     await db
       .update(bankTransactions)
       .set({
         isReconciled: true,
         reconciledWithId: matchGroupId, // Store group ID for reference
         reconciledWithType: 'multi_vyapar',
+        purpose: 'business',
         updatedAt: now,
       })
       .where(eq(bankTransactions.id, bankId));
