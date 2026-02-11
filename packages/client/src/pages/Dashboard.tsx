@@ -261,7 +261,8 @@ export function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          {stats.unreconciledCount > 0 && (
+          {/* Only show unreconciled count on business tab - personal doesn't need reconciliation */}
+          {activeTab === 'business' && stats.unreconciledCount > 0 && (
             <Badge variant="warning" className="flex items-center gap-1">
               <AlertCircle className="h-3 w-3" />
               {stats.unreconciledCount} unreconciled
