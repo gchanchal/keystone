@@ -222,21 +222,23 @@ export function BusinessAccounting() {
       id: 'date',
       header: 'Date',
       accessorKey: 'date',
-      width: '100px',
+      width: '90px',
+      minWidth: 90,
       sortable: true,
       filterable: true,
-      cell: (row) => formatDate(row.date),
+      cell: (row) => <span className="whitespace-nowrap">{formatDate(row.date)}</span>,
     },
     {
       id: 'description',
       header: 'Description',
       accessorKey: (row) => row.bizDescription || row.narration,
+      minWidth: 200,
       sortable: true,
       filterable: true,
       cell: (row) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div
-            className={`rounded-full p-1 ${
+            className={`flex-shrink-0 rounded-full p-1 ${
               row.transactionType === 'credit'
                 ? 'bg-green-500/10 text-green-500'
                 : 'bg-red-500/10 text-red-500'
@@ -248,7 +250,7 @@ export function BusinessAccounting() {
               <ArrowUpRight className="h-3 w-3" />
             )}
           </div>
-          <div className="max-w-[250px]">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-sm" title={row.bizDescription || row.narration}>
               {row.bizDescription || row.narration}
             </div>
@@ -265,22 +267,26 @@ export function BusinessAccounting() {
       id: 'account',
       header: 'Account',
       accessorKey: (row) => row.accountName || '-',
+      width: '120px',
+      minWidth: 100,
       sortable: true,
       filterable: true,
       filterType: 'select',
       filterOptions: uniqueAccountNames.map((name) => ({ label: name, value: name })),
       cell: (row) => (
-        <span className="text-sm">{row.accountName || '-'}</span>
+        <span className="block truncate text-sm" title={row.accountName || '-'}>{row.accountName || '-'}</span>
       ),
     },
     {
       id: 'vendorName',
       header: 'Vendor',
       accessorKey: 'vendorName',
+      width: '120px',
+      minWidth: 100,
       sortable: true,
       filterable: true,
       cell: (row) => row.vendorName ? (
-        <span className="text-sm">{row.vendorName}</span>
+        <span className="block truncate text-sm" title={row.vendorName}>{row.vendorName}</span>
       ) : (
         <span className="text-muted-foreground">-</span>
       ),
@@ -289,13 +295,14 @@ export function BusinessAccounting() {
       id: 'bizType',
       header: 'Type',
       accessorKey: 'bizType',
-      width: '110px',
+      width: '100px',
+      minWidth: 90,
       sortable: true,
       filterable: true,
       filterType: 'select',
       filterOptions: Object.entries(BIZ_TYPE_LABELS).map(([value, label]) => ({ value, label })),
       cell: (row) => row.bizType ? (
-        <Badge className={getTypeColor(row.bizType)}>
+        <Badge className={`whitespace-nowrap ${getTypeColor(row.bizType)}`}>
           {getTypeLabel(row.bizType)}
         </Badge>
       ) : (
@@ -304,10 +311,11 @@ export function BusinessAccounting() {
     },
     {
       id: 'invoice',
-      header: 'Invoice',
+      header: 'Inv',
       accessorKey: (row) => row.invoiceFileId ? 'Yes' : (row.needsInvoice ? 'Pending' : 'N/A'),
       align: 'center',
-      width: '80px',
+      width: '50px',
+      minWidth: 50,
       sortable: true,
       filterable: true,
       filterType: 'select',
@@ -328,9 +336,11 @@ export function BusinessAccounting() {
       id: 'credit',
       header: 'Credit',
       accessorKey: (row) => (row.transactionType === 'credit' ? row.amount : 0),
+      width: '100px',
+      minWidth: 90,
       cell: (row) =>
         row.transactionType === 'credit' ? (
-          <span className="font-medium text-green-600">{formatCurrency(row.amount)}</span>
+          <span className="whitespace-nowrap font-medium text-green-600">{formatCurrency(row.amount)}</span>
         ) : (
           '-'
         ),
@@ -341,9 +351,11 @@ export function BusinessAccounting() {
       id: 'debit',
       header: 'Debit',
       accessorKey: (row) => (row.transactionType === 'debit' ? row.amount : 0),
+      width: '100px',
+      minWidth: 90,
       cell: (row) =>
         row.transactionType === 'debit' ? (
-          <span className="font-medium text-red-600">{formatCurrency(row.amount)}</span>
+          <span className="whitespace-nowrap font-medium text-red-600">{formatCurrency(row.amount)}</span>
         ) : (
           '-'
         ),
@@ -354,7 +366,9 @@ export function BusinessAccounting() {
       id: 'balance',
       header: 'Balance',
       accessorKey: 'balance',
-      cell: (row) => (row.balance !== null ? formatCurrency(row.balance) : '-'),
+      width: '100px',
+      minWidth: 90,
+      cell: (row) => <span className="whitespace-nowrap">{row.balance !== null ? formatCurrency(row.balance) : '-'}</span>,
       align: 'right',
       sortable: true,
     },
@@ -362,6 +376,8 @@ export function BusinessAccounting() {
       id: 'status',
       header: 'Status',
       accessorKey: (row) => (row.isReconciled ? 'Reconciled' : 'Unreconciled'),
+      width: '60px',
+      minWidth: 60,
       cell: (row) =>
         row.isReconciled ? (
           <CheckCircle className="mx-auto h-4 w-4 text-green-500" />
