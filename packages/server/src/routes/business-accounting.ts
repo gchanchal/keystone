@@ -1713,10 +1713,9 @@ router.get('/summary', async (req, res) => {
     }
 
     // Get income and expenses from Vyapar (single source of truth)
+    // Must match Dashboard's getVyaparSummary logic exactly
     const vyaparConditions = [
       eq(vyaparTransactions.userId, req.userId!),
-      // Exclude internal transfers (payment type "Gaurav")
-      sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
     ];
 
     if (startDate && endDate) {
@@ -1725,10 +1724,10 @@ router.get('/summary', async (req, res) => {
 
     const [vyaparTotals] = await db
       .select({
-        // Income = Sale transactions
-        totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ABS(${vyaparTransactions.amount}) ELSE 0 END)`,
-        // Expenses = Expense + Purchase + Payment-Out
-        totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} IN ('Expense', 'Purchase', 'Payment-Out') THEN ABS(${vyaparTransactions.amount}) ELSE 0 END)`,
+        // Income = Sale transactions (matches Dashboard sales)
+        totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
+        // Expenses = Expense only (matches Dashboard expenses for P&L)
+        totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
       })
       .from(vyaparTransactions)
       .where(and(...vyaparConditions));
