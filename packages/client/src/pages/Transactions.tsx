@@ -788,7 +788,7 @@ function VyaparTransactionTable({
         if (!isReconcilable(row.transactionType)) return 'Awaiting payment';
         const matchedBank = row.reconciledWithId ? bankTxnMap.get(row.reconciledWithId) : null;
         if (matchedBank) return `${matchedBank.date} - ${matchedBank.amount}`;
-        if (row.isReconciled) return 'Match group';
+        if (row.isReconciled) return 'Reconciled';
         return 'Needs matching';
       },
       cell: (row) => {
@@ -815,7 +815,7 @@ function VyaparTransactionTable({
         }
 
         if (row.isReconciled) {
-          return <span className="text-xs text-muted-foreground">Match group</span>;
+          return <span className="text-xs text-green-600">Reconciled</span>;
         }
 
         return <span className="text-xs text-orange-500">Needs matching</span>;
