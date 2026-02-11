@@ -80,7 +80,7 @@ export function Reconciliation() {
 
   // Create account lookup map for displaying account names
   const accountMap = useMemo(() => {
-    return new Map(accounts.map((a: Account) => [a.id, a.name]));
+    return new Map<string, string>(accounts.map((a: Account) => [a.id, a.name]));
   }, [accounts]);
 
   const { data: reconciliationData, isLoading } = useQuery({
