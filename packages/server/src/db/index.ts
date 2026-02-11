@@ -969,6 +969,13 @@ export function initializeDatabase() {
     // Column already exists, ignore
   }
 
+  // Set purpose = 'business' for all already reconciled bank transactions
+  sqlite.exec(`
+    UPDATE bank_transactions
+    SET purpose = 'business'
+    WHERE is_reconciled = 1 AND purpose IS NULL
+  `);
+
   // Create business_invoices table for invoice attachments
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS business_invoices (
