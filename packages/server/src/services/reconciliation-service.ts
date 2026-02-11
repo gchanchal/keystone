@@ -102,8 +102,25 @@ function extractBankPattern(narration: string): { type: string; value: string } 
 }
 
 // Check if amounts match (with small tolerance for rounding)
+// Uses absolute values to handle both positive and negative amount storage
 function amountsMatch(amount1: number, amount2: number, tolerance = 0.01): boolean {
-  return Math.abs(amount1 - amount2) <= tolerance;
+  return Math.abs(Math.abs(amount1) - Math.abs(amount2)) <= tolerance;
+}
+
+// Check if bank transaction type and vyapar transaction type are directionally compatible
+// Bank credit (money in) should match with Vyapar Sale (money in)
+// Bank debit (money out) should match with Vyapar Expense/Purchase/Payment-Out (money out)
+function areDirectionsCompatible(bankTxnType: string, vyaparTxnType: string): boolean {
+  const bankIsCredit = bankTxnType === 'credit'; // Money coming in
+  const vyaparIsIncoming = vyaparTxnType === 'Sale'; // Sale = money coming in
+  const vyaparIsOutgoing = ['Expense', 'Purchase', 'Payment-Out'].includes(vyaparTxnType); // Money going out
+
+  // Credit (money in) should match with Sale (money in)
+  if (bankIsCredit && vyaparIsIncoming) return true;
+  // Debit (money out) should match with Expense/Purchase/Payment-Out (money out)
+  if (!bankIsCredit && vyaparIsOutgoing) return true;
+
+  return false;
 }
 
 // Check if dates are within range
@@ -182,13 +199,14 @@ export async function autoReconcile(
   }
 
   console.log(`[AutoReconcile] Loaded ${learnedRules.length} learned rules`);
+  console.log(`[AutoReconcile] Processing ${filteredBankTxns.length} bank txns, ${vyaparTxns.length} vyapar txns`);
 
   // Create sets to track matched transactions
   const matchedBankIds = new Set<string>();
   const matchedVyaparIds = new Set<string>();
   const usedRuleIds = new Set<string>();
 
-  // Priority 0: Learned rules - match bank pattern to vyapar party name
+  // Priority 0: Learned rules - match bank pattern to vyapar party name + direction compatible
   if (ruleMap.size > 0) {
     for (const bankTxn of filteredBankTxns) {
       if (matchedBankIds.has(bankTxn.id)) continue;
@@ -205,19 +223,20 @@ export async function autoReconcile(
         if (matchedVyaparIds.has(vyaparTxn.id)) continue;
         if (!vyaparTxn.partyName) continue;
 
-        // Check if party name matches and amount matches
+        // Check if party name matches, amount matches, and directions are compatible
         if (
           vyaparTxn.partyName.toUpperCase() === rule.partyName.toUpperCase() &&
           amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
-          datesWithinRange(bankTxn.date, vyaparTxn.date, 7) // Within 7 days
+          datesWithinRange(bankTxn.date, vyaparTxn.date, 7) && // Within 7 days
+          areDirectionsCompatible(bankTxn.transactionType, vyaparTxn.transactionType)
         ) {
           matches.push({
             bankTransactionId: bankTxn.id,
             vyaparTransactionId: vyaparTxn.id,
             confidence: 98, // High confidence for learned rules
             matchType: 'exact',
-            bankAmount: bankTxn.amount,
-            vyaparAmount: vyaparTxn.amount,
+            bankAmount: Math.abs(bankTxn.amount),
+            vyaparAmount: Math.abs(vyaparTxn.amount),
             bankDate: bankTxn.date,
             vyaparDate: vyaparTxn.date,
           });
@@ -231,7 +250,7 @@ export async function autoReconcile(
     console.log(`[AutoReconcile] Matched ${usedRuleIds.size} using learned rules`);
   }
 
-  // Priority 1: Exact amount + same date
+  // Priority 1: Exact amount + same date + direction compatible
   for (const bankTxn of filteredBankTxns) {
     if (matchedBankIds.has(bankTxn.id)) continue;
 
@@ -240,15 +259,16 @@ export async function autoReconcile(
 
       if (
         amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
-        bankTxn.date === vyaparTxn.date
+        bankTxn.date === vyaparTxn.date &&
+        areDirectionsCompatible(bankTxn.transactionType, vyaparTxn.transactionType)
       ) {
         matches.push({
           bankTransactionId: bankTxn.id,
           vyaparTransactionId: vyaparTxn.id,
           confidence: 100,
           matchType: 'exact',
-          bankAmount: bankTxn.amount,
-          vyaparAmount: vyaparTxn.amount,
+          bankAmount: Math.abs(bankTxn.amount),
+          vyaparAmount: Math.abs(vyaparTxn.amount),
           bankDate: bankTxn.date,
           vyaparDate: vyaparTxn.date,
         });
@@ -259,7 +279,7 @@ export async function autoReconcile(
     }
   }
 
-  // Priority 2: Exact amount + date within ±2 days
+  // Priority 2: Exact amount + date within ±2 days + direction compatible
   for (const bankTxn of filteredBankTxns) {
     if (matchedBankIds.has(bankTxn.id)) continue;
 
@@ -268,7 +288,8 @@ export async function autoReconcile(
 
       if (
         amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
-        datesWithinRange(bankTxn.date, vyaparTxn.date, 2)
+        datesWithinRange(bankTxn.date, vyaparTxn.date, 2) &&
+        areDirectionsCompatible(bankTxn.transactionType, vyaparTxn.transactionType)
       ) {
         const dayDiff = Math.abs(
           (parseISO(bankTxn.date).getTime() - parseISO(vyaparTxn.date).getTime()) /
@@ -282,8 +303,8 @@ export async function autoReconcile(
           vyaparTransactionId: vyaparTxn.id,
           confidence,
           matchType: 'date_fuzzy',
-          bankAmount: bankTxn.amount,
-          vyaparAmount: vyaparTxn.amount,
+          bankAmount: Math.abs(bankTxn.amount),
+          vyaparAmount: Math.abs(vyaparTxn.amount),
           bankDate: bankTxn.date,
           vyaparDate: vyaparTxn.date,
         });
@@ -294,7 +315,7 @@ export async function autoReconcile(
     }
   }
 
-  // Priority 3: Amount match + party name fuzzy match > 80%
+  // Priority 3: Amount match + party name fuzzy match > 80% + direction compatible
   for (const bankTxn of filteredBankTxns) {
     if (matchedBankIds.has(bankTxn.id)) continue;
 
@@ -305,7 +326,10 @@ export async function autoReconcile(
 
       if (!vyaparTxn.partyName) continue;
 
-      if (amountsMatch(bankTxn.amount, vyaparTxn.amount)) {
+      if (
+        amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
+        areDirectionsCompatible(bankTxn.transactionType, vyaparTxn.transactionType)
+      ) {
         const partySimilarity = similarity(bankParty, vyaparTxn.partyName);
 
         if (partySimilarity > 0.8) {
@@ -314,8 +338,8 @@ export async function autoReconcile(
             vyaparTransactionId: vyaparTxn.id,
             confidence: Math.round(partySimilarity * 60 + 20),
             matchType: 'party_fuzzy',
-            bankAmount: bankTxn.amount,
-            vyaparAmount: vyaparTxn.amount,
+            bankAmount: Math.abs(bankTxn.amount),
+            vyaparAmount: Math.abs(vyaparTxn.amount),
             bankDate: bankTxn.date,
             vyaparDate: vyaparTxn.date,
           });
@@ -327,6 +351,7 @@ export async function autoReconcile(
     }
   }
 
+  console.log(`[AutoReconcile] Total matches found: ${matches.length}`);
   return matches;
 }
 
