@@ -123,6 +123,8 @@ export const reconciliationApi = {
     api.post('/reconciliation/unmatch-group', { matchGroupId }).then((r) => r.data),
   getMatchGroup: (matchGroupId: string) =>
     api.get(`/reconciliation/match-group/${matchGroupId}`).then((r) => r.data),
+  getMatchDetails: (params: { bankId?: string; vyaparId?: string }) =>
+    api.get('/reconciliation/match-details', { params }).then((r) => r.data),
   exportReport: (startMonth: string, endMonth: string, accountId?: string) =>
     api.get('/reconciliation/export', {
       params: { startMonth, endMonth, accountId },

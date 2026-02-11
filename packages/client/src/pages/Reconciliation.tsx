@@ -50,11 +50,26 @@ export function Reconciliation() {
   const [vyaparFilter, setVyaparFilter] = useState<FilterStatus>('unmatched');
   const [bankSearch, setBankSearch] = useState('');
   const [vyaparSearch, setVyaparSearch] = useState('');
-  // State to track which matched transaction is selected to highlight its counterpart
-  const [highlightedMatchBankId, setHighlightedMatchBankId] = useState<string | null>(null);
-  const [highlightedMatchVyaparId, setHighlightedMatchVyaparId] = useState<string | null>(null);
+  // State to track which matched transaction is selected to show details
+  // We now use a single state to track either bankId or vyaparId being viewed
+  const [viewingMatchBankId, setViewingMatchBankId] = useState<string | null>(null);
+  const [viewingMatchVyaparId, setViewingMatchVyaparId] = useState<string | null>(null);
   // View mode: 'split' shows side-by-side lists, 'matched-pairs' shows all matched pairs together
   const [viewMode, setViewMode] = useState<ViewMode>('split');
+
+  // Fetch match details when viewing a matched transaction
+  const { data: matchDetails, isLoading: matchDetailsLoading } = useQuery({
+    queryKey: ['match-details', viewingMatchBankId, viewingMatchVyaparId],
+    queryFn: () => {
+      if (viewingMatchBankId) {
+        return reconciliationApi.getMatchDetails({ bankId: viewingMatchBankId });
+      } else if (viewingMatchVyaparId) {
+        return reconciliationApi.getMatchDetails({ vyaparId: viewingMatchVyaparId });
+      }
+      return null;
+    },
+    enabled: !!(viewingMatchBankId || viewingMatchVyaparId),
+  });
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['accounts'],
@@ -255,47 +270,41 @@ export function Reconciliation() {
   const filteredVyaparMatched = vyapar.matched.filter(filterVyaparTxn);
   const filteredVyaparUnmatched = vyapar.unmatched.filter(filterVyaparTxn);
 
-  // Handle clicking on a matched bank transaction to show its Vyapar counterpart
+  // Handle clicking on a matched bank transaction to show match details
   const handleBankMatchClick = (txn: BankTransaction) => {
-    if (highlightedMatchBankId === txn.id) {
-      // Clear highlight if clicking the same item
+    if (viewingMatchBankId === txn.id) {
+      // Clear if clicking the same item
       clearMatchHighlight();
     } else {
-      setHighlightedMatchBankId(txn.id);
-      setHighlightedMatchVyaparId(txn.reconciledWithId || null);
-      // Switch Vyapar side to matched view to show the counterpart
-      setVyaparFilter('matched');
+      setViewingMatchBankId(txn.id);
+      setViewingMatchVyaparId(null);
     }
   };
 
-  // Handle clicking on a matched Vyapar transaction to show its Bank counterpart
+  // Handle clicking on a matched Vyapar transaction to show match details
   const handleVyaparMatchClick = (txn: VyaparTransaction) => {
-    // Find the bank transaction that is reconciled with this Vyapar transaction
-    const bankMatch = bank.matched.find((b: BankTransaction) => b.reconciledWithId === txn.id);
-    if (highlightedMatchVyaparId === txn.id) {
-      // Clear highlight if clicking the same item
+    if (viewingMatchVyaparId === txn.id) {
+      // Clear if clicking the same item
       clearMatchHighlight();
     } else {
-      setHighlightedMatchVyaparId(txn.id);
-      setHighlightedMatchBankId(bankMatch?.id || null);
-      // Switch Bank side to matched view to show the counterpart
-      setBankFilter('matched');
+      setViewingMatchVyaparId(txn.id);
+      setViewingMatchBankId(null);
     }
   };
 
-  // Clear match highlighting
+  // Clear match viewing
   const clearMatchHighlight = () => {
-    setHighlightedMatchBankId(null);
-    setHighlightedMatchVyaparId(null);
+    setViewingMatchBankId(null);
+    setViewingMatchVyaparId(null);
   };
 
   // Filter matched transactions based on highlight selection
-  const displayedBankMatched = highlightedMatchBankId
-    ? filteredBankMatched.filter((t: BankTransaction) => t.id === highlightedMatchBankId)
+  const displayedBankMatched = viewingMatchBankId
+    ? filteredBankMatched.filter((t: BankTransaction) => t.id === viewingMatchBankId)
     : filteredBankMatched;
 
-  const displayedVyaparMatched = highlightedMatchVyaparId
-    ? filteredVyaparMatched.filter((t: VyaparTransaction) => t.id === highlightedMatchVyaparId)
+  const displayedVyaparMatched = viewingMatchVyaparId
+    ? filteredVyaparMatched.filter((t: VyaparTransaction) => t.id === viewingMatchVyaparId)
     : filteredVyaparMatched;
 
   // ============================================
@@ -683,134 +692,164 @@ export function Reconciliation() {
       )}
 
       {/* Match Pair Detail Panel - shows both sides of a matched pair */}
-      {(highlightedMatchBankId || highlightedMatchVyaparId) && (() => {
-        const matchedBankTxn = bank.matched.find((t: BankTransaction) => t.id === highlightedMatchBankId);
-        const matchedVyaparTxn = vyapar.matched.find((t: VyaparTransaction) => t.id === highlightedMatchVyaparId);
-
-        return (
-          <Card className="border-blue-500 bg-blue-500/5">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-blue-500 flex items-center gap-2">
-                  <Link className="h-5 w-5" />
-                  Matched Pair Details
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearMatchHighlight}
-                >
-                  <X className="mr-1 h-3 w-3" />
-                  Close
-                </Button>
+      {(viewingMatchBankId || viewingMatchVyaparId) && (
+        <Card className="border-blue-500 bg-blue-500/5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-blue-500 flex items-center gap-2">
+                <Link className="h-5 w-5" />
+                Matched Pair Details
+                {matchDetails?.matchType === 'multi' && (
+                  <Badge variant="secondary" className="ml-2">Multi-Match</Badge>
+                )}
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearMatchHighlight}
+              >
+                <X className="mr-1 h-3 w-3" />
+                Close
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {matchDetailsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span className="ml-2 text-muted-foreground">Loading match details...</span>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                {/* Bank Transaction Side */}
-                <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge className="bg-blue-500">Bank</Badge>
-                    {matchedBankTxn && (
-                      <Badge variant={matchedBankTxn.transactionType === 'credit' ? 'success' : 'destructive'}>
-                        {matchedBankTxn.transactionType === 'credit' ? 'Credit' : 'Debit'}
-                      </Badge>
-                    )}
-                  </div>
-                  {matchedBankTxn ? (
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Date</p>
-                        <p className="font-medium">{formatDate(matchedBankTxn.date)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Amount</p>
-                        <p className={`text-lg font-bold ${matchedBankTxn.transactionType === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(matchedBankTxn.amount)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Narration</p>
-                        <p className="text-sm">{matchedBankTxn.narration}</p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2 text-destructive hover:text-destructive"
-                        onClick={() => unmatchMutation.mutate(matchedBankTxn.id)}
-                      >
-                        <Unlink className="mr-1 h-3 w-3" />
-                        Unmatch
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">Bank transaction not found</p>
-                  )}
-                </div>
-
-                {/* Vyapar Transaction Side */}
-                <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/30 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge className="bg-green-600">Vyapar</Badge>
-                    {matchedVyaparTxn && (
-                      <Badge variant="secondary">{matchedVyaparTxn.transactionType}</Badge>
-                    )}
-                  </div>
-                  {matchedVyaparTxn ? (
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Date</p>
-                        <p className="font-medium">{formatDate(matchedVyaparTxn.date)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Amount</p>
-                        <p className="text-lg font-bold">{formatCurrency(matchedVyaparTxn.amount)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Party</p>
-                        <p className="text-sm font-medium">{matchedVyaparTxn.partyName || '-'}</p>
-                      </div>
-                      {matchedVyaparTxn.invoiceNumber && (
-                        <div>
-                          <p className="text-xs text-muted-foreground">Invoice</p>
-                          <p className="text-sm">{matchedVyaparTxn.invoiceNumber}</p>
-                        </div>
+            ) : matchDetails ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Bank Transactions Side */}
+                  <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Badge className="bg-blue-500">Bank</Badge>
+                      {matchDetails.bankTransactions.length > 1 && (
+                        <Badge variant="outline">{matchDetails.bankTransactions.length} transactions</Badge>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2 text-destructive hover:text-destructive"
-                        onClick={() => unmatchVyaparMutation.mutate(matchedVyaparTxn.id)}
-                      >
-                        <Unlink className="mr-1 h-3 w-3" />
-                        Unmatch
-                      </Button>
                     </div>
-                  ) : (
-                    <p className="text-muted-foreground">Vyapar transaction not found</p>
-                  )}
-                </div>
-              </div>
+                    {matchDetails.bankTransactions.length > 0 ? (
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {matchDetails.bankTransactions.map((txn: BankTransaction) => (
+                          <div key={txn.id} className="border-b border-blue-200 pb-2 last:border-0 last:pb-0">
+                            <div className="flex items-center justify-between">
+                              <Badge variant={txn.transactionType === 'credit' ? 'success' : 'destructive'} className="text-xs">
+                                {txn.transactionType === 'credit' ? 'Credit' : 'Debit'}
+                              </Badge>
+                              <p className={`font-bold ${txn.transactionType === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                                {formatCurrency(txn.amount)}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">{formatDate(txn.date)}</p>
+                            <p className="text-sm line-clamp-2 mt-1">{txn.narration}</p>
+                          </div>
+                        ))}
+                        <div className="pt-2 border-t border-blue-200">
+                          <p className="text-xs text-muted-foreground">Total</p>
+                          <p className="font-bold text-blue-600">
+                            {formatCurrency(matchDetails.bankTransactions.reduce((sum: number, t: BankTransaction) => sum + t.amount, 0))}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No bank transactions found</p>
+                    )}
+                  </div>
 
-              {/* Amount difference indicator */}
-              {matchedBankTxn && matchedVyaparTxn && (
-                <div className="mt-4 text-center">
-                  {Math.abs(matchedBankTxn.amount - matchedVyaparTxn.amount) < 1 ? (
-                    <Badge variant="success" className="text-sm">
-                      <Check className="mr-1 h-3 w-3" />
-                      Amounts Match Exactly
-                    </Badge>
-                  ) : (
-                    <Badge variant="warning" className="text-sm">
-                      Difference: {formatCurrency(Math.abs(matchedBankTxn.amount - matchedVyaparTxn.amount))}
-                    </Badge>
+                  {/* Vyapar Transactions Side */}
+                  <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/30 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Badge className="bg-green-600">Vyapar</Badge>
+                      {matchDetails.vyaparTransactions.length > 1 && (
+                        <Badge variant="outline">{matchDetails.vyaparTransactions.length} transactions</Badge>
+                      )}
+                    </div>
+                    {matchDetails.vyaparTransactions.length > 0 ? (
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {matchDetails.vyaparTransactions.map((txn: VyaparTransaction) => (
+                          <div key={txn.id} className="border-b border-green-200 pb-2 last:border-0 last:pb-0">
+                            <div className="flex items-center justify-between">
+                              <Badge variant="secondary" className="text-xs">{txn.transactionType}</Badge>
+                              <p className="font-bold">{formatCurrency(txn.amount)}</p>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">{formatDate(txn.date)}</p>
+                            <p className="text-sm font-medium line-clamp-1 mt-1">{txn.partyName || '-'}</p>
+                            {txn.invoiceNumber && (
+                              <p className="text-xs text-muted-foreground">Invoice: {txn.invoiceNumber}</p>
+                            )}
+                          </div>
+                        ))}
+                        <div className="pt-2 border-t border-green-200">
+                          <p className="text-xs text-muted-foreground">Total</p>
+                          <p className="font-bold text-green-600">
+                            {formatCurrency(matchDetails.vyaparTransactions.reduce((sum: number, t: VyaparTransaction) => sum + t.amount, 0))}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No Vyapar transactions found</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Amount difference indicator */}
+                {matchDetails.bankTransactions.length > 0 && matchDetails.vyaparTransactions.length > 0 && (() => {
+                  const bankTotal = matchDetails.bankTransactions.reduce((sum: number, t: BankTransaction) => sum + t.amount, 0);
+                  const vyaparTotal = matchDetails.vyaparTransactions.reduce((sum: number, t: VyaparTransaction) => sum + t.amount, 0);
+                  const diff = Math.abs(bankTotal - vyaparTotal);
+                  return (
+                    <div className="mt-4 text-center">
+                      {diff < 1 ? (
+                        <Badge variant="success" className="text-sm">
+                          <Check className="mr-1 h-3 w-3" />
+                          Totals Match Exactly
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning" className="text-sm">
+                          Difference: {formatCurrency(diff)}
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Unmatch button */}
+                <div className="mt-4 flex justify-center">
+                  {matchDetails.matchGroupId ? (
+                    <Button
+                      variant="outline"
+                      className="text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      onClick={() => {
+                        unmatchMutation.mutate(matchDetails.bankTransactions[0]?.id);
+                        clearMatchHighlight();
+                      }}
+                    >
+                      <Unlink className="mr-2 h-4 w-4" />
+                      Unmatch All
+                    </Button>
+                  ) : matchDetails.bankTransactions[0] && (
+                    <Button
+                      variant="outline"
+                      className="text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      onClick={() => {
+                        unmatchMutation.mutate(matchDetails.bankTransactions[0].id);
+                        clearMatchHighlight();
+                      }}
+                    >
+                      <Unlink className="mr-2 h-4 w-4" />
+                      Unmatch
+                    </Button>
                   )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })()}
+              </>
+            ) : (
+              <p className="text-muted-foreground text-center py-4">Could not load match details</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Matched Pairs View */}
       {viewMode === 'matched-pairs' && (
@@ -927,7 +966,7 @@ export function Reconciliation() {
                   All ({bank.matched.length + bank.unmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({highlightedMatchBankId ? `1/${bank.matched.length}` : bank.matched.length})
+                  Matched ({viewingMatchBankId ? `1/${bank.matched.length}` : bank.matched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
                   Unmatched ({bank.unmatched.length})
@@ -988,14 +1027,14 @@ export function Reconciliation() {
                     <div
                       key={txn.id}
                       className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
-                        highlightedMatchBankId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
+                        viewingMatchBankId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
                       }`}
                       onClick={() => handleBankMatchClick(txn)}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Badge variant="success" className="text-xs">Matched</Badge>
-                          {highlightedMatchBankId === txn.id && (
+                          {viewingMatchBankId === txn.id && (
                             <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500">
                               Showing Match →
                             </Badge>
@@ -1063,7 +1102,7 @@ export function Reconciliation() {
                   All ({vyapar.matched.length + vyapar.unmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({highlightedMatchVyaparId ? `1/${vyapar.matched.length}` : vyapar.matched.length})
+                  Matched ({viewingMatchVyaparId ? `1/${vyapar.matched.length}` : vyapar.matched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
                   Unmatched ({vyapar.unmatched.length})
@@ -1129,7 +1168,7 @@ export function Reconciliation() {
                     <div
                       key={txn.id}
                       className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
-                        highlightedMatchVyaparId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
+                        viewingMatchVyaparId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
                       }`}
                       onClick={() => handleVyaparMatchClick(txn)}
                     >
@@ -1137,7 +1176,7 @@ export function Reconciliation() {
                         <div className="flex items-center gap-2">
                           <Badge variant="success" className="text-xs">Matched</Badge>
                           <Badge variant="secondary" className="text-xs">{txn.transactionType}</Badge>
-                          {highlightedMatchVyaparId === txn.id && (
+                          {viewingMatchVyaparId === txn.id && (
                             <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500">
                               ← Showing Match
                             </Badge>

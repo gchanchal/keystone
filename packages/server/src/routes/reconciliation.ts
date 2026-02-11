@@ -202,7 +202,7 @@ router.post('/unmatch', async (req, res) => {
   }
 });
 
-// Unmatch a Vyapar transaction directly (for orphaned matches)
+// Unmatch a Vyapar transaction - also clears the bank side
 router.post('/unmatch-vyapar', async (req, res) => {
   try {
     const { vyaparTransactionId } = z
@@ -212,6 +212,48 @@ router.post('/unmatch-vyapar', async (req, res) => {
       .parse(req.body);
 
     const now = new Date().toISOString();
+
+    // Get the vyapar transaction first to find its match info
+    const [vyaparTxn] = await db
+      .select()
+      .from(vyaparTransactions)
+      .where(eq(vyaparTransactions.id, vyaparTransactionId));
+
+    if (vyaparTxn && vyaparTxn.reconciledWithId) {
+      // Check if it's a match group
+      const groupRecords = await db
+        .select()
+        .from(reconciliationMatches)
+        .where(eq(reconciliationMatches.matchGroupId, vyaparTxn.reconciledWithId));
+
+      if (groupRecords.length > 0) {
+        // It's a match group - unmatch the entire group
+        await unmatchGroup(vyaparTxn.reconciledWithId);
+        return res.json({ success: true });
+      }
+
+      // Single match - clear bank transaction that points to this vyapar OR has this ID as reconciledWithId
+      await db
+        .update(bankTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          reconciledWithType: null,
+          updatedAt: now,
+        })
+        .where(eq(bankTransactions.reconciledWithId, vyaparTransactionId));
+
+      // Also try matching by the vyapar's reconciledWithId (in case it's the bank ID)
+      await db
+        .update(bankTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          reconciledWithType: null,
+          updatedAt: now,
+        })
+        .where(eq(bankTransactions.id, vyaparTxn.reconciledWithId));
+    }
 
     // Update the vyapar transaction
     await db
@@ -290,6 +332,136 @@ router.get('/match-group/:id', async (req, res) => {
   } catch (error) {
     console.error('Error getting match group:', error);
     res.status(500).json({ error: 'Failed to get match group' });
+  }
+});
+
+// Get full match details for a transaction (returns all linked transactions with full data)
+// Can be called with bankId or vyaparId - will find and return all related matched transactions
+router.get('/match-details', async (req, res) => {
+  try {
+    const { bankId, vyaparId } = z
+      .object({
+        bankId: z.string().optional(),
+        vyaparId: z.string().optional(),
+      })
+      .parse(req.query);
+
+    if (!bankId && !vyaparId) {
+      return res.status(400).json({ error: 'Either bankId or vyaparId is required' });
+    }
+
+    let matchGroupId: string | null = null;
+    let bankTxnIds: string[] = [];
+    let vyaparTxnIds: string[] = [];
+
+    if (bankId) {
+      // Find the bank transaction
+      const [bankTxn] = await db
+        .select()
+        .from(bankTransactions)
+        .where(and(eq(bankTransactions.id, bankId), eq(bankTransactions.userId, req.userId!)));
+
+      if (!bankTxn) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+
+      if (!bankTxn.isReconciled || !bankTxn.reconciledWithId) {
+        return res.json({ bankTransactions: [bankTxn], vyaparTransactions: [], matchType: 'unmatched' });
+      }
+
+      // Check if it's a multi-match (match group) or single match
+      if (bankTxn.reconciledWithType === 'multi_vyapar') {
+        matchGroupId = bankTxn.reconciledWithId;
+      } else {
+        // Single match - reconciledWithId is the vyapar transaction ID
+        bankTxnIds = [bankId];
+        vyaparTxnIds = [bankTxn.reconciledWithId];
+      }
+    } else if (vyaparId) {
+      // Find the vyapar transaction
+      const [vyaparTxn] = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, req.userId!)));
+
+      if (!vyaparTxn) {
+        return res.status(404).json({ error: 'Vyapar transaction not found' });
+      }
+
+      if (!vyaparTxn.isReconciled || !vyaparTxn.reconciledWithId) {
+        return res.json({ bankTransactions: [], vyaparTransactions: [vyaparTxn], matchType: 'unmatched' });
+      }
+
+      // reconciledWithId could be a bank ID (single match) or matchGroupId (multi match)
+      // Try to find it as a match group first
+      const groupRecords = await db
+        .select()
+        .from(reconciliationMatches)
+        .where(eq(reconciliationMatches.matchGroupId, vyaparTxn.reconciledWithId));
+
+      if (groupRecords.length > 0) {
+        matchGroupId = vyaparTxn.reconciledWithId;
+      } else {
+        // Single match - find bank transaction that points to this vyapar
+        const [bankMatch] = await db
+          .select()
+          .from(bankTransactions)
+          .where(
+            and(
+              eq(bankTransactions.reconciledWithId, vyaparId),
+              eq(bankTransactions.userId, req.userId!)
+            )
+          );
+
+        if (bankMatch) {
+          bankTxnIds = [bankMatch.id];
+          vyaparTxnIds = [vyaparId];
+        } else {
+          // Fallback: reconciledWithId might be the bank transaction ID directly
+          bankTxnIds = [vyaparTxn.reconciledWithId];
+          vyaparTxnIds = [vyaparId];
+        }
+      }
+    }
+
+    // If we have a match group, fetch all IDs from it
+    if (matchGroupId) {
+      const groupRecords = await db
+        .select()
+        .from(reconciliationMatches)
+        .where(eq(reconciliationMatches.matchGroupId, matchGroupId));
+
+      bankTxnIds = groupRecords.filter(r => r.bankTransactionId).map(r => r.bankTransactionId!);
+      vyaparTxnIds = groupRecords.filter(r => r.vyaparTransactionId).map(r => r.vyaparTransactionId!);
+    }
+
+    // Fetch full transaction data
+    const bankTxns = bankTxnIds.length > 0
+      ? await db
+          .select()
+          .from(bankTransactions)
+          .where(sql`${bankTransactions.id} IN (${sql.join(bankTxnIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+
+    const vyaparTxns = vyaparTxnIds.length > 0
+      ? await db
+          .select()
+          .from(vyaparTransactions)
+          .where(sql`${vyaparTransactions.id} IN (${sql.join(vyaparTxnIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+
+    res.json({
+      bankTransactions: bankTxns,
+      vyaparTransactions: vyaparTxns,
+      matchGroupId: matchGroupId || null,
+      matchType: matchGroupId ? 'multi' : (bankTxns.length === 1 && vyaparTxns.length === 1 ? 'single' : 'partial'),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error getting match details:', error);
+    res.status(500).json({ error: 'Failed to get match details' });
   }
 });
 
