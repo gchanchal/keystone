@@ -859,6 +859,142 @@ router.get('/counts', async (req, res) => {
   }
 });
 
+// Find duplicate bank transactions
+router.get('/bank/duplicates', async (req, res) => {
+  try {
+    const { accountId } = z
+      .object({
+        accountId: z.string().optional(),
+      })
+      .parse(req.query);
+
+    // Find duplicates based on date + narration + amount + transactionType
+    const conditions = [eq(bankTransactions.userId, req.userId!)];
+    if (accountId) {
+      conditions.push(eq(bankTransactions.accountId, accountId));
+    }
+
+    const allTxns = await db
+      .select()
+      .from(bankTransactions)
+      .where(and(...conditions))
+      .orderBy(asc(bankTransactions.date), asc(bankTransactions.createdAt));
+
+    // Group by signature (date + narration + amount + type)
+    const groups = new Map<string, typeof allTxns>();
+    for (const txn of allTxns) {
+      const signature = `${txn.date}|${txn.narration}|${txn.amount}|${txn.transactionType}`;
+      if (!groups.has(signature)) {
+        groups.set(signature, []);
+      }
+      groups.get(signature)!.push(txn);
+    }
+
+    // Filter to only groups with more than one transaction (duplicates)
+    const duplicateGroups: { signature: string; count: number; transactions: typeof allTxns }[] = [];
+    for (const [signature, txns] of groups) {
+      if (txns.length > 1) {
+        duplicateGroups.push({
+          signature,
+          count: txns.length,
+          transactions: txns,
+        });
+      }
+    }
+
+    const totalDuplicates = duplicateGroups.reduce((sum, g) => sum + g.count - 1, 0);
+
+    res.json({
+      duplicateGroups: duplicateGroups.length,
+      totalDuplicates,
+      groups: duplicateGroups.map(g => ({
+        signature: g.signature,
+        count: g.count,
+        // Include first and last transaction details
+        sample: {
+          date: g.transactions[0].date,
+          narration: g.transactions[0].narration,
+          amount: g.transactions[0].amount,
+          transactionType: g.transactions[0].transactionType,
+        },
+        ids: g.transactions.map(t => t.id),
+      })),
+    });
+  } catch (error) {
+    console.error('Error finding duplicates:', error);
+    res.status(500).json({ error: 'Failed to find duplicates' });
+  }
+});
+
+// Remove duplicate bank transactions (keeps the first one)
+router.delete('/bank/duplicates', async (req, res) => {
+  try {
+    const { accountId, dryRun } = z
+      .object({
+        accountId: z.string().optional(),
+        dryRun: z.boolean().default(true),
+      })
+      .parse(req.body);
+
+    // Find duplicates based on date + narration + amount + transactionType
+    const conditions = [eq(bankTransactions.userId, req.userId!)];
+    if (accountId) {
+      conditions.push(eq(bankTransactions.accountId, accountId));
+    }
+
+    const allTxns = await db
+      .select()
+      .from(bankTransactions)
+      .where(and(...conditions))
+      .orderBy(asc(bankTransactions.date), asc(bankTransactions.createdAt));
+
+    // Group by signature (date + narration + amount + type)
+    const groups = new Map<string, typeof allTxns>();
+    for (const txn of allTxns) {
+      const signature = `${txn.date}|${txn.narration}|${txn.amount}|${txn.transactionType}`;
+      if (!groups.has(signature)) {
+        groups.set(signature, []);
+      }
+      groups.get(signature)!.push(txn);
+    }
+
+    // Collect IDs to delete (all but the first in each group)
+    const idsToDelete: string[] = [];
+    for (const [, txns] of groups) {
+      if (txns.length > 1) {
+        // Keep first (oldest by createdAt), delete rest
+        for (let i = 1; i < txns.length; i++) {
+          idsToDelete.push(txns[i].id);
+        }
+      }
+    }
+
+    if (dryRun) {
+      res.json({
+        dryRun: true,
+        wouldDelete: idsToDelete.length,
+        message: `Would delete ${idsToDelete.length} duplicate transactions. Set dryRun=false to actually delete.`,
+      });
+    } else {
+      // Actually delete the duplicates
+      if (idsToDelete.length > 0) {
+        for (const id of idsToDelete) {
+          await db.delete(bankTransactions).where(eq(bankTransactions.id, id));
+        }
+      }
+
+      res.json({
+        dryRun: false,
+        deleted: idsToDelete.length,
+        message: `Deleted ${idsToDelete.length} duplicate transactions.`,
+      });
+    }
+  } catch (error) {
+    console.error('Error removing duplicates:', error);
+    res.status(500).json({ error: 'Failed to remove duplicates' });
+  }
+});
+
 // Update single credit card transaction category
 router.patch('/credit-card/:id/category', async (req, res) => {
   try {
