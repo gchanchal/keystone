@@ -12,6 +12,7 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  Trash2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -366,6 +367,13 @@ function BankTransactionTable({
     },
   });
 
+  const deleteBankMutation = useMutation({
+    mutationFn: (id: string) => transactionsApi.deleteBank(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    },
+  });
+
   // Create bank lookup from accounts
   const accountToBankMap = new Map<string, string>(
     accounts.map((a: Account) => [a.id, a.bankName])
@@ -589,6 +597,30 @@ function BankTransactionTable({
         { label: 'Reconciled', value: 'Reconciled' },
         { label: 'Unreconciled', value: 'Unreconciled' },
       ],
+    },
+    {
+      id: 'actions',
+      header: '',
+      accessorKey: 'id',
+      width: '50px',
+      sortable: false,
+      filterable: false,
+      cell: (row) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm('Are you sure you want to delete this transaction?')) {
+              deleteBankMutation.mutate(row.id);
+            }
+          }}
+          title="Delete transaction"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      ),
     },
   ];
 
