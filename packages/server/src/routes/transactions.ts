@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, categories } from '../db/index.js';
-import { eq, and, between, like, desc, asc, or, sql, isNull } from 'drizzle-orm';
+import { eq, and, between, like, desc, asc, or, sql, isNull, inArray } from 'drizzle-orm';
 
 const router = Router();
 
@@ -254,7 +254,19 @@ router.put('/bank/:id', async (req, res) => {
 // Delete bank transaction
 router.delete('/bank/:id', async (req, res) => {
   try {
-    await db.delete(bankTransactions).where(and(eq(bankTransactions.id, req.params.id), eq(bankTransactions.userId, req.userId!)));
+    const bankTxnId = req.params.id;
+
+    // First, unlink any Vyapar transactions that reference this bank transaction
+    await db.update(vyaparTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(vyaparTransactions.reconciledWithId, bankTxnId));
+
+    // Then delete the bank transaction
+    await db.delete(bankTransactions).where(and(eq(bankTransactions.id, bankTxnId), eq(bankTransactions.userId, req.userId!)));
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting transaction:', error);
@@ -682,14 +694,26 @@ router.post('/bank/bulk-delete', async (req, res) => {
       return res.status(400).json({ error: 'Please specify accountId or date range, or set deleteAll: true' });
     }
 
-    // First count how many will be deleted
-    let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(bankTransactions);
-    countQuery = countQuery.where(and(...conditions)) as typeof countQuery;
-    const countResult = await countQuery;
-    const count = countResult[0]?.count || 0;
+    // Get IDs of bank transactions to be deleted (for unlinking Vyapar transactions)
+    const toDelete = await db.select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(and(...conditions));
+    const idsToDelete = toDelete.map(t => t.id);
+    const count = idsToDelete.length;
 
-    // Delete the transactions
-    await db.delete(bankTransactions).where(and(...conditions));
+    if (idsToDelete.length > 0) {
+      // Unlink any Vyapar transactions that reference these bank transactions
+      await db.update(vyaparTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(inArray(vyaparTransactions.reconciledWithId, idsToDelete));
+
+      // Delete the bank transactions
+      await db.delete(bankTransactions).where(and(...conditions));
+    }
 
     res.json({ success: true, deleted: count });
   } catch (error) {
@@ -744,6 +768,8 @@ router.post('/vyapar/bulk-delete', async (req, res) => {
           reconciledWithId: null,
           reconciledWithType: null,
           isReconciled: false,
+          purpose: null,
+          updatedAt: new Date().toISOString(),
         })
         .where(
           and(
@@ -978,6 +1004,16 @@ router.delete('/bank/duplicates', async (req, res) => {
     } else {
       // Actually delete the duplicates
       if (idsToDelete.length > 0) {
+        // First, unlink any Vyapar transactions that reference these bank transactions
+        await db.update(vyaparTransactions)
+          .set({
+            isReconciled: false,
+            reconciledWithId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(inArray(vyaparTransactions.reconciledWithId, idsToDelete));
+
+        // Then delete the bank transactions
         for (const id of idsToDelete) {
           await db.delete(bankTransactions).where(eq(bankTransactions.id, id));
         }
