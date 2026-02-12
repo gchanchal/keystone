@@ -140,10 +140,11 @@ export async function autoReconcile(
 ): Promise<ReconciliationMatch[]> {
   const matches: ReconciliationMatch[] = [];
 
-  // Get unreconciled bank transactions
+  // Get unreconciled bank transactions (isReconciled = false, 0, or null)
   const bankConditions = [
-    eq(bankTransactions.isReconciled, false),
+    sql`(${bankTransactions.isReconciled} = 0 OR ${bankTransactions.isReconciled} IS NULL OR ${bankTransactions.isReconciled} = false)`,
     between(bankTransactions.date, startDate, endDate),
+    sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`, // Exclude personal
   ];
   if (userId) {
     bankConditions.push(eq(bankTransactions.userId, userId));
@@ -154,14 +155,14 @@ export async function autoReconcile(
     .from(bankTransactions)
     .where(and(...bankConditions));
 
-  // Get unreconciled vyapar transactions
+  // Get unreconciled vyapar transactions (isReconciled = false, 0, or null)
   // Exclude:
   // - Payment Type "Gaurav" (internal transfers)
   // - Transaction Type "Sale Order" (pending payment - not reconcilable until payment received)
   // - Transaction Type "Payment-In" (doesn't need bank reconciliation)
   // Only include: Sale, Purchase, Payment-Out, Expense
   const vyaparConditions = [
-    eq(vyaparTransactions.isReconciled, false),
+    sql`(${vyaparTransactions.isReconciled} = 0 OR ${vyaparTransactions.isReconciled} IS NULL OR ${vyaparTransactions.isReconciled} = false)`,
     between(vyaparTransactions.date, startDate, endDate),
     sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
     sql`${vyaparTransactions.transactionType} NOT IN ('Sale Order', 'Payment-In')`,
@@ -200,6 +201,15 @@ export async function autoReconcile(
 
   console.log(`[AutoReconcile] Loaded ${learnedRules.length} learned rules`);
   console.log(`[AutoReconcile] Processing ${filteredBankTxns.length} bank txns, ${vyaparTxns.length} vyapar txns`);
+  console.log(`[AutoReconcile] Date range: ${startDate} to ${endDate}`);
+
+  // Debug: Log a few sample transactions
+  if (filteredBankTxns.length > 0) {
+    console.log(`[AutoReconcile] Sample bank txn: ${filteredBankTxns[0].date}, ${filteredBankTxns[0].amount}, ${filteredBankTxns[0].transactionType}`);
+  }
+  if (vyaparTxns.length > 0) {
+    console.log(`[AutoReconcile] Sample vyapar txn: ${vyaparTxns[0].date}, ${vyaparTxns[0].amount}, ${vyaparTxns[0].transactionType}`);
+  }
 
   // Create sets to track matched transactions
   const matchedBankIds = new Set<string>();
