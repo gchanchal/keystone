@@ -650,4 +650,103 @@ router.patch('/rules/:id', async (req, res) => {
   }
 });
 
+// Find orphaned Vyapar matches (marked as matched but bank transaction doesn't exist)
+router.get('/orphaned-matches', async (req, res) => {
+  try {
+    // Find all Vyapar transactions that are marked as reconciled
+    const matchedVyapar = await db
+      .select()
+      .from(vyaparTransactions)
+      .where(
+        and(
+          eq(vyaparTransactions.userId, req.userId!),
+          eq(vyaparTransactions.isReconciled, true)
+        )
+      );
+
+    // Get all bank transaction IDs
+    const allBankTxns = await db
+      .select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(eq(bankTransactions.userId, req.userId!));
+
+    const bankTxnIds = new Set(allBankTxns.map(t => t.id));
+
+    // Find orphaned matches - Vyapar transactions whose reconciledWithId doesn't exist in bank
+    const orphaned = matchedVyapar.filter(v =>
+      v.reconciledWithId && !bankTxnIds.has(v.reconciledWithId)
+    );
+
+    res.json({
+      count: orphaned.length,
+      orphaned: orphaned.map(v => ({
+        id: v.id,
+        date: v.date,
+        partyName: v.partyName,
+        invoiceNumber: v.invoiceNumber,
+        amount: v.amount,
+        transactionType: v.transactionType,
+        reconciledWithId: v.reconciledWithId,
+      })),
+    });
+  } catch (error) {
+    console.error('Error finding orphaned matches:', error);
+    res.status(500).json({ error: 'Failed to find orphaned matches' });
+  }
+});
+
+// Fix orphaned Vyapar matches (unlink them)
+router.post('/fix-orphaned-matches', async (req, res) => {
+  try {
+    // Find all Vyapar transactions that are marked as reconciled
+    const matchedVyapar = await db
+      .select()
+      .from(vyaparTransactions)
+      .where(
+        and(
+          eq(vyaparTransactions.userId, req.userId!),
+          eq(vyaparTransactions.isReconciled, true)
+        )
+      );
+
+    // Get all bank transaction IDs
+    const allBankTxns = await db
+      .select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(eq(bankTransactions.userId, req.userId!));
+
+    const bankTxnIds = new Set(allBankTxns.map(t => t.id));
+
+    // Find orphaned matches
+    const orphanedIds = matchedVyapar
+      .filter(v => v.reconciledWithId && !bankTxnIds.has(v.reconciledWithId))
+      .map(v => v.id);
+
+    if (orphanedIds.length === 0) {
+      return res.json({ fixed: 0, message: 'No orphaned matches found' });
+    }
+
+    // Unlink them
+    const now = new Date().toISOString();
+    for (const id of orphanedIds) {
+      await db
+        .update(vyaparTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          updatedAt: now,
+        })
+        .where(eq(vyaparTransactions.id, id));
+    }
+
+    res.json({
+      fixed: orphanedIds.length,
+      message: `Fixed ${orphanedIds.length} orphaned matches`,
+    });
+  } catch (error) {
+    console.error('Error fixing orphaned matches:', error);
+    res.status(500).json({ error: 'Failed to fix orphaned matches' });
+  }
+});
+
 export default router;

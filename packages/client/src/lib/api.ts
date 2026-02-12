@@ -132,6 +132,10 @@ export const reconciliationApi = {
       params: { startMonth, endMonth, accountId },
       responseType: 'blob',
     }).then((r) => r.data),
+  getOrphanedMatches: () =>
+    api.get('/reconciliation/orphaned-matches').then((r) => r.data),
+  fixOrphanedMatches: () =>
+    api.post('/reconciliation/fix-orphaned-matches').then((r) => r.data),
 };
 
 // Uploads

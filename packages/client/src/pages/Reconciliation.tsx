@@ -12,6 +12,8 @@ import {
   Info,
   Search,
   UserX,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -149,6 +151,27 @@ export function Reconciliation() {
       queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
     },
   });
+
+  // Check for orphaned Vyapar matches
+  const { data: orphanedData, refetch: refetchOrphaned, isLoading: orphanedLoading } = useQuery({
+    queryKey: ['orphaned-matches'],
+    queryFn: reconciliationApi.getOrphanedMatches,
+    enabled: false, // Only fetch when triggered
+  });
+
+  // Fix orphaned matches
+  const fixOrphanedMutation = useMutation({
+    mutationFn: reconciliationApi.fixOrphanedMatches,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+      queryClient.invalidateQueries({ queryKey: ['orphaned-matches'] });
+    },
+  });
+
+  // Refresh data function
+  const refreshData = () => {
+    queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+  };
 
   const handleExport = async () => {
     const blob = await reconciliationApi.exportReport(
@@ -501,10 +524,25 @@ export function Reconciliation() {
             </Select>
           </div>
 
-          <Button onClick={() => autoMatchMutation.mutate()} disabled={autoMatchMutation.isPending}>
-            <Wand2 className="mr-2 h-4 w-4" />
-            Auto Match
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => refetchOrphaned()}
+              disabled={orphanedLoading}
+              title="Check for orphaned Vyapar matches (matched but bank transaction deleted)"
+            >
+              {orphanedLoading ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <AlertTriangle className="mr-2 h-4 w-4" />
+              )}
+              Check Orphans
+            </Button>
+            <Button onClick={() => autoMatchMutation.mutate()} disabled={autoMatchMutation.isPending}>
+              <Wand2 className="mr-2 h-4 w-4" />
+              Auto Match
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -548,6 +586,37 @@ export function Reconciliation() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Orphaned Matches Alert */}
+      {orphanedData && orphanedData.count > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              <strong>{orphanedData.count} orphaned Vyapar match{orphanedData.count > 1 ? 'es' : ''} found!</strong>
+              {' '}These Vyapar transactions are marked as matched but their bank transactions have been deleted.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-4 bg-white text-destructive border-destructive hover:bg-destructive hover:text-white"
+              onClick={() => fixOrphanedMutation.mutate()}
+              disabled={fixOrphanedMutation.isPending}
+            >
+              {fixOrphanedMutation.isPending ? 'Fixing...' : 'Fix All'}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {orphanedData && orphanedData.count === 0 && (
+        <Alert>
+          <Check className="h-4 w-4" />
+          <AlertDescription>
+            No orphaned matches found. All matched Vyapar transactions have valid bank transaction links.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Auto-Match Results */}
       {autoMatchRan && pendingMatches.length === 0 && (
@@ -975,7 +1044,7 @@ export function Reconciliation() {
                 className="pl-10"
               />
             </div>
-            <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); }} className="mt-2">
+            <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({bank.matched.length + bank.unmatched.length})
@@ -1145,7 +1214,7 @@ export function Reconciliation() {
                 className="pl-10"
               />
             </div>
-            <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); }} className="mt-2">
+            <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({vyapar.matched.length + vyapar.unmatched.length})
