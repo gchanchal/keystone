@@ -136,6 +136,8 @@ export const reconciliationApi = {
     api.get('/reconciliation/orphaned-matches').then((r) => r.data),
   fixOrphanedMatches: () =>
     api.post('/reconciliation/fix-orphaned-matches').then((r) => r.data),
+  repairMatches: () =>
+    api.post('/reconciliation/repair-matches').then((r) => r.data),
 };
 
 // Uploads

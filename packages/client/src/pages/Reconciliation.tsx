@@ -152,19 +152,12 @@ export function Reconciliation() {
     },
   });
 
-  // Check for orphaned Vyapar matches
-  const { data: orphanedData, refetch: refetchOrphaned, isLoading: orphanedLoading } = useQuery({
-    queryKey: ['orphaned-matches'],
-    queryFn: reconciliationApi.getOrphanedMatches,
-    enabled: false, // Only fetch when triggered
-  });
-
-  // Fix orphaned matches
-  const fixOrphanedMutation = useMutation({
-    mutationFn: reconciliationApi.fixOrphanedMatches,
-    onSuccess: () => {
+  // Repair match inconsistencies
+  const repairMatchesMutation = useMutation({
+    mutationFn: reconciliationApi.repairMatches,
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
-      queryClient.invalidateQueries({ queryKey: ['orphaned-matches'] });
+      alert(`Repair complete!\n${data.message}`);
     },
   });
 
@@ -527,16 +520,16 @@ export function Reconciliation() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => refetchOrphaned()}
-              disabled={orphanedLoading}
-              title="Check for orphaned Vyapar matches (matched but bank transaction deleted)"
+              onClick={() => repairMatchesMutation.mutate()}
+              disabled={repairMatchesMutation.isPending}
+              title="Repair inconsistent matches (sync bank and Vyapar sides)"
             >
-              {orphanedLoading ? (
+              {repairMatchesMutation.isPending ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <AlertTriangle className="mr-2 h-4 w-4" />
               )}
-              Check Orphans
+              Repair Matches
             </Button>
             <Button onClick={() => autoMatchMutation.mutate()} disabled={autoMatchMutation.isPending}>
               <Wand2 className="mr-2 h-4 w-4" />
@@ -586,37 +579,6 @@ export function Reconciliation() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Orphaned Matches Alert */}
-      {orphanedData && orphanedData.count > 0 && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>
-              <strong>{orphanedData.count} orphaned Vyapar match{orphanedData.count > 1 ? 'es' : ''} found!</strong>
-              {' '}These Vyapar transactions are marked as matched but their bank transactions have been deleted.
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-4 bg-white text-destructive border-destructive hover:bg-destructive hover:text-white"
-              onClick={() => fixOrphanedMutation.mutate()}
-              disabled={fixOrphanedMutation.isPending}
-            >
-              {fixOrphanedMutation.isPending ? 'Fixing...' : 'Fix All'}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {orphanedData && orphanedData.count === 0 && (
-        <Alert>
-          <Check className="h-4 w-4" />
-          <AlertDescription>
-            No orphaned matches found. All matched Vyapar transactions have valid bank transaction links.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Auto-Match Results */}
       {autoMatchRan && pendingMatches.length === 0 && (

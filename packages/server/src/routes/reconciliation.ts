@@ -695,10 +695,117 @@ router.get('/orphaned-matches', async (req, res) => {
   }
 });
 
-// Fix orphaned Vyapar matches (unlink them)
-router.post('/fix-orphaned-matches', async (req, res) => {
+// Repair all match inconsistencies (sync both sides)
+router.post('/repair-matches', async (req, res) => {
   try {
-    // Find all Vyapar transactions that are marked as reconciled
+    const now = new Date().toISOString();
+    let repairedCount = 0;
+    let orphanedBankCount = 0;
+    let orphanedVyaparCount = 0;
+
+    // Get all bank transactions
+    const allBankTxns = await db
+      .select()
+      .from(bankTransactions)
+      .where(eq(bankTransactions.userId, req.userId!));
+
+    // Get all Vyapar transactions
+    const allVyaparTxns = await db
+      .select()
+      .from(vyaparTransactions)
+      .where(eq(vyaparTransactions.userId, req.userId!));
+
+    const bankMap = new Map(allBankTxns.map(t => [t.id, t]));
+    const vyaparMap = new Map(allVyaparTxns.map(t => [t.id, t]));
+
+    // 1. For each matched bank transaction, ensure Vyapar side is also matched
+    for (const bank of allBankTxns) {
+      if (bank.isReconciled && bank.reconciledWithId && bank.reconciledWithType === 'vyapar') {
+        const vyapar = vyaparMap.get(bank.reconciledWithId);
+        if (vyapar) {
+          // Vyapar exists - ensure it's marked as matched back to this bank
+          if (!vyapar.isReconciled || vyapar.reconciledWithId !== bank.id) {
+            await db
+              .update(vyaparTransactions)
+              .set({
+                isReconciled: true,
+                reconciledWithId: bank.id,
+                updatedAt: now,
+              })
+              .where(eq(vyaparTransactions.id, vyapar.id));
+            repairedCount++;
+          }
+        } else {
+          // Vyapar doesn't exist - unlink the bank transaction
+          await db
+            .update(bankTransactions)
+            .set({
+              isReconciled: false,
+              reconciledWithId: null,
+              reconciledWithType: null,
+              purpose: null,
+              updatedAt: now,
+            })
+            .where(eq(bankTransactions.id, bank.id));
+          orphanedBankCount++;
+        }
+      }
+    }
+
+    // 2. For each matched Vyapar transaction, ensure Bank side is also matched
+    for (const vyapar of allVyaparTxns) {
+      if (vyapar.isReconciled && vyapar.reconciledWithId) {
+        const bank = bankMap.get(vyapar.reconciledWithId);
+        if (bank) {
+          // Bank exists - ensure it's marked as matched back to this Vyapar
+          if (!bank.isReconciled || bank.reconciledWithId !== vyapar.id) {
+            await db
+              .update(bankTransactions)
+              .set({
+                isReconciled: true,
+                reconciledWithId: vyapar.id,
+                reconciledWithType: 'vyapar',
+                purpose: 'business',
+                updatedAt: now,
+              })
+              .where(eq(bankTransactions.id, bank.id));
+            repairedCount++;
+          }
+        } else {
+          // Bank doesn't exist - unlink the Vyapar transaction
+          await db
+            .update(vyaparTransactions)
+            .set({
+              isReconciled: false,
+              reconciledWithId: null,
+              updatedAt: now,
+            })
+            .where(eq(vyaparTransactions.id, vyapar.id));
+          orphanedVyaparCount++;
+        }
+      }
+    }
+
+    res.json({
+      repaired: repairedCount,
+      orphanedBankFixed: orphanedBankCount,
+      orphanedVyaparFixed: orphanedVyaparCount,
+      message: `Repaired ${repairedCount} inconsistent matches, fixed ${orphanedBankCount} orphaned bank and ${orphanedVyaparCount} orphaned Vyapar transactions`,
+    });
+  } catch (error) {
+    console.error('Error repairing matches:', error);
+    res.status(500).json({ error: 'Failed to repair matches' });
+  }
+});
+
+// Fix orphaned Vyapar matches (unlink them) - DEPRECATED, use repair-matches instead
+router.post('/fix-orphaned-matches', async (req, res) => {
+  // Redirect to the comprehensive repair function
+  try {
+    const now = new Date().toISOString();
+    let fixedCount = 0;
+
+    // Get all Vyapar transactions that are marked as reconciled
     const matchedVyapar = await db
       .select()
       .from(vyaparTransactions)
@@ -717,31 +824,24 @@ router.post('/fix-orphaned-matches', async (req, res) => {
 
     const bankTxnIds = new Set(allBankTxns.map(t => t.id));
 
-    // Find orphaned matches
-    const orphanedIds = matchedVyapar
-      .filter(v => v.reconciledWithId && !bankTxnIds.has(v.reconciledWithId))
-      .map(v => v.id);
-
-    if (orphanedIds.length === 0) {
-      return res.json({ fixed: 0, message: 'No orphaned matches found' });
-    }
-
-    // Unlink them
-    const now = new Date().toISOString();
-    for (const id of orphanedIds) {
-      await db
-        .update(vyaparTransactions)
-        .set({
-          isReconciled: false,
-          reconciledWithId: null,
-          updatedAt: now,
-        })
-        .where(eq(vyaparTransactions.id, id));
+    // Find orphaned matches - only those where bank truly doesn't exist
+    for (const vyapar of matchedVyapar) {
+      if (vyapar.reconciledWithId && !bankTxnIds.has(vyapar.reconciledWithId)) {
+        await db
+          .update(vyaparTransactions)
+          .set({
+            isReconciled: false,
+            reconciledWithId: null,
+            updatedAt: now,
+          })
+          .where(eq(vyaparTransactions.id, vyapar.id));
+        fixedCount++;
+      }
     }
 
     res.json({
-      fixed: orphanedIds.length,
-      message: `Fixed ${orphanedIds.length} orphaned matches`,
+      fixed: fixedCount,
+      message: fixedCount > 0 ? `Fixed ${fixedCount} orphaned matches` : 'No orphaned matches found',
     });
   } catch (error) {
     console.error('Error fixing orphaned matches:', error);
