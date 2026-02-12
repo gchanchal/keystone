@@ -402,7 +402,11 @@ def fix_embedded_dates(transactions):
     return transactions
 
 def validate_transaction_types(transactions):
-    """Validate and fix transaction types using balance continuity"""
+    """Validate and fix transaction types using balance continuity.
+
+    Note: We only fix the transaction TYPE based on balance change, not the amount.
+    The parsed amount from the PDF should be trusted as the source of truth.
+    """
     if not transactions:
         return transactions
 
@@ -425,26 +429,18 @@ def validate_transaction_types(transactions):
 
         # Calculate balance change
         balance_diff = curr['balance'] - prev['balance']
-        amount = curr['amount']
 
         # If balance decreased, it's a debit
         # If balance increased, it's a credit
+        # Only fix the transaction type, NOT the amount
         if balance_diff < 0:
             # Balance decreased - should be debit
-            expected_amount = abs(balance_diff)
             if curr['transactionType'] != 'debit':
                 curr['transactionType'] = 'debit'
-            # Also verify amount matches
-            if abs(expected_amount - amount) > 1:
-                curr['amount'] = expected_amount
-        else:
+        elif balance_diff > 0:
             # Balance increased - should be credit
-            expected_amount = balance_diff
             if curr['transactionType'] != 'credit':
                 curr['transactionType'] = 'credit'
-            # Also verify amount matches
-            if abs(expected_amount - amount) > 1:
-                curr['amount'] = expected_amount
 
     return valid_transactions + invalid_transactions
 
@@ -463,14 +459,14 @@ def main():
             # Extract metadata
             metadata = extract_account_metadata(pdf)
 
-            # Extract transactions - try table extraction first
-            transactions = extract_transactions_from_tables(pdf)
+            # Extract transactions - try text-based extraction first (more reliable)
+            transactions = extract_transactions(pdf)
 
-            # If table extraction didn't work well, try text-based
+            # If text extraction didn't work well, try table-based as fallback
             if len(transactions) < 5:
-                text_transactions = extract_transactions(pdf)
-                if len(text_transactions) > len(transactions):
-                    transactions = text_transactions
+                table_transactions = extract_transactions_from_tables(pdf)
+                if len(table_transactions) > len(transactions):
+                    transactions = table_transactions
 
             # Validate and fix transaction types using balance continuity
             transactions = validate_transaction_types(transactions)
