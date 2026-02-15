@@ -15,6 +15,7 @@ import {
   Trash2,
   RefreshCw,
   Wrench,
+  Copy,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -253,6 +254,15 @@ export function Transactions() {
     },
   });
 
+  // Remove duplicate transactions
+  const removeDuplicatesMutation = useMutation({
+    mutationFn: () => transactionsApi.removeDuplicates(undefined, false),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      alert(`${data.message}\n\nDeleted: ${data.deleted} duplicate transactions`);
+    },
+  });
+
   return (
     <div className="space-y-6">
       {/* Header with date range */}
@@ -304,6 +314,23 @@ export function Transactions() {
               <Wrench className="mr-2 h-4 w-4" />
             )}
             Verify & Fix
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (confirm('This will remove duplicate bank transactions (keeps the first one). Continue?')) {
+                removeDuplicatesMutation.mutate();
+              }
+            }}
+            disabled={removeDuplicatesMutation.isPending}
+            title="Remove duplicate bank transactions"
+          >
+            {removeDuplicatesMutation.isPending ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Copy className="mr-2 h-4 w-4" />
+            )}
+            Remove Duplicates
           </Button>
         </div>
       </div>

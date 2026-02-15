@@ -105,6 +105,8 @@ export const transactionsApi = {
     api.get('/transactions/counts', { params }).then((r) => r.data),
   verifyFixTypes: (accountId?: string) =>
     api.post('/transactions/bank/verify-fix-types', { accountId }).then((r) => r.data),
+  removeDuplicates: (accountId?: string, dryRun = false) =>
+    api.delete('/transactions/bank/duplicates', { data: { accountId, dryRun } }).then((r) => r.data),
 };
 
 // Reconciliation
