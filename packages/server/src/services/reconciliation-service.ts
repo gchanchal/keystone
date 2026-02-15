@@ -289,7 +289,7 @@ export async function autoReconcile(
     }
   }
 
-  // Priority 2: Exact amount + date within ±2 days + direction compatible
+  // Priority 2: Exact amount + date within ±7 days + direction compatible
   for (const bankTxn of filteredBankTxns) {
     if (matchedBankIds.has(bankTxn.id)) continue;
 
@@ -298,15 +298,15 @@ export async function autoReconcile(
 
       if (
         amountsMatch(bankTxn.amount, vyaparTxn.amount) &&
-        datesWithinRange(bankTxn.date, vyaparTxn.date, 2) &&
+        datesWithinRange(bankTxn.date, vyaparTxn.date, 7) &&
         areDirectionsCompatible(bankTxn.transactionType, vyaparTxn.transactionType)
       ) {
         const dayDiff = Math.abs(
           (parseISO(bankTxn.date).getTime() - parseISO(vyaparTxn.date).getTime()) /
             (1000 * 60 * 60 * 24)
         );
-        // Confidence: 95% for 1 day diff, 85% for 2 day diff
-        const confidence = Math.max(80, 95 - dayDiff * 5);
+        // Confidence: 95% for 1 day diff, down to 75% for 7 days
+        const confidence = Math.max(75, 95 - dayDiff * 3);
 
         matches.push({
           bankTransactionId: bankTxn.id,
