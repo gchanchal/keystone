@@ -72,7 +72,7 @@ export function BankDetailsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-80 p-0"
+        className="w-[400px] max-w-[90vw] p-0"
         side="right"
         align="start"
         onMouseEnter={() => !isPinned && setIsOpen(true)}
@@ -97,7 +97,7 @@ export function BankDetailsPopover({
           {/* Full Narration */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1">Narration</p>
-            <p className="text-sm break-words">{narration}</p>
+            <p className="text-sm break-all whitespace-pre-wrap">{narration}</p>
           </div>
 
           {/* Date and Amount */}
