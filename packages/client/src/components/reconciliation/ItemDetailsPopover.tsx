@@ -36,16 +36,14 @@ export function ItemDetailsPopover({
   const [isPinned, setIsPinned] = useState(false);
 
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ['vyapar-items', invoiceNumber, date],
+    queryKey: ['vyapar-items', invoiceNumber],
     queryFn: () =>
       transactionsApi.getVyaparItems({
         invoiceNumber: invoiceNumber || undefined,
-        // If no invoice number, try to match by date (less reliable)
-        startDate: !invoiceNumber ? date : undefined,
-        endDate: !invoiceNumber ? date : undefined,
         limit: '50',
       }),
-    enabled: isOpen && (!!invoiceNumber || !!date),
+    // Only fetch if we have an invoice number - otherwise items can't be reliably linked
+    enabled: isOpen && !!invoiceNumber,
   });
 
   const handleMouseEnter = () => {
@@ -113,7 +111,11 @@ export function ItemDetailsPopover({
         </div>
 
         <div className="max-h-64 overflow-y-auto">
-          {isLoading ? (
+          {!invoiceNumber ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              No invoice number - item details unavailable
+            </div>
+          ) : isLoading ? (
             <div className="flex items-center justify-center p-4">
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
               <span className="text-sm text-muted-foreground">Loading items...</span>

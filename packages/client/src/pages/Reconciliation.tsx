@@ -14,6 +14,8 @@ import {
   UserX,
   AlertTriangle,
   RefreshCw,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +54,8 @@ export function Reconciliation() {
   const [autoMatchRan, setAutoMatchRan] = useState(false);
   const [bankFilter, setBankFilter] = useState<FilterStatus>('unmatched');
   const [vyaparFilter, setVyaparFilter] = useState<FilterStatus>('unmatched');
+  const [bankDirectionFilter, setBankDirectionFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [vyaparDirectionFilter, setVyaparDirectionFilter] = useState<'all' | 'in' | 'out'>('all');
   const [bankSearch, setBankSearch] = useState('');
   const [vyaparSearch, setVyaparSearch] = useState('');
   // State to track which matched transaction is selected to show details
@@ -263,8 +267,12 @@ export function Reconciliation() {
     return sum + (txn?.amount || 0);
   }, 0);
 
-  // Filter bank transactions based on search
+  // Filter bank transactions based on search and direction
   const filterBankTxn = (txn: BankTransaction) => {
+    // Direction filter: 'in' = credit, 'out' = debit
+    if (bankDirectionFilter === 'in' && txn.transactionType !== 'credit') return false;
+    if (bankDirectionFilter === 'out' && txn.transactionType !== 'debit') return false;
+
     if (!bankSearch) return true;
     const searchLower = bankSearch.toLowerCase();
     const narration = (txn.narration || '').toLowerCase();
@@ -281,8 +289,13 @@ export function Reconciliation() {
   const filteredBankMatched = bank.matched.filter(filterBankTxn);
   const filteredBankUnmatched = bank.unmatched.filter(filterBankTxn);
 
-  // Filter vyapar transactions based on search
+  // Filter vyapar transactions based on search and direction
+  // 'in' = Sale (money coming in), 'out' = Expense/Purchase/Payment-Out (money going out)
   const filterVyaparTxn = (txn: VyaparTransaction) => {
+    // Direction filter
+    if (vyaparDirectionFilter === 'in' && txn.transactionType !== 'Sale') return false;
+    if (vyaparDirectionFilter === 'out' && !['Expense', 'Purchase', 'Payment-Out'].includes(txn.transactionType)) return false;
+
     if (!vyaparSearch) return true;
     const searchLower = vyaparSearch.toLowerCase();
     const partyName = (txn.partyName || '').toLowerCase();
@@ -997,25 +1010,55 @@ export function Reconciliation() {
             <div className="flex items-center justify-between">
               <CardTitle>Bank Transactions</CardTitle>
             </div>
-            <div className="relative mt-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by name or amount..."
-                value={bankSearch}
-                onChange={(e) => setBankSearch(e.target.value)}
-                className="pl-10"
-              />
+            <div className="flex gap-2 mt-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name or amount..."
+                  value={bankSearch}
+                  onChange={(e) => setBankSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  variant={bankDirectionFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBankDirectionFilter('all')}
+                  className="px-2"
+                >
+                  All
+                </Button>
+                <Button
+                  variant={bankDirectionFilter === 'in' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBankDirectionFilter('in')}
+                  className="px-2 text-green-600"
+                  title="Credits (Money In)"
+                >
+                  <ArrowDownLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={bankDirectionFilter === 'out' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBankDirectionFilter('out')}
+                  className="px-2 text-red-600"
+                  title="Debits (Money Out)"
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
-                  All ({bank.matched.length + bank.unmatched.length})
+                  All ({filteredBankMatched.length + filteredBankUnmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({viewingMatchBankId ? `1/${bank.matched.length}` : bank.matched.length})
+                  Matched ({viewingMatchBankId ? `1/${filteredBankMatched.length}` : filteredBankMatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
-                  Unmatched ({bank.unmatched.length})
+                  Unmatched ({filteredBankUnmatched.length})
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -1167,25 +1210,55 @@ export function Reconciliation() {
             <div className="flex items-center justify-between">
               <CardTitle>Vyapar Transactions</CardTitle>
             </div>
-            <div className="relative mt-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by party, invoice or amount..."
-                value={vyaparSearch}
-                onChange={(e) => setVyaparSearch(e.target.value)}
-                className="pl-10"
-              />
+            <div className="flex gap-2 mt-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by party, invoice or amount..."
+                  value={vyaparSearch}
+                  onChange={(e) => setVyaparSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  variant={vyaparDirectionFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setVyaparDirectionFilter('all')}
+                  className="px-2"
+                >
+                  All
+                </Button>
+                <Button
+                  variant={vyaparDirectionFilter === 'in' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setVyaparDirectionFilter('in')}
+                  className="px-2 text-green-600"
+                  title="Sales (Money In)"
+                >
+                  <ArrowDownLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={vyaparDirectionFilter === 'out' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setVyaparDirectionFilter('out')}
+                  className="px-2 text-red-600"
+                  title="Expenses/Purchases (Money Out)"
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
-                  All ({vyapar.matched.length + vyapar.unmatched.length})
+                  All ({filteredVyaparMatched.length + filteredVyaparUnmatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="matched">
-                  Matched ({viewingMatchVyaparId ? `1/${vyapar.matched.length}` : vyapar.matched.length})
+                  Matched ({viewingMatchVyaparId ? `1/${filteredVyaparMatched.length}` : filteredVyaparMatched.length})
                 </TabsTrigger>
                 <TabsTrigger value="unmatched">
-                  Unmatched ({vyapar.unmatched.length})
+                  Unmatched ({filteredVyaparUnmatched.length})
                 </TabsTrigger>
               </TabsList>
             </Tabs>
