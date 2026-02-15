@@ -283,7 +283,7 @@ router.post('/bank/verify-fix-types', async (req, res) => {
       })
       .parse(req.body);
 
-    // Get all transactions for the user (or specific account), sorted by date and created_at
+    // Get all transactions for the user (or specific account)
     const conditions = [eq(bankTransactions.userId, req.userId!)];
     if (accountId) {
       conditions.push(eq(bankTransactions.accountId, accountId));
@@ -293,70 +293,100 @@ router.post('/bank/verify-fix-types', async (req, res) => {
       .select()
       .from(bankTransactions)
       .where(and(...conditions))
-      .orderBy(asc(bankTransactions.date), asc(bankTransactions.createdAt));
+      .orderBy(asc(bankTransactions.accountId), asc(bankTransactions.date), asc(bankTransactions.createdAt));
 
     if (allTxns.length === 0) {
-      return res.json({ fixed: 0, message: 'No transactions found' });
+      return res.json({ fixed: 0, total: 0, message: 'No transactions found' });
+    }
+
+    // Group transactions by account - balance continuity only makes sense within same account
+    const txnsByAccount = new Map<string, typeof allTxns>();
+    for (const txn of allTxns) {
+      if (!txnsByAccount.has(txn.accountId)) {
+        txnsByAccount.set(txn.accountId, []);
+      }
+      txnsByAccount.get(txn.accountId)!.push(txn);
     }
 
     const now = new Date().toISOString();
     let fixedCount = 0;
-    const fixes: Array<{ id: string; narration: string; oldType: string; newType: string; amount: number }> = [];
+    const fixes: Array<{ id: string; narration: string; oldType: string; newType: string; amount: number; account: string }> = [];
 
-    // Use balance continuity to verify and fix transaction types
-    for (let i = 1; i < allTxns.length; i++) {
-      const prev = allTxns[i - 1];
-      const curr = allTxns[i];
+    // Process each account separately
+    for (const [accId, accountTxns] of txnsByAccount) {
+      // Sort by date and created_at within this account
+      accountTxns.sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.createdAt.localeCompare(b.createdAt);
+      });
 
-      // Skip if either balance is null
-      if (prev.balance === null || curr.balance === null) {
-        continue;
-      }
+      // Use balance continuity to verify and fix transaction types
+      for (let i = 1; i < accountTxns.length; i++) {
+        const prev = accountTxns[i - 1];
+        const curr = accountTxns[i];
 
-      // Calculate expected type based on balance change
-      const balanceDiff = curr.balance - prev.balance;
-      let expectedType: 'credit' | 'debit';
+        // Skip if either balance is null
+        if (prev.balance === null || curr.balance === null) {
+          continue;
+        }
 
-      if (balanceDiff > 0) {
-        // Balance increased -> money came in -> credit
-        expectedType = 'credit';
-      } else if (balanceDiff < 0) {
-        // Balance decreased -> money went out -> debit
-        expectedType = 'debit';
-      } else {
-        // No change - skip
-        continue;
-      }
+        // Calculate expected type based on balance change
+        const balanceDiff = curr.balance - prev.balance;
+        let expectedType: 'credit' | 'debit';
 
-      // Check if current type matches expected
-      if (curr.transactionType !== expectedType) {
-        // Fix it
-        await db
-          .update(bankTransactions)
-          .set({
-            transactionType: expectedType,
-            updatedAt: now,
-          })
-          .where(eq(bankTransactions.id, curr.id));
+        // Balance increased by transaction amount -> credit
+        // Balance decreased by transaction amount -> debit
+        if (Math.abs(balanceDiff + curr.amount) < 0.01) {
+          // prev.balance - curr.amount = curr.balance (debit)
+          expectedType = 'debit';
+        } else if (Math.abs(balanceDiff - curr.amount) < 0.01) {
+          // prev.balance + curr.amount = curr.balance (credit)
+          expectedType = 'credit';
+        } else {
+          // Balance change doesn't match amount - might be missing transactions
+          // Fall back to simple check
+          if (balanceDiff > 0) {
+            expectedType = 'credit';
+          } else if (balanceDiff < 0) {
+            expectedType = 'debit';
+          } else {
+            continue;
+          }
+        }
 
-        fixes.push({
-          id: curr.id,
-          narration: curr.narration?.substring(0, 50) || '',
-          oldType: curr.transactionType,
-          newType: expectedType,
-          amount: curr.amount,
-        });
-        fixedCount++;
+        // Check if current type matches expected
+        if (curr.transactionType !== expectedType) {
+          // Fix it
+          await db
+            .update(bankTransactions)
+            .set({
+              transactionType: expectedType,
+              updatedAt: now,
+            })
+            .where(eq(bankTransactions.id, curr.id));
+
+          fixes.push({
+            id: curr.id,
+            narration: curr.narration?.substring(0, 50) || '',
+            oldType: curr.transactionType,
+            newType: expectedType,
+            amount: curr.amount,
+            account: accId,
+          });
+          fixedCount++;
+        }
       }
     }
 
     res.json({
       total: allTxns.length,
+      accountsProcessed: txnsByAccount.size,
       fixed: fixedCount,
-      fixes: fixes.slice(0, 20), // Return first 20 fixes for reference
+      fixes: fixes.slice(0, 30), // Return first 30 fixes for reference
       message: fixedCount > 0
-        ? `Fixed ${fixedCount} transaction(s) with incorrect credit/debit type`
-        : 'All transactions have correct credit/debit types',
+        ? `Fixed ${fixedCount} transaction(s) with incorrect credit/debit type across ${txnsByAccount.size} account(s)`
+        : `All transactions have correct credit/debit types (checked ${txnsByAccount.size} account(s))`,
     });
   } catch (error) {
     console.error('Error verifying/fixing transaction types:', error);
