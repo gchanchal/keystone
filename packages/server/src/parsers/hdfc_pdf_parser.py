@@ -231,8 +231,9 @@ def extract_transactions(pdf):
             rest = txn_match.group(2)
 
             # Parse the rest of the line
-            # Find the reference number (usually a long number)
-            ref_match = re.search(r'\s+(\d{10,})\s+', rest)
+            # Find the reference number (can be pure digits or alphanumeric like HDFCH00791437693)
+            # Match either: pure digits (10+) OR alphanumeric starting with letters followed by digits
+            ref_match = re.search(r'\s+([A-Z]{0,10}\d{10,})\s+', rest)
             if not ref_match:
                 continue
 
