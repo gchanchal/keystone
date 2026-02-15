@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  RefreshCw,
+  Wrench,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -242,6 +244,15 @@ export function Transactions() {
   const accountMap = new Map<string, string>(accounts.map((a: Account) => [a.id, a.name]));
   const categoryMap = new Map<string, Category>(categories.map((c: Category) => [c.id, c]));
 
+  // Verify and fix transaction types using balance continuity
+  const verifyFixTypesMutation = useMutation({
+    mutationFn: (accountId?: string) => transactionsApi.verifyFixTypes(accountId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      alert(`${data.message}\n\nTotal transactions: ${data.total}\nFixed: ${data.fixed}`);
+    },
+  });
+
   return (
     <div className="space-y-6">
       {/* Header with date range */}
@@ -280,6 +291,19 @@ export function Transactions() {
           <Button variant="outline" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />
             Export
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => verifyFixTypesMutation.mutate(undefined)}
+            disabled={verifyFixTypesMutation.isPending}
+            title="Verify and fix credit/debit types using balance continuity"
+          >
+            {verifyFixTypesMutation.isPending ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Wrench className="mr-2 h-4 w-4" />
+            )}
+            Verify & Fix
           </Button>
         </div>
       </div>

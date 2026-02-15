@@ -274,6 +274,96 @@ router.delete('/bank/:id', async (req, res) => {
   }
 });
 
+// Verify and fix transaction types using balance continuity
+router.post('/bank/verify-fix-types', async (req, res) => {
+  try {
+    const { accountId } = z
+      .object({
+        accountId: z.string().optional(),
+      })
+      .parse(req.body);
+
+    // Get all transactions for the user (or specific account), sorted by date and created_at
+    const conditions = [eq(bankTransactions.userId, req.userId!)];
+    if (accountId) {
+      conditions.push(eq(bankTransactions.accountId, accountId));
+    }
+
+    const allTxns = await db
+      .select()
+      .from(bankTransactions)
+      .where(and(...conditions))
+      .orderBy(asc(bankTransactions.date), asc(bankTransactions.createdAt));
+
+    if (allTxns.length === 0) {
+      return res.json({ fixed: 0, message: 'No transactions found' });
+    }
+
+    const now = new Date().toISOString();
+    let fixedCount = 0;
+    const fixes: Array<{ id: string; narration: string; oldType: string; newType: string; amount: number }> = [];
+
+    // Use balance continuity to verify and fix transaction types
+    for (let i = 1; i < allTxns.length; i++) {
+      const prev = allTxns[i - 1];
+      const curr = allTxns[i];
+
+      // Skip if either balance is null
+      if (prev.balance === null || curr.balance === null) {
+        continue;
+      }
+
+      // Calculate expected type based on balance change
+      const balanceDiff = curr.balance - prev.balance;
+      let expectedType: 'credit' | 'debit';
+
+      if (balanceDiff > 0) {
+        // Balance increased -> money came in -> credit
+        expectedType = 'credit';
+      } else if (balanceDiff < 0) {
+        // Balance decreased -> money went out -> debit
+        expectedType = 'debit';
+      } else {
+        // No change - skip
+        continue;
+      }
+
+      // Check if current type matches expected
+      if (curr.transactionType !== expectedType) {
+        // Fix it
+        await db
+          .update(bankTransactions)
+          .set({
+            transactionType: expectedType,
+            updatedAt: now,
+          })
+          .where(eq(bankTransactions.id, curr.id));
+
+        fixes.push({
+          id: curr.id,
+          narration: curr.narration?.substring(0, 50) || '',
+          oldType: curr.transactionType,
+          newType: expectedType,
+          amount: curr.amount,
+        });
+        fixedCount++;
+      }
+    }
+
+    res.json({
+      total: allTxns.length,
+      fixed: fixedCount,
+      fixes: fixes.slice(0, 20), // Return first 20 fixes for reference
+      message: fixedCount > 0
+        ? `Fixed ${fixedCount} transaction(s) with incorrect credit/debit type`
+        : 'All transactions have correct credit/debit types',
+    });
+  } catch (error) {
+    console.error('Error verifying/fixing transaction types:', error);
+    res.status(500).json({ error: 'Failed to verify/fix transaction types' });
+  }
+});
+
 // Get all categories
 router.get('/categories', async (req, res) => {
   try {

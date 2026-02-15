@@ -103,6 +103,8 @@ export const transactionsApi = {
     api.post('/transactions/credit-card/bulk-delete', params).then((r) => r.data),
   getCounts: (params: { type: 'bank' | 'vyapar' | 'credit-card'; accountId?: string; startDate?: string; endDate?: string; source?: 'gmail' | 'statement' }) =>
     api.get('/transactions/counts', { params }).then((r) => r.data),
+  verifyFixTypes: (accountId?: string) =>
+    api.post('/transactions/bank/verify-fix-types', { accountId }).then((r) => r.data),
 };
 
 // Reconciliation
