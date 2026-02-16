@@ -834,7 +834,7 @@ export function Reconciliation() {
                               <p className="font-bold">{formatCurrency(txn.amount)}</p>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">{formatDate(txn.date)}</p>
-                            <p className="text-sm font-medium line-clamp-1 mt-1">{txn.partyName || '-'}</p>
+                            <p className="text-sm font-medium line-clamp-1 mt-1">{txn.partyName || txn.categoryName || '-'}</p>
                             {txn.invoiceNumber && (
                               <p className="text-xs text-muted-foreground">Invoice: {txn.invoiceNumber}</p>
                             )}
@@ -960,7 +960,7 @@ export function Reconciliation() {
                               <p className="text-lg font-bold">{formatCurrency(vyaparTxn.amount)}</p>
                               <p className="text-sm text-muted-foreground">{formatDate(vyaparTxn.date)}</p>
                               <p className="text-sm font-medium line-clamp-1">
-                                {vyaparTxn.partyName || vyaparTxn.invoiceNumber || '-'}
+                                {vyaparTxn.partyName || vyaparTxn.invoiceNumber || vyaparTxn.categoryName || '-'}
                               </p>
                             </>
                           ) : (
@@ -1298,7 +1298,7 @@ export function Reconciliation() {
                             )}
                           </div>
                           <p className="text-sm font-medium line-clamp-1 mt-1">
-                            {txn.partyName || txn.invoiceNumber || '-'}
+                            {txn.partyName || txn.invoiceNumber || txn.categoryName || '-'}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
@@ -1336,7 +1336,7 @@ export function Reconciliation() {
                           )}
                         </div>
                         <p className="text-sm font-medium line-clamp-1 mt-1">
-                          {txn.partyName || txn.invoiceNumber || '-'}
+                          {txn.partyName || txn.invoiceNumber || txn.categoryName || '-'}
                         </p>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
