@@ -212,8 +212,8 @@ export function BusinessAccounting() {
     return { vyaparIds: vyapar, bankIds: bank };
   }, [transactions]);
 
-  // Fetch note counts for all transactions
-  const { data: noteCounts = {} } = useQuery<Record<string, number>>({
+  // Fetch note counts and latest note for all transactions
+  const { data: noteData = {} } = useQuery<Record<string, { count: number; latestNote: string; latestAt: string }>>({
     queryKey: ['transaction-note-counts', vyaparIds, bankIds],
     queryFn: () => (vyaparIds.length > 0 || bankIds.length > 0)
       ? businessAccountingApi.getNoteCounts(vyaparIds, bankIds)
@@ -515,30 +515,40 @@ export function BusinessAccounting() {
     {
       id: 'notes',
       header: 'Notes',
-      accessorKey: (row) => noteCounts[row.id] || 0,
-      width: '60px',
-      minWidth: 60,
+      accessorKey: (row) => noteData[row.id]?.latestNote || '',
+      width: '180px',
+      minWidth: 140,
       cell: (row) => {
-        const count = noteCounts[row.id] || 0;
+        const info = noteData[row.id];
+        const count = info?.count || 0;
         return (
           <button
             onClick={(e) => {
               e.stopPropagation();
               setNotesTransaction(row);
             }}
-            className={`flex items-center justify-center gap-1 mx-auto p-1 rounded hover:bg-muted transition-colors ${
-              count > 0 ? 'text-blue-600' : 'text-muted-foreground'
+            className={`flex items-start gap-1.5 w-full text-left p-1 rounded hover:bg-muted transition-colors ${
+              count > 0 ? 'text-foreground' : 'text-muted-foreground'
             }`}
-            title={count > 0 ? `${count} note${count > 1 ? 's' : ''}` : 'Add note'}
+            title={count > 0 ? `${count} note${count > 1 ? 's' : ''} - Click to view` : 'Add note'}
           >
-            <MessageSquare className="h-4 w-4" />
-            {count > 0 && <span className="text-xs font-medium">{count}</span>}
+            <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            {count > 0 ? (
+              <div className="min-w-0 flex-1">
+                <p className="text-xs line-clamp-2">{info.latestNote}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {format(new Date(info.latestAt), 'dd MMM, HH:mm')}
+                  {count > 1 && ` · +${count - 1} more`}
+                </p>
+              </div>
+            ) : (
+              <span className="text-xs">Add note</span>
+            )}
           </button>
         );
       },
-      align: 'center',
     },
-  ], [uniqueAccountNames, noteCounts]);
+  ], [uniqueAccountNames, noteData]);
 
   return (
     <div className="space-y-6">

@@ -3776,7 +3776,7 @@ router.delete('/transaction/:transactionId/notes/:noteId', async (req, res) => {
   }
 });
 
-// Get note counts for multiple transactions (supports both Vyapar and bank)
+// Get note counts and latest note for multiple transactions (supports both Vyapar and bank)
 router.post('/transactions/note-counts', async (req, res) => {
   try {
     const hasAccess = await isGearupAuthorized(req);
@@ -3786,37 +3786,41 @@ router.post('/transactions/note-counts', async (req, res) => {
 
     const { vyaparIds = [], bankIds = [] } = req.body;
 
-    const countMap: Record<string, number> = {};
+    const countMap: Record<string, { count: number; latestNote: string; latestAt: string }> = {};
 
-    // Get Vyapar note counts
+    // Get Vyapar note counts + latest note
     if (Array.isArray(vyaparIds) && vyaparIds.length > 0) {
       const vyaparCounts = await db
         .select({
           transactionId: vyaparTransactionNotes.transactionId,
           count: sql<number>`COUNT(*)`.as('count'),
+          latestNote: sql<string>`(SELECT note FROM vyapar_transaction_notes n2 WHERE n2.transaction_id = ${vyaparTransactionNotes.transactionId} ORDER BY n2.created_at DESC LIMIT 1)`.as('latest_note'),
+          latestAt: sql<string>`MAX(${vyaparTransactionNotes.createdAt})`.as('latest_at'),
         })
         .from(vyaparTransactionNotes)
         .where(sql`${vyaparTransactionNotes.transactionId} IN (${sql.join(vyaparIds.map(id => sql`${id}`), sql`, `)})`)
         .groupBy(vyaparTransactionNotes.transactionId);
 
       for (const row of vyaparCounts) {
-        countMap[row.transactionId] = row.count;
+        countMap[row.transactionId] = { count: row.count, latestNote: row.latestNote, latestAt: row.latestAt };
       }
     }
 
-    // Get bank note counts
+    // Get bank note counts + latest note
     if (Array.isArray(bankIds) && bankIds.length > 0) {
       const bankCounts = await db
         .select({
           transactionId: bankTransactionNotes.transactionId,
           count: sql<number>`COUNT(*)`.as('count'),
+          latestNote: sql<string>`(SELECT note FROM bank_transaction_notes n2 WHERE n2.transaction_id = ${bankTransactionNotes.transactionId} ORDER BY n2.created_at DESC LIMIT 1)`.as('latest_note'),
+          latestAt: sql<string>`MAX(${bankTransactionNotes.createdAt})`.as('latest_at'),
         })
         .from(bankTransactionNotes)
         .where(sql`${bankTransactionNotes.transactionId} IN (${sql.join(bankIds.map(id => sql`${id}`), sql`, `)})`)
         .groupBy(bankTransactionNotes.transactionId);
 
       for (const row of bankCounts) {
-        countMap[row.transactionId] = row.count;
+        countMap[row.transactionId] = { count: row.count, latestNote: row.latestNote, latestAt: row.latestAt };
       }
     }
 
