@@ -1,7 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { db, bankTransactions, vyaparTransactions, reconciliationRules } from '../db/index.js';
+import { db, bankTransactions, vyaparTransactions, reconciliationRules, accounts } from '../db/index.js';
 import { eq, and, between, sql, desc } from 'drizzle-orm';
+
+// Helper to check if Vyapar is enabled as a GearUp business data source
+async function isVyaparEnabled(userId: string): Promise<boolean> {
+  const [vyaparAccount] = await db
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.userId, userId),
+        eq(accounts.accountType, 'vyapar'),
+        eq(accounts.isGearupBusiness, true)
+      )
+    )
+    .limit(1);
+  return !!vyaparAccount;
+}
 import {
   autoReconcile,
   applyMatches,
@@ -46,11 +62,14 @@ router.get('/', async (req, res) => {
       .from(bankTransactions)
       .where(and(...bankConditions));
 
-    // Get vyapar transactions
-    const vyaparTxns = await db
-      .select()
-      .from(vyaparTransactions)
-      .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)));
+    // Get vyapar transactions only if Vyapar is enabled as a data source
+    const vyaparEnabled = await isVyaparEnabled(req.userId!);
+    const vyaparTxns = vyaparEnabled
+      ? await db
+          .select()
+          .from(vyaparTransactions)
+          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)))
+      : [];
 
     // Separate matched and unmatched
     const matchedBank = bankTxns.filter(t => t.isReconciled);
@@ -498,10 +517,14 @@ router.get('/export', async (req, res) => {
       .from(bankTransactions)
       .where(and(...bankConditions));
 
-    const vyaparTxns = await db
-      .select()
-      .from(vyaparTransactions)
-      .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)));
+    // Get vyapar transactions only if Vyapar is enabled
+    const vyaparEnabled = await isVyaparEnabled(req.userId!);
+    const vyaparTxns = vyaparEnabled
+      ? await db
+          .select()
+          .from(vyaparTransactions)
+          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)))
+      : [];
 
     // Build matched pairs
     const matches: Array<{
