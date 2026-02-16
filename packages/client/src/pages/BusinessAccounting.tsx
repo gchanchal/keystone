@@ -325,16 +325,16 @@ export function BusinessAccounting() {
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
       case 'saleOrders': {
-        // Build set of party names that have a Sale (converted from Sale Order)
-        const partiesWithSale = new Set(
+        // Build set of party+amount keys that have a Sale (converted from Sale Order)
+        const salesKeys = new Set(
           transactions
             .filter(tx => tx.accountName === 'Vyapar' && tx.bizType === 'SALE' && tx.vendorName)
-            .map(tx => tx.vendorName!.toLowerCase())
+            .map(tx => `${tx.vendorName!.toLowerCase()}|${tx.amount}`)
         );
-        // Include Sale Orders (exclude those converted to Sale) + Sales with balance > 0 (partial paid) - Vyapar only
+        // Include Sale Orders (exclude those converted to Sale by matching party+amount) + Sales with balance > 0 (partial paid) - Vyapar only
         return transactions.filter(tx =>
           tx.accountName === 'Vyapar' && (
-            (tx.bizType === 'SALE_ORDER' && !(tx.vendorName && partiesWithSale.has(tx.vendorName.toLowerCase()))) ||
+            (tx.bizType === 'SALE_ORDER' && !(tx.vendorName && salesKeys.has(`${tx.vendorName.toLowerCase()}|${tx.amount}`))) ||
             (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
           )
         );
