@@ -1843,17 +1843,17 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        // Pending Payments = Sale Orders + Sales with balance > 0 (partial paid)
-        // Always use balance when available, fallback to amount
+        // Pending Payments = Sale Orders with balance > 0 (not converted to Sale) + Sales with balance > 0 (partial paid)
+        // Sale Orders with balance = 0 have been converted to Sales, so exclude them
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' AND COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount}) > 0 THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
             WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
             ELSE 0
           END)`,
         pendingPaymentsCount: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN 1
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' AND COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount}) > 0 THEN 1
             WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
             ELSE 0
           END)`,
