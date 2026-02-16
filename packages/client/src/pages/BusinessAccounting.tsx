@@ -287,10 +287,12 @@ export function BusinessAccounting() {
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
       case 'saleOrders':
-        // Include Sale Orders (full pending) + Sales with balance > 0 (partial paid)
+        // Include Sale Orders (full pending) + Sales with balance > 0 (partial paid) - Vyapar only
         return transactions.filter(tx =>
-          tx.bizType === 'SALE_ORDER' ||
-          (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
+          tx.accountName === 'Vyapar' && (
+            tx.bizType === 'SALE_ORDER' ||
+            (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
+          )
         );
       default:
         return transactions;
