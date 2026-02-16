@@ -1843,17 +1843,33 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        // Pending Payments = Sale Orders with balance > 0 (not converted to Sale) + Sales with balance > 0 (partial paid)
-        // Sale Orders with balance = 0 have been converted to Sales, so exclude them
+        // Pending Payments = Sale Orders (not converted to Sale) + Sales with balance > 0 (partial paid)
+        // A Sale Order is "converted" if a Sale exists with the same party_name
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' AND COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount}) > 0 THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+              AND NOT EXISTS (
+                SELECT 1 FROM vyapar_transactions v2
+                WHERE v2.transaction_type = 'Sale'
+                  AND v2.party_name = vyapar_transactions.party_name
+                  AND v2.party_name IS NOT NULL
+                  AND v2.user_id = vyapar_transactions.user_id
+              )
+              THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
             WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
             ELSE 0
           END)`,
         pendingPaymentsCount: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' AND COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount}) > 0 THEN 1
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+              AND NOT EXISTS (
+                SELECT 1 FROM vyapar_transactions v2
+                WHERE v2.transaction_type = 'Sale'
+                  AND v2.party_name = vyapar_transactions.party_name
+                  AND v2.party_name IS NOT NULL
+                  AND v2.user_id = vyapar_transactions.user_id
+              )
+              THEN 1
             WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
             ELSE 0
           END)`,

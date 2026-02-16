@@ -324,14 +324,21 @@ export function BusinessAccounting() {
         return transactions.filter(tx => tx.transactionType === 'credit');
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
-      case 'saleOrders':
-        // Include Sale Orders with balance > 0 (not yet converted to Sale) + Sales with balance > 0 (partial paid) - Vyapar only
+      case 'saleOrders': {
+        // Build set of party names that have a Sale (converted from Sale Order)
+        const partiesWithSale = new Set(
+          transactions
+            .filter(tx => tx.accountName === 'Vyapar' && tx.bizType === 'SALE' && tx.vendorName)
+            .map(tx => tx.vendorName!.toLowerCase())
+        );
+        // Include Sale Orders (exclude those converted to Sale) + Sales with balance > 0 (partial paid) - Vyapar only
         return transactions.filter(tx =>
           tx.accountName === 'Vyapar' && (
-            (tx.bizType === 'SALE_ORDER' && (tx.balance === null || tx.balance > 0)) ||
+            (tx.bizType === 'SALE_ORDER' && !(tx.vendorName && partiesWithSale.has(tx.vendorName.toLowerCase()))) ||
             (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
           )
         );
+      }
       default:
         return transactions;
     }
