@@ -164,7 +164,6 @@ export async function autoReconcile(
   const vyaparConditions = [
     sql`(${vyaparTransactions.isReconciled} = 0 OR ${vyaparTransactions.isReconciled} IS NULL OR ${vyaparTransactions.isReconciled} = false)`,
     between(vyaparTransactions.date, startDate, endDate),
-    sql`(${vyaparTransactions.paymentType} != 'Gaurav' OR ${vyaparTransactions.paymentType} IS NULL)`,
     sql`${vyaparTransactions.transactionType} NOT IN ('Sale Order', 'Payment-In')`,
   ];
   if (userId) {
