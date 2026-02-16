@@ -19,6 +19,8 @@ import {
   ArrowUpRight,
   CheckCircle,
   Circle,
+  MessageSquare,
+  ShoppingCart,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,6 +37,7 @@ import { DataTable, ColumnDef } from '@/components/ui/data-table';
 import { businessAccountingApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
 import { TransactionDetailModal } from '@/components/business-accounting/TransactionDetailModal';
+import { TransactionNotesModal } from '@/components/business-accounting/TransactionNotesModal';
 import { GSTManagementTab } from '@/components/business-accounting/GSTManagementTab';
 import { VendorsTab } from '@/components/business-accounting/VendorsTab';
 import { GearupAccountsTab } from '@/components/business-accounting/GearupAccountsTab';
@@ -117,12 +120,13 @@ export function BusinessAccounting() {
   };
 
   const [selectedTransaction, setSelectedTransaction] = useState<BusinessTransaction | null>(null);
+  const [notesTransaction, setNotesTransaction] = useState<BusinessTransaction | null>(null);
   const [bizTypeFilter, setBizTypeFilter] = useState<string>('all');
   const [invoiceFilter, setInvoiceFilter] = useState<string>('all');
-  const [tileFilter, setTileFilter] = useState<'expenses' | 'income' | 'pending' | null>(null);
+  const [tileFilter, setTileFilter] = useState<'expenses' | 'income' | 'pending' | 'saleOrders' | null>(null);
 
   // Handle tile click - filter transactions and switch to transactions tab
-  const handleTileClick = (filter: 'expenses' | 'income' | 'pending' | 'gst' | 'vendors') => {
+  const handleTileClick = (filter: 'expenses' | 'income' | 'pending' | 'gst' | 'vendors' | 'saleOrders') => {
     if (filter === 'gst') {
       setActiveTab('gst');
       setTileFilter(null);
@@ -134,7 +138,11 @@ export function BusinessAccounting() {
       // Toggle filter if already active
       setTileFilter(prev => prev === filter ? null : filter);
       // Reset other filters when tile is clicked
-      setBizTypeFilter('all');
+      if (filter === 'saleOrders') {
+        setBizTypeFilter('SALE_ORDER');
+      } else {
+        setBizTypeFilter('all');
+      }
       setInvoiceFilter(filter === 'pending' ? 'needs' : 'all');
     }
   };
@@ -192,6 +200,30 @@ export function BusinessAccounting() {
         needsInvoice: invoiceFilter === 'needs' ? 'true' : undefined,
         hasInvoice: invoiceFilter === 'has' ? 'true' : invoiceFilter === 'missing' ? 'false' : undefined,
       }),
+  });
+
+  // Get transaction IDs for note counts (separated by type)
+  const { vyaparIds, bankIds } = useMemo(() => {
+    const vyapar: string[] = [];
+    const bank: string[] = [];
+    transactions.forEach(tx => {
+      if (tx.accountName === 'Vyapar') {
+        vyapar.push(tx.id);
+      } else {
+        bank.push(tx.id);
+      }
+    });
+    return { vyaparIds: vyapar, bankIds: bank };
+  }, [transactions]);
+
+  // Fetch note counts for all transactions
+  const { data: noteCounts = {} } = useQuery<Record<string, number>>({
+    queryKey: ['transaction-note-counts', vyaparIds, bankIds],
+    queryFn: () => (vyaparIds.length > 0 || bankIds.length > 0)
+      ? businessAccountingApi.getNoteCounts(vyaparIds, bankIds)
+      : Promise.resolve({}),
+    enabled: vyaparIds.length > 0 || bankIds.length > 0,
+    staleTime: 30 * 1000, // 30 seconds
   });
 
   // Enrich mutation
@@ -258,6 +290,8 @@ export function BusinessAccounting() {
         return transactions.filter(tx => tx.transactionType === 'credit');
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
+      case 'saleOrders':
+        return transactions.filter(tx => tx.bizType === 'SALE_ORDER');
       default:
         return transactions;
     }
@@ -438,7 +472,33 @@ export function BusinessAccounting() {
         { label: 'Unreconciled', value: 'Unreconciled' },
       ],
     },
-  ], [uniqueAccountNames]);
+    {
+      id: 'notes',
+      header: 'Notes',
+      accessorKey: (row) => noteCounts[row.id] || 0,
+      width: '60px',
+      minWidth: 60,
+      cell: (row) => {
+        const count = noteCounts[row.id] || 0;
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setNotesTransaction(row);
+            }}
+            className={`flex items-center justify-center gap-1 mx-auto p-1 rounded hover:bg-muted transition-colors ${
+              count > 0 ? 'text-blue-600' : 'text-muted-foreground'
+            }`}
+            title={count > 0 ? `${count} note${count > 1 ? 's' : ''}` : 'Add note'}
+          >
+            <MessageSquare className="h-4 w-4" />
+            {count > 0 && <span className="text-xs font-medium">{count}</span>}
+          </button>
+        );
+      },
+      align: 'center',
+    },
+  ], [uniqueAccountNames, noteCounts]);
 
   return (
     <div className="space-y-6">
@@ -507,7 +567,7 @@ export function BusinessAccounting() {
       </div>
 
       {/* Summary Cards - Clickable to filter transactions */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-6">
         <Card
           className={`cursor-pointer transition-all hover:shadow-md hover:border-red-300 ${tileFilter === 'expenses' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
           onClick={() => handleTileClick('expenses')}
@@ -569,6 +629,23 @@ export function BusinessAccounting() {
           </CardContent>
         </Card>
         <Card
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-orange-300 ${tileFilter === 'saleOrders' ? 'ring-2 ring-orange-500 border-orange-500' : ''}`}
+          onClick={() => handleTileClick('saleOrders')}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Sale Orders</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-600">
+              {formatCurrency(summary?.saleOrdersTotal || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {summary?.saleOrdersCount || 0} pending payments
+            </p>
+          </CardContent>
+        </Card>
+        <Card
           className="cursor-pointer transition-all hover:shadow-md hover:border-blue-300"
           onClick={() => handleTileClick('vendors')}
         >
@@ -602,10 +679,12 @@ export function BusinessAccounting() {
                   {tileFilter === 'expenses' && 'Debits only'}
                   {tileFilter === 'income' && 'Credits only'}
                   {tileFilter === 'pending' && 'Pending invoices'}
+                  {tileFilter === 'saleOrders' && 'Sale Orders'}
                   <button
                     onClick={() => {
                       setTileFilter(null);
                       setInvoiceFilter('all');
+                      setBizTypeFilter('all');
                     }}
                     className="ml-1 hover:text-destructive"
                   >
@@ -650,7 +729,7 @@ export function BusinessAccounting() {
             data={filteredTransactions}
             columns={columns}
             isLoading={isLoading}
-            emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : 'pending invoice'} transactions found` : 'No transactions found'}
+            emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : tileFilter === 'saleOrders' ? 'sale order' : 'pending invoice'} transactions found` : 'No transactions found'}
             onRowClick={(row) => setSelectedTransaction(row)}
             getRowId={(row) => row.id}
             showGlobalSearch={true}
@@ -688,6 +767,14 @@ export function BusinessAccounting() {
             queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
             queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
           }}
+        />
+      )}
+
+      {/* Transaction Notes Modal */}
+      {notesTransaction && (
+        <TransactionNotesModal
+          transaction={notesTransaction}
+          onClose={() => setNotesTransaction(null)}
         />
       )}
     </div>

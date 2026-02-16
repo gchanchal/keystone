@@ -48,7 +48,19 @@ export const vyaparItemDetails = sqliteTable('vyapar_item_details', {
   createdAt: text('created_at').notNull(),
 });
 
+// Notes on Vyapar transactions for reconciliation tracking
+export const vyaparTransactionNotes = sqliteTable('vyapar_transaction_notes', {
+  id: text('id').primaryKey(),
+  transactionId: text('transaction_id').notNull(), // Vyapar transaction ID
+  userId: text('user_id').notNull(),
+  note: text('note').notNull(),
+  createdByEmail: text('created_by_email'),
+  createdAt: text('created_at').notNull(),
+});
+
 export type VyaparTransaction = typeof vyaparTransactions.$inferSelect;
 export type NewVyaparTransaction = typeof vyaparTransactions.$inferInsert;
 export type VyaparItemDetail = typeof vyaparItemDetails.$inferSelect;
 export type NewVyaparItemDetail = typeof vyaparItemDetails.$inferInsert;
+export type VyaparTransactionNote = typeof vyaparTransactionNotes.$inferSelect;
+export type NewVyaparTransactionNote = typeof vyaparTransactionNotes.$inferInsert;

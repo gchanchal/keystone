@@ -637,6 +637,19 @@ export const businessAccountingApi = {
 
   removeTeamMember: (id: string) =>
     api.delete(`/business-accounting/gearup-team/members/${id}`).then((r) => r.data),
+
+  // Transaction Notes (Vyapar + Bank)
+  getTransactionNotes: (transactionId: string, type: 'vyapar' | 'bank' = 'vyapar') =>
+    api.get(`/business-accounting/transaction/${transactionId}/notes`, { params: { type } }).then((r) => r.data),
+
+  addTransactionNote: (transactionId: string, note: string, type: 'vyapar' | 'bank' = 'vyapar') =>
+    api.post(`/business-accounting/transaction/${transactionId}/notes`, { note, type }).then((r) => r.data),
+
+  deleteTransactionNote: (transactionId: string, noteId: string, type: 'vyapar' | 'bank' = 'vyapar') =>
+    api.delete(`/business-accounting/transaction/${transactionId}/notes/${noteId}`, { params: { type } }).then((r) => r.data),
+
+  getNoteCounts: (vyaparIds: string[], bankIds: string[]) =>
+    api.post('/business-accounting/transactions/note-counts', { vyaparIds, bankIds }).then((r) => r.data),
 };
 
 // Investment Advisor (AI-powered)

@@ -34,5 +34,17 @@ export const bankTransactions = sqliteTable('bank_transactions', {
   updatedAt: text('updated_at').notNull(),
 });
 
+// Notes on bank transactions for reconciliation tracking
+export const bankTransactionNotes = sqliteTable('bank_transaction_notes', {
+  id: text('id').primaryKey(),
+  transactionId: text('transaction_id').notNull(), // Bank transaction ID
+  userId: text('user_id').notNull(),
+  note: text('note').notNull(),
+  createdByEmail: text('created_by_email'),
+  createdAt: text('created_at').notNull(),
+});
+
 export type BankTransaction = typeof bankTransactions.$inferSelect;
 export type NewBankTransaction = typeof bankTransactions.$inferInsert;
+export type BankTransactionNote = typeof bankTransactionNotes.$inferSelect;
+export type NewBankTransactionNote = typeof bankTransactionNotes.$inferInsert;

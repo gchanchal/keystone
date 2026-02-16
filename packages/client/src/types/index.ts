@@ -498,7 +498,13 @@ export interface GmailConfig {
 export type SupportedBank = 'HDFC' | 'ICICI' | 'Kotak' | 'Axis';
 
 // Business Accounting Types (ASG Technologies)
-export type BizType = 'SALARY' | 'PETROL' | 'PORTER' | 'HELPER' | 'VENDOR' | 'SALES_INCOME' | 'OTHER';
+export type BizType =
+  // Bank transaction types
+  | 'SALARY' | 'PETROL' | 'PORTER' | 'HELPER' | 'VENDOR' | 'SALES_INCOME' | 'OTHER'
+  // Additional bank types
+  | 'RENT' | 'UTILITIES' | 'TRANSPORT' | 'SUPPLIES' | 'MARKETING' | 'MAINTENANCE'
+  // Vyapar transaction types
+  | 'SALE' | 'SALE_ORDER' | 'PAYMENT_IN' | 'RECORD' | 'EXPENSE' | 'PURCHASE' | 'PAYMENT_OUT';
 
 export interface BusinessTransaction extends BankTransaction {
   bizType: BizType | null;
@@ -614,4 +620,6 @@ export interface BusinessAccountingSummary {
   pendingInvoices: number;
   gstPayable: number;
   vendorCount: number;
+  saleOrdersTotal: number;
+  saleOrdersCount: number;
 }

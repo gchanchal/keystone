@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, bankTransactions, accounts, businessInvoices, enrichmentRules, vyaparTransactions, gearupTeamMembers, users } from '../db/index.js';
+import { db, bankTransactions, bankTransactionNotes, accounts, businessInvoices, enrichmentRules, vyaparTransactions, vyaparTransactionNotes, gearupTeamMembers, users } from '../db/index.js';
 import { eq, and, between, desc, asc, sql, like, isNull, or } from 'drizzle-orm';
 import {
   enrichTransaction,
@@ -1843,6 +1843,9 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
+        // Sale Orders = Pending payments (not yet converted to Sale)
+        saleOrdersTotal: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
+        saleOrdersCount: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN 1 ELSE 0 END)`,
       })
       .from(vyaparTransactions)
       .where(and(...vyaparConditions));
@@ -1889,6 +1892,8 @@ router.get('/summary', async (req, res) => {
       pendingInvoices: bankTotals.pendingInvoices || 0,
       gstPayable: (bankTotals.gstOutput || 0) - (bankTotals.gstInput || 0),
       vendorCount: vendorResult.vendorCount || 0,
+      saleOrdersTotal: vyaparTotals.saleOrdersTotal || 0,
+      saleOrdersCount: vyaparTotals.saleOrdersCount || 0,
     });
   } catch (error) {
     console.error('Error fetching summary:', error);
@@ -3630,6 +3635,183 @@ router.delete('/gearup-team/members/:id', async (req: any, res) => {
   } catch (error) {
     console.error('Error removing team member:', error);
     res.status(500).json({ error: 'Failed to remove team member' });
+  }
+});
+
+// ==========================================
+// Transaction Notes Routes (Vyapar + Bank)
+// ==========================================
+
+// Get notes for a transaction (supports both Vyapar and bank transactions)
+// Query param: type=vyapar|bank (default: vyapar)
+router.get('/transaction/:transactionId/notes', async (req, res) => {
+  try {
+    const hasAccess = await isGearupAuthorized(req);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { transactionId } = req.params;
+    const type = (req.query.type as string) || 'vyapar';
+
+    let notes;
+    if (type === 'bank') {
+      notes = await db
+        .select()
+        .from(bankTransactionNotes)
+        .where(eq(bankTransactionNotes.transactionId, transactionId))
+        .orderBy(desc(bankTransactionNotes.createdAt));
+    } else {
+      notes = await db
+        .select()
+        .from(vyaparTransactionNotes)
+        .where(eq(vyaparTransactionNotes.transactionId, transactionId))
+        .orderBy(desc(vyaparTransactionNotes.createdAt));
+    }
+
+    res.json(notes);
+  } catch (error) {
+    console.error('Error fetching transaction notes:', error);
+    res.status(500).json({ error: 'Failed to fetch notes' });
+  }
+});
+
+// Add a note to a transaction (supports both Vyapar and bank transactions)
+router.post('/transaction/:transactionId/notes', async (req, res) => {
+  try {
+    const hasAccess = await isGearupAuthorized(req);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { transactionId } = req.params;
+    const { note, type = 'vyapar' } = req.body;
+
+    if (!note || typeof note !== 'string' || note.trim().length === 0) {
+      return res.status(400).json({ error: 'Note content is required' });
+    }
+
+    // Get the owner's user ID (for consistency in data)
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.status(400).json({ error: 'Unable to determine data owner' });
+    }
+
+    const now = new Date().toISOString();
+    const newNote = {
+      id: uuidv4(),
+      transactionId,
+      userId: dataUserId,
+      note: note.trim(),
+      createdByEmail: req.user?.email || null,
+      createdAt: now,
+    };
+
+    if (type === 'bank') {
+      await db.insert(bankTransactionNotes).values(newNote);
+    } else {
+      await db.insert(vyaparTransactionNotes).values(newNote);
+    }
+
+    res.status(201).json(newNote);
+  } catch (error) {
+    console.error('Error adding transaction note:', error);
+    res.status(500).json({ error: 'Failed to add note' });
+  }
+});
+
+// Delete a note from a transaction (supports both Vyapar and bank transactions)
+router.delete('/transaction/:transactionId/notes/:noteId', async (req, res) => {
+  try {
+    const hasAccess = await isGearupAuthorized(req);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { noteId } = req.params;
+    const type = (req.query.type as string) || 'vyapar';
+
+    if (type === 'bank') {
+      // Check if note exists in bank notes
+      const [existingNote] = await db
+        .select()
+        .from(bankTransactionNotes)
+        .where(eq(bankTransactionNotes.id, noteId));
+
+      if (!existingNote) {
+        return res.status(404).json({ error: 'Note not found' });
+      }
+
+      await db.delete(bankTransactionNotes).where(eq(bankTransactionNotes.id, noteId));
+    } else {
+      // Check if note exists in vyapar notes
+      const [existingNote] = await db
+        .select()
+        .from(vyaparTransactionNotes)
+        .where(eq(vyaparTransactionNotes.id, noteId));
+
+      if (!existingNote) {
+        return res.status(404).json({ error: 'Note not found' });
+      }
+
+      await db.delete(vyaparTransactionNotes).where(eq(vyaparTransactionNotes.id, noteId));
+    }
+
+    res.json({ success: true, message: 'Note deleted' });
+  } catch (error) {
+    console.error('Error deleting transaction note:', error);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
+// Get note counts for multiple transactions (supports both Vyapar and bank)
+router.post('/transactions/note-counts', async (req, res) => {
+  try {
+    const hasAccess = await isGearupAuthorized(req);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { vyaparIds = [], bankIds = [] } = req.body;
+
+    const countMap: Record<string, number> = {};
+
+    // Get Vyapar note counts
+    if (Array.isArray(vyaparIds) && vyaparIds.length > 0) {
+      const vyaparCounts = await db
+        .select({
+          transactionId: vyaparTransactionNotes.transactionId,
+          count: sql<number>`COUNT(*)`.as('count'),
+        })
+        .from(vyaparTransactionNotes)
+        .where(sql`${vyaparTransactionNotes.transactionId} IN (${sql.join(vyaparIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(vyaparTransactionNotes.transactionId);
+
+      for (const row of vyaparCounts) {
+        countMap[row.transactionId] = row.count;
+      }
+    }
+
+    // Get bank note counts
+    if (Array.isArray(bankIds) && bankIds.length > 0) {
+      const bankCounts = await db
+        .select({
+          transactionId: bankTransactionNotes.transactionId,
+          count: sql<number>`COUNT(*)`.as('count'),
+        })
+        .from(bankTransactionNotes)
+        .where(sql`${bankTransactionNotes.transactionId} IN (${sql.join(bankIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(bankTransactionNotes.transactionId);
+
+      for (const row of bankCounts) {
+        countMap[row.transactionId] = row.count;
+      }
+    }
+
+    res.json(countMap);
+  } catch (error) {
+    console.error('Error fetching note counts:', error);
+    res.status(500).json({ error: 'Failed to fetch note counts' });
   }
 });
 

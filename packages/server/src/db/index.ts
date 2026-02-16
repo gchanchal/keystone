@@ -1152,6 +1152,36 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_gearup_team_members_member ON gearup_team_members(member_user_id);
   `);
 
+  // Create vyapar_transaction_notes table for tracking reconciliation notes
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS vyapar_transaction_notes (
+      id TEXT PRIMARY KEY,
+      transaction_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_by_email TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vyapar_transaction_notes_txn ON vyapar_transaction_notes(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_vyapar_transaction_notes_user ON vyapar_transaction_notes(user_id);
+  `);
+
+  // Create bank_transaction_notes table for tracking reconciliation notes on bank transactions
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bank_transaction_notes (
+      id TEXT PRIMARY KEY,
+      transaction_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_by_email TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bank_transaction_notes_txn ON bank_transaction_notes(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_bank_transaction_notes_user ON bank_transaction_notes(user_id);
+  `);
+
   // Create indexes for business accounting
   const businessAccountingIndexes = [
     'CREATE INDEX IF NOT EXISTS idx_bank_transactions_biz_type ON bank_transactions(biz_type)',
