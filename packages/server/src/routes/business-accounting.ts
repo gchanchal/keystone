@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, bankTransactions, bankTransactionNotes, accounts, businessInvoices, enrichmentRules, vyaparTransactions, vyaparTransactionNotes, gearupTeamMembers, users } from '../db/index.js';
+import { db, bankTransactions, bankTransactionNotes, accounts, businessInvoices, enrichmentRules, vyaparTransactions, vyaparTransactionNotes, vyaparItemDetails, reconciliationMatches, gearupTeamMembers, users } from '../db/index.js';
 import { eq, and, between, desc, asc, sql, like, isNull, or } from 'drizzle-orm';
 import {
   enrichTransaction,
@@ -3848,6 +3848,124 @@ router.post('/transactions/note-counts', async (req, res) => {
   } catch (error) {
     console.error('Error fetching note counts:', error);
     res.status(500).json({ error: 'Failed to fetch note counts' });
+  }
+});
+
+// Delete a transaction (bank or vyapar)
+router.delete('/transaction/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Use the same data access pattern as other endpoints
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+
+    // Determine transaction type: check query param, prefix, or look up in both tables
+    let isVyapar = id.startsWith('vyapar-') || req.query.type === 'vyapar';
+    const realId = id.startsWith('vyapar-') ? id.replace('vyapar-', '') : id;
+
+    // If not explicitly vyapar, try bank first then fall back to vyapar
+    if (!isVyapar) {
+      const [bankTxn] = await db.select().from(bankTransactions)
+        .where(eq(bankTransactions.id, realId));
+      if (!bankTxn || !asgAccountIds.includes(bankTxn.accountId)) {
+        // Not found in bank - check vyapar
+        const [vyaparTxn] = await db.select().from(vyaparTransactions)
+          .where(eq(vyaparTransactions.id, realId));
+        if (vyaparTxn) {
+          isVyapar = true;
+        }
+      }
+    }
+
+    if (isVyapar) {
+      // --- Delete Vyapar Transaction ---
+
+      // 1. Verify it exists
+      const [txn] = await db.select().from(vyaparTransactions)
+        .where(eq(vyaparTransactions.id, realId));
+      if (!txn) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      // 2. Delete notes
+      await db.delete(vyaparTransactionNotes)
+        .where(eq(vyaparTransactionNotes.transactionId, realId));
+
+      // 3. Delete item details by invoice number (if present)
+      if (txn.invoiceNumber) {
+        await db.delete(vyaparItemDetails)
+          .where(eq(vyaparItemDetails.invoiceNumber, txn.invoiceNumber));
+      }
+
+      // 4. Clear reconciliation matches
+      await db.delete(reconciliationMatches)
+        .where(eq(reconciliationMatches.vyaparTransactionId, realId));
+
+      // 5. Unlink reconciled bank transactions
+      await db.update(bankTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          reconciledWithType: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(bankTransactions.reconciledWithId, realId));
+
+      // 6. Delete the transaction
+      await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, realId));
+
+    } else {
+      // --- Delete Bank Transaction ---
+
+      // 1. Verify it exists and belongs to ASG accounts
+      const [txn] = await db.select().from(bankTransactions)
+        .where(eq(bankTransactions.id, realId));
+      if (!txn || !asgAccountIds.includes(txn.accountId)) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      // 2. Delete notes
+      await db.delete(bankTransactionNotes)
+        .where(eq(bankTransactionNotes.transactionId, realId));
+
+      // 3. Delete linked invoices (file + DB record)
+      if (txn.invoiceFileId) {
+        const [invoice] = await db.select().from(businessInvoices)
+          .where(eq(businessInvoices.id, txn.invoiceFileId));
+        if (invoice?.filename) {
+          const filePath = path.join(invoiceDir, invoice.filename);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        }
+        await db.delete(businessInvoices).where(eq(businessInvoices.id, txn.invoiceFileId));
+      }
+
+      // 4. Clear reconciliation matches
+      await db.delete(reconciliationMatches)
+        .where(eq(reconciliationMatches.bankTransactionId, realId));
+
+      // 5. Unlink reconciled Vyapar transactions
+      await db.update(vyaparTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(vyaparTransactions.reconciledWithId, realId));
+
+      // 6. Delete the transaction
+      await db.delete(bankTransactions).where(eq(bankTransactions.id, realId));
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    res.status(500).json({ error: 'Failed to delete transaction' });
   }
 });
 

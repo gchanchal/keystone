@@ -179,10 +179,22 @@ export function TransactionDetailModal({
   });
 
   // Delete invoice mutation
-  const deleteMutation = useMutation({
+  const deleteInvoiceMutation = useMutation({
     mutationFn: () => businessAccountingApi.deleteInvoice(transaction.invoiceFileId!),
     onSuccess: () => {
       onUpdate();
+    },
+  });
+
+  // Delete transaction mutation
+  const deleteTransactionMutation = useMutation({
+    mutationFn: () => businessAccountingApi.deleteTransaction(transaction.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['transaction-note-counts'] });
+      onUpdate();
+      onClose();
     },
   });
 
@@ -495,6 +507,24 @@ export function TransactionDetailModal({
                   ✓ {propagatedMessage}
                 </span>
               )}
+              <div className="flex-1" />
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this transaction? This will also remove related notes, invoices, and reconciliation links. This action cannot be undone.')) {
+                    deleteTransactionMutation.mutate();
+                  }
+                }}
+                disabled={deleteTransactionMutation.isPending}
+              >
+                {deleteTransactionMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                Delete
+              </Button>
             </div>
           </div>
 
@@ -530,8 +560,8 @@ export function TransactionDetailModal({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => deleteMutation.mutate()}
-                        disabled={deleteMutation.isPending}
+                        onClick={() => deleteInvoiceMutation.mutate()}
+                        disabled={deleteInvoiceMutation.isPending}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete

@@ -21,6 +21,7 @@ import {
   Circle,
   MessageSquare,
   ShoppingCart,
+  Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -228,6 +229,16 @@ export function BusinessAccounting() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
+    },
+  });
+
+  // Delete transaction mutation
+  const deleteTransactionMutation = useMutation({
+    mutationFn: (id: string) => businessAccountingApi.deleteTransaction(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['business-accounting-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['transaction-note-counts'] });
     },
   });
 
@@ -555,7 +566,28 @@ export function BusinessAccounting() {
         );
       },
     },
-  ], [uniqueAccountNames, noteData]);
+    {
+      id: 'actions',
+      header: '',
+      accessorKey: 'id',
+      width: '40px',
+      minWidth: 40,
+      cell: (row) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm('Are you sure you want to delete this transaction? This action cannot be undone.')) {
+              deleteTransactionMutation.mutate(row.id);
+            }
+          }}
+          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          title="Delete transaction"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      ),
+    },
+  ], [uniqueAccountNames, noteData, deleteTransactionMutation]);
 
   return (
     <div className="space-y-6">

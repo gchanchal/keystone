@@ -650,6 +650,9 @@ export const businessAccountingApi = {
 
   getNoteCounts: (vyaparIds: string[], bankIds: string[]) =>
     api.post('/business-accounting/transactions/note-counts', { vyaparIds, bankIds }).then((r) => r.data),
+
+  deleteTransaction: (id: string) =>
+    api.delete(`/business-accounting/transaction/${id}`).then((r) => r.data),
 };
 
 // Investment Advisor (AI-powered)
