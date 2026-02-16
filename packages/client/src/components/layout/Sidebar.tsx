@@ -26,7 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ServerStatus } from './ServerStatus';
-import { authApi } from '@/lib/api';
+import { authApi, businessAccountingApi } from '@/lib/api';
 
 // Personal section items
 const personalItems = [
@@ -54,8 +54,8 @@ const standaloneItems = [
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-// Email allowed to see GearUp Mods section
-const GEARUP_ALLOWED_EMAIL = 'g.chanchal@gmail.com';
+// Owner email (used to determine if Team tab should be shown)
+const GEARUP_OWNER_EMAIL = 'g.chanchal@gmail.com';
 
 interface SidebarProps {
   open: boolean;
@@ -74,8 +74,17 @@ export function Sidebar({ open, onClose, collapsed = false, onToggleCollapse }: 
     staleTime: 5 * 60 * 1000,
   });
 
+  // Check if user has GearUp access (owner or team member)
+  const { data: gearupAccess } = useQuery({
+    queryKey: ['gearup-access'],
+    queryFn: businessAccountingApi.checkAccess,
+    staleTime: 5 * 60 * 1000,
+    enabled: !!authStatus?.user,
+  });
+
   const userEmail = authStatus?.user?.email;
-  const showGearupSection = userEmail === GEARUP_ALLOWED_EMAIL;
+  const showGearupSection = gearupAccess?.hasAccess || false;
+  const isGearupOwner = userEmail === GEARUP_OWNER_EMAIL;
 
   // Determine which section is active based on current path
   const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/performance', '/loans'].some(

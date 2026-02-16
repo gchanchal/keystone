@@ -27,6 +27,7 @@ export const businessInvoices = sqliteTable('business_invoices', {
   // Document type detection
   documentType: text('document_type'), // 'invoice', 'estimate', 'proforma', 'quotation'
   isEstimate: integer('is_estimate').default(0), // 1 if estimate/proforma/quotation
+  updatedByEmail: text('updated_by_email'), // Email of user who last updated (for team tracking)
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at'),
 });

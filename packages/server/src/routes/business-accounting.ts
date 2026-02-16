@@ -5,8 +5,8 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, bankTransactions, accounts, businessInvoices, enrichmentRules, vyaparTransactions } from '../db/index.js';
-import { eq, and, between, desc, asc, sql, like, isNull } from 'drizzle-orm';
+import { db, bankTransactions, accounts, businessInvoices, enrichmentRules, vyaparTransactions, gearupTeamMembers, users } from '../db/index.js';
+import { eq, and, between, desc, asc, sql, like, isNull, or } from 'drizzle-orm';
 import {
   enrichTransaction,
   extractVendorName,
@@ -263,9 +263,95 @@ const upload = multer({
 
 const router = Router();
 
-// Get GearUp business account IDs for the user
-// Uses the isGearupBusiness flag set via the Accounts tab toggle
-async function getASGAccountIds(userId: string): Promise<string[]> {
+// GearUp Mods owner email
+const GEARUP_OWNER_EMAIL = 'g.chanchal@gmail.com';
+
+/**
+ * Check if current user has GearUp access (owner or active team member)
+ * Returns { hasAccess, isOwner, ownerUserId }
+ */
+async function checkGearupAccess(userEmail: string | undefined, userId: string | undefined): Promise<{
+  hasAccess: boolean;
+  isOwner: boolean;
+  ownerUserId: string | null;
+  memberRole: string | null;
+}> {
+  if (!userEmail) {
+    return { hasAccess: false, isOwner: false, ownerUserId: null, memberRole: null };
+  }
+
+  // Owner always has access
+  if (userEmail === GEARUP_OWNER_EMAIL) {
+    return { hasAccess: true, isOwner: true, ownerUserId: userId || null, memberRole: null };
+  }
+
+  // Check if user is an invited team member
+  const [member] = await db.select()
+    .from(gearupTeamMembers)
+    .where(and(
+      eq(gearupTeamMembers.memberEmail, userEmail),
+      eq(gearupTeamMembers.isActive, true)
+    ))
+    .limit(1);
+
+  if (member) {
+    // Update member_user_id if not set (first login after invite)
+    if (!member.memberUserId && userId) {
+      await db.update(gearupTeamMembers)
+        .set({
+          memberUserId: userId,
+          acceptedAt: new Date().toISOString(),
+        })
+        .where(eq(gearupTeamMembers.id, member.id));
+    }
+    return {
+      hasAccess: true,
+      isOwner: false,
+      ownerUserId: member.ownerUserId,
+      memberRole: member.role,
+    };
+  }
+
+  return { hasAccess: false, isOwner: false, ownerUserId: null, memberRole: null };
+}
+
+/**
+ * Get the owner's user ID for GearUp (g.chanchal's user ID)
+ */
+async function getGearupOwnerId(): Promise<string | null> {
+  const [owner] = await db.select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, GEARUP_OWNER_EMAIL))
+    .limit(1);
+  return owner?.id || null;
+}
+
+// Get GearUp business account IDs
+// For owner: returns their own GearUp accounts
+// For team members: returns owner's GearUp accounts (NOT the team member's accounts)
+async function getASGAccountIds(userId: string, userEmail?: string): Promise<string[]> {
+  // Check if this is a team member (not the owner)
+  if (userEmail && userEmail !== GEARUP_OWNER_EMAIL) {
+    // Team member - get OWNER's GearUp accounts
+    const ownerUserId = await getGearupOwnerId();
+    if (!ownerUserId) {
+      return [];
+    }
+
+    const gearupAccounts = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, ownerUserId),
+          eq(accounts.isActive, true),
+          eq(accounts.isGearupBusiness, true)
+        )
+      );
+    return gearupAccounts.map((acc) => acc.id);
+  }
+
+  // Owner - get their own GearUp accounts
   const gearupAccounts = await db
     .select({ id: accounts.id })
     .from(accounts)
@@ -276,7 +362,6 @@ async function getASGAccountIds(userId: string): Promise<string[]> {
         eq(accounts.isGearupBusiness, true)
       )
     );
-
   return gearupAccounts.map((acc) => acc.id);
 }
 
@@ -299,19 +384,26 @@ const querySchema = z.object({
 router.get('/transactions', async (req, res) => {
   try {
     const query = querySchema.parse(req.query);
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+
+    // Get the effective user ID for data access (owner's ID for team members)
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.json([]);
+    }
+
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
     }
 
-    // Check if Vyapar account is enabled
+    // Check if Vyapar account is enabled (use dataUserId for owner's accounts)
     const [vyaparAccount] = await db
       .select()
       .from(accounts)
       .where(
         and(
-          eq(accounts.userId, req.userId!),
+          eq(accounts.userId, dataUserId),
           eq(accounts.accountType, 'vyapar'),
           eq(accounts.isGearupBusiness, true)
         )
@@ -328,7 +420,7 @@ router.get('/transactions', async (req, res) => {
     // Fetch bank transactions if we have bank accounts enabled
     if (bankAccountIds.length > 0) {
       const conditions = [
-        eq(bankTransactions.userId, req.userId!),
+        eq(bankTransactions.userId, dataUserId),
         sql`${bankTransactions.accountId} IN (${sql.join(
           bankAccountIds.map((id) => sql`${id}`),
           sql`, `
@@ -404,7 +496,7 @@ router.get('/transactions', async (req, res) => {
 
     // Fetch Vyapar transactions if enabled and not filtering for a specific bank account
     if (includeVyapar && (!query.accountId || query.accountId === vyaparAccountId)) {
-      const vyaparConditions = [eq(vyaparTransactions.userId, req.userId!)];
+      const vyaparConditions = [eq(vyaparTransactions.userId, dataUserId)];
 
       if (query.startDate && query.endDate) {
         vyaparConditions.push(between(vyaparTransactions.date, query.startDate, query.endDate));
@@ -599,7 +691,7 @@ function getVyaparVendorName(partyName: string | null, transactionType: string |
 router.post('/enrich', async (req, res) => {
   try {
     const { accountId, overwrite = false } = req.body;
-    const asgAccountIds = accountId ? [accountId] : await getASGAccountIds(req.userId!);
+    const asgAccountIds = accountId ? [accountId] : await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ enriched: 0, message: 'No ASG accounts found' });
@@ -933,6 +1025,7 @@ router.patch('/transaction/:id', async (req, res) => {
       .set({
         ...data,
         updatedAt: now,
+        updatedByEmail: req.user?.email || null,
       })
       .where(eq(bankTransactions.id, id));
 
@@ -992,7 +1085,7 @@ router.patch('/transaction/:id', async (req, res) => {
     let propagatedCount = 0;
 
     if (data.vendorName || data.bizType) {
-      const asgAccountIds = await getASGAccountIds(req.userId!);
+      const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
       propagatedCount = await propagateToSimilarTransactions(
         req.userId!,
         asgAccountIds,
@@ -1097,6 +1190,7 @@ router.post('/invoice', upload.single('file'), async (req, res) => {
       // Legacy
       vendorName: finalVendorName || null,
       notes: notes || null,
+      updatedByEmail: req.user?.email || null,
       createdAt: now,
       updatedAt: now,
     });
@@ -1112,6 +1206,7 @@ router.post('/invoice', upload.single('file'), async (req, res) => {
         igstAmount: finalIgstAmount,
         gstType: finalGstType,
         updatedAt: now,
+        updatedByEmail: req.user?.email || null,
       })
       .where(eq(bankTransactions.id, transactionId));
 
@@ -1228,7 +1323,7 @@ router.get('/transaction/:id/matches', async (req, res) => {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
     if (asgAccountIds.length === 0) {
       return res.json({ matches: [], totalAmount: 0 });
     }
@@ -1309,7 +1404,14 @@ router.get('/transaction/:id/matches', async (req, res) => {
 router.get('/vendors', async (req, res) => {
   try {
     const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+
+    // Get the effective user ID for data access (owner's ID for team members)
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.json([]);
+    }
+
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     // Check if Vyapar is enabled
     const [vyaparAccount] = await db
@@ -1317,7 +1419,7 @@ router.get('/vendors', async (req, res) => {
       .from(accounts)
       .where(
         and(
-          eq(accounts.userId, req.userId!),
+          eq(accounts.userId, dataUserId),
           eq(accounts.accountType, 'vyapar'),
           eq(accounts.isGearupBusiness, true)
         )
@@ -1369,7 +1471,7 @@ router.get('/vendors', async (req, res) => {
         .leftJoin(accounts, eq(bankTransactions.accountId, accounts.id))
         .where(
           and(
-            eq(bankTransactions.userId, req.userId!),
+            eq(bankTransactions.userId, dataUserId),
             sql`${bankTransactions.accountId} IN (${sql.join(
               bankAccountIds.map((id) => sql`${id}`),
               sql`, `
@@ -1411,7 +1513,7 @@ router.get('/vendors', async (req, res) => {
         .from(vyaparTransactions)
         .where(
           and(
-            eq(vyaparTransactions.userId, req.userId!),
+            eq(vyaparTransactions.userId, dataUserId),
             // Only include outgoing transaction types for vendors
             sql`${vyaparTransactions.transactionType} IN ('Purchase', 'Payment-Out', 'Expense')`,
             ...vyaparDateConditions
@@ -1476,7 +1578,7 @@ router.get('/vendors/:name/payments', async (req, res) => {
   try {
     const { name } = req.params;
     const decodedName = decodeURIComponent(name);
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
@@ -1515,7 +1617,7 @@ router.get('/vendors/:name/transactions', async (req, res) => {
     const { name } = req.params;
     const { month } = req.query; // Optional: filter by month (YYYY-MM)
     const decodedName = decodeURIComponent(name);
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
@@ -1562,7 +1664,7 @@ router.patch('/vendors/:name', async (req, res) => {
     }
 
     const trimmedNewName = newName.trim();
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.status(404).json({ error: 'No ASG accounts found' });
@@ -1619,7 +1721,7 @@ router.patch('/vendors/:name', async (req, res) => {
 router.get('/gst-summary', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ months: [], totals: { input: 0, output: 0, net: 0 } });
@@ -1700,7 +1802,20 @@ router.get('/gst-summary', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+
+    // Get the effective user ID for data access (owner's ID for team members)
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.json({
+        totalExpenses: 0,
+        totalIncome: 0,
+        pendingInvoices: 0,
+        gstPayable: 0,
+        vendorCount: 0,
+      });
+    }
+
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({
@@ -1715,7 +1830,7 @@ router.get('/summary', async (req, res) => {
     // Get income and expenses from Vyapar (single source of truth)
     // Must match Dashboard's getVyaparSummary logic exactly
     const vyaparConditions = [
-      eq(vyaparTransactions.userId, req.userId!),
+      eq(vyaparTransactions.userId, dataUserId),
     ];
 
     if (startDate && endDate) {
@@ -1734,7 +1849,7 @@ router.get('/summary', async (req, res) => {
 
     // Get bank-specific stats (pending invoices, GST, vendors) from bank transactions
     const bankConditions = [
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
@@ -1785,7 +1900,7 @@ router.get('/summary', async (req, res) => {
 router.get('/ca-export', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.status(400).json({ error: 'No ASG accounts found' });
@@ -2682,7 +2797,7 @@ router.post('/link-invoice', async (req, res) => {
 // Auto-match unlinked invoices to transactions
 router.post('/auto-match-invoices', async (req, res) => {
   try {
-    const asgAccountIds = await getASGAccountIds(req.userId!);
+    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ matched: 0, message: 'No ASG accounts found' });
@@ -3103,18 +3218,33 @@ router.post('/import-amazon-csv', upload.single('file'), async (req, res) => {
 // GearUp Mods Account Management (exclusive to g.chanchal@gmail.com)
 // ============================================================
 
-const GEARUP_USER_EMAIL = 'g.chanchal@gmail.com';
+// Check if user is authorized for GearUp features (synchronous check for owner only)
+function isGearupOwner(req: any): boolean {
+  return req.user?.email === GEARUP_OWNER_EMAIL;
+}
 
-// Check if user is authorized for GearUp features
-function isGearupAuthorized(req: any): boolean {
-  return req.user?.email === GEARUP_USER_EMAIL;
+// Check if user is authorized for GearUp features (async check including team members)
+async function isGearupAuthorized(req: any): Promise<boolean> {
+  const access = await checkGearupAccess(req.user?.email, req.user?.id);
+  return access.hasAccess;
+}
+
+// Get effective user ID for GearUp data access
+// For owner: returns their own user ID
+// For team members: returns owner's user ID (to access owner's data)
+async function getGearupDataUserId(req: any): Promise<string | null> {
+  const access = await checkGearupAccess(req.user?.email, req.user?.id);
+  if (!access.hasAccess) return null;
+  if (access.isOwner) return req.user?.id;
+  return access.ownerUserId;
 }
 
 // Get all accounts with GearUp business status
 router.get('/gearup-accounts', async (req: any, res) => {
   try {
-    if (!isGearupAuthorized(req)) {
-      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    // Only owner can manage GearUp accounts
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'GearUp account management is exclusive to the owner' });
     }
 
     const userId = req.user.id;
@@ -3189,8 +3319,9 @@ router.get('/gearup-accounts', async (req: any, res) => {
 // Update account GearUp business status (share/unshare with GearUp)
 router.post('/gearup-accounts/:accountId/toggle', async (req: any, res) => {
   try {
-    if (!isGearupAuthorized(req)) {
-      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    // Only owner can toggle GearUp accounts
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'GearUp account management is exclusive to the owner' });
     }
 
     const { accountId } = req.params;
@@ -3228,8 +3359,9 @@ router.post('/gearup-accounts/:accountId/toggle', async (req: any, res) => {
 // Bulk update GearUp account status
 router.post('/gearup-accounts/bulk-update', async (req: any, res) => {
   try {
-    if (!isGearupAuthorized(req)) {
-      return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
+    // Only owner can bulk update GearUp accounts
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'GearUp account management is exclusive to the owner' });
     }
 
     const { accountIds, isGearupBusiness } = z
@@ -3265,20 +3397,26 @@ router.post('/gearup-accounts/bulk-update', async (req: any, res) => {
 // Get transactions from all GearUp business accounts
 router.get('/gearup-transactions', async (req: any, res) => {
   try {
-    if (!isGearupAuthorized(req)) {
+    // Check if user has GearUp access (owner or team member)
+    if (!(await isGearupAuthorized(req))) {
       return res.status(403).json({ error: 'GearUp features are exclusive to authorized users' });
     }
 
-    const userId = req.user.id;
+    // Get the effective user ID (owner's ID for team members)
+    const dataUserId = await getGearupDataUserId(req);
+    if (!dataUserId) {
+      return res.json({ transactions: [], accounts: [] });
+    }
+
     const { startDate, endDate } = req.query;
 
-    // Get all GearUp business accounts
+    // Get all GearUp business accounts (owner's accounts)
     const gearupAccounts = await db
       .select()
       .from(accounts)
       .where(
         and(
-          eq(accounts.userId, userId),
+          eq(accounts.userId, dataUserId),
           eq(accounts.isActive, true),
           eq(accounts.isGearupBusiness, true)
         )
@@ -3314,6 +3452,184 @@ router.get('/gearup-transactions', async (req: any, res) => {
   } catch (error) {
     console.error('Error fetching GearUp transactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+// ============================================================
+// GearUp Team Management Routes
+// ============================================================
+
+// Check if current user has GearUp access
+router.get('/gearup-team/my-access', async (req: any, res) => {
+  try {
+    const access = await checkGearupAccess(req.user?.email, req.user?.id);
+    res.json({
+      hasAccess: access.hasAccess,
+      isOwner: access.isOwner,
+      role: access.memberRole,
+    });
+  } catch (error) {
+    console.error('Error checking GearUp access:', error);
+    res.status(500).json({ error: 'Failed to check access' });
+  }
+});
+
+// Get team members (owner only)
+router.get('/gearup-team/members', async (req: any, res) => {
+  try {
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'Only the owner can view team members' });
+    }
+
+    const members = await db.select()
+      .from(gearupTeamMembers)
+      .where(eq(gearupTeamMembers.ownerUserId, req.user.id))
+      .orderBy(desc(gearupTeamMembers.invitedAt));
+
+    res.json(members);
+  } catch (error) {
+    console.error('Error fetching team members:', error);
+    res.status(500).json({ error: 'Failed to fetch team members' });
+  }
+});
+
+// Invite a team member (owner only)
+router.post('/gearup-team/invite', async (req: any, res) => {
+  try {
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'Only the owner can invite team members' });
+    }
+
+    const { email, role = 'viewer' } = z.object({
+      email: z.string().email(),
+      role: z.enum(['viewer', 'editor', 'admin']).optional().default('viewer'),
+    }).parse(req.body);
+
+    // Don't allow inviting the owner
+    if (email === GEARUP_OWNER_EMAIL) {
+      return res.status(400).json({ error: 'Cannot invite the owner as a team member' });
+    }
+
+    // Check if already invited
+    const [existing] = await db.select()
+      .from(gearupTeamMembers)
+      .where(eq(gearupTeamMembers.memberEmail, email))
+      .limit(1);
+
+    if (existing) {
+      if (existing.isActive) {
+        return res.status(400).json({ error: 'This email has already been invited' });
+      } else {
+        // Re-activate the existing member
+        await db.update(gearupTeamMembers)
+          .set({
+            isActive: true,
+            role,
+            invitedAt: new Date().toISOString(),
+            acceptedAt: null,
+          })
+          .where(eq(gearupTeamMembers.id, existing.id));
+
+        const [updated] = await db.select()
+          .from(gearupTeamMembers)
+          .where(eq(gearupTeamMembers.id, existing.id));
+
+        return res.json(updated);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const memberId = uuidv4();
+
+    await db.insert(gearupTeamMembers).values({
+      id: memberId,
+      ownerUserId: req.user.id,
+      memberEmail: email,
+      role,
+      invitedAt: now,
+      isActive: true,
+    });
+
+    const [member] = await db.select()
+      .from(gearupTeamMembers)
+      .where(eq(gearupTeamMembers.id, memberId));
+
+    res.json(member);
+  } catch (error) {
+    console.error('Error inviting team member:', error);
+    res.status(500).json({ error: 'Failed to invite team member' });
+  }
+});
+
+// Update team member role (owner only)
+router.patch('/gearup-team/members/:id', async (req: any, res) => {
+  try {
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'Only the owner can update team members' });
+    }
+
+    const { id } = req.params;
+    const { role } = z.object({
+      role: z.enum(['viewer', 'editor', 'admin']),
+    }).parse(req.body);
+
+    // Verify member belongs to this owner
+    const [member] = await db.select()
+      .from(gearupTeamMembers)
+      .where(and(
+        eq(gearupTeamMembers.id, id),
+        eq(gearupTeamMembers.ownerUserId, req.user.id)
+      ));
+
+    if (!member) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+
+    await db.update(gearupTeamMembers)
+      .set({ role })
+      .where(eq(gearupTeamMembers.id, id));
+
+    const [updated] = await db.select()
+      .from(gearupTeamMembers)
+      .where(eq(gearupTeamMembers.id, id));
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating team member:', error);
+    res.status(500).json({ error: 'Failed to update team member' });
+  }
+});
+
+// Remove team member (owner only)
+router.delete('/gearup-team/members/:id', async (req: any, res) => {
+  try {
+    if (!isGearupOwner(req)) {
+      return res.status(403).json({ error: 'Only the owner can remove team members' });
+    }
+
+    const { id } = req.params;
+
+    // Verify member belongs to this owner
+    const [member] = await db.select()
+      .from(gearupTeamMembers)
+      .where(and(
+        eq(gearupTeamMembers.id, id),
+        eq(gearupTeamMembers.ownerUserId, req.user.id)
+      ));
+
+    if (!member) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+
+    // Soft delete by setting isActive to false
+    await db.update(gearupTeamMembers)
+      .set({ isActive: false })
+      .where(eq(gearupTeamMembers.id, id));
+
+    res.json({ success: true, message: 'Team member removed' });
+  } catch (error) {
+    console.error('Error removing team member:', error);
+    res.status(500).json({ error: 'Failed to remove team member' });
   }
 });
 

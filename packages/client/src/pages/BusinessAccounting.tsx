@@ -38,7 +38,11 @@ import { TransactionDetailModal } from '@/components/business-accounting/Transac
 import { GSTManagementTab } from '@/components/business-accounting/GSTManagementTab';
 import { VendorsTab } from '@/components/business-accounting/VendorsTab';
 import { GearupAccountsTab } from '@/components/business-accounting/GearupAccountsTab';
+import { TeamManagement } from '@/components/business-accounting/TeamManagement';
 import type { BusinessTransaction, BusinessAccountingSummary, BizType } from '@/types';
+
+// Owner email for showing Team tab
+const GEARUP_OWNER_EMAIL = 'g.chanchal@gmail.com';
 
 const BIZ_TYPE_COLORS: Record<string, string> = {
   // Bank transaction types
@@ -97,6 +101,14 @@ const getTypeColor = (type: string) => BIZ_TYPE_COLORS[type] || DEFAULT_TYPE_COL
 export function BusinessAccounting() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Check if user is owner (for showing Team tab)
+  const { data: gearupAccess } = useQuery({
+    queryKey: ['gearup-access'],
+    queryFn: businessAccountingApi.checkAccess,
+    staleTime: 5 * 60 * 1000,
+  });
+  const isOwner = gearupAccess?.isOwner || false;
 
   // Get tab from URL or default to 'transactions'
   const activeTab = searchParams.get('tab') || 'transactions';
@@ -579,6 +591,7 @@ export function BusinessAccounting() {
             <TabsTrigger value="vendors">Vendors</TabsTrigger>
             <TabsTrigger value="gst">GST Summary</TabsTrigger>
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
+            {isOwner && <TabsTrigger value="team">Team</TabsTrigger>}
           </TabsList>
 
           {activeTab === 'transactions' && (
@@ -657,6 +670,13 @@ export function BusinessAccounting() {
         <TabsContent value="accounts">
           <GearupAccountsTab />
         </TabsContent>
+
+        {/* Team tab - only visible to owner */}
+        {isOwner && (
+          <TabsContent value="team">
+            <TeamManagement />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Transaction Detail Modal */}

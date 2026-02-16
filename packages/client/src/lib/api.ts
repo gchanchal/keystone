@@ -621,6 +621,22 @@ export const businessAccountingApi = {
 
   getGearupTransactions: (params?: { startDate?: string; endDate?: string }) =>
     api.get('/business-accounting/gearup-transactions', { params }).then((r) => r.data),
+
+  // Team Management
+  checkAccess: () =>
+    api.get('/business-accounting/gearup-team/my-access').then((r) => r.data),
+
+  getTeamMembers: () =>
+    api.get('/business-accounting/gearup-team/members').then((r) => r.data),
+
+  inviteTeamMember: (email: string, role: 'viewer' | 'editor' | 'admin' = 'viewer') =>
+    api.post('/business-accounting/gearup-team/invite', { email, role }).then((r) => r.data),
+
+  updateTeamMemberRole: (id: string, role: 'viewer' | 'editor' | 'admin') =>
+    api.patch(`/business-accounting/gearup-team/members/${id}`, { role }).then((r) => r.data),
+
+  removeTeamMember: (id: string) =>
+    api.delete(`/business-accounting/gearup-team/members/${id}`).then((r) => r.data),
 };
 
 // Investment Advisor (AI-powered)

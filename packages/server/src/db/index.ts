@@ -24,6 +24,7 @@ import * as templatesSchema from './schema/templates.js';
 import * as businessInvoicesSchema from './schema/business-invoices.js';
 import * as enrichmentRulesSchema from './schema/enrichment-rules.js';
 import * as reconciliationRulesSchema from './schema/reconciliation-rules.js';
+import * as gearupTeamSchema from './schema/gearup-team.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +63,7 @@ export const db = drizzle(sqlite, {
     ...businessInvoicesSchema,
     ...enrichmentRulesSchema,
     ...reconciliationRulesSchema,
+    ...gearupTeamSchema,
   },
 });
 
@@ -969,6 +971,20 @@ export function initializeDatabase() {
     // Column already exists, ignore
   }
 
+  // Add updated_by columns for team collaboration tracking
+  const teamTrackingMigrations = [
+    'ALTER TABLE bank_transactions ADD COLUMN updated_by_email TEXT',
+    'ALTER TABLE business_invoices ADD COLUMN updated_by_email TEXT',
+    'ALTER TABLE enrichment_rules ADD COLUMN created_by_email TEXT',
+  ];
+  for (const migration of teamTrackingMigrations) {
+    try {
+      sqlite.exec(migration);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
+
   // Set purpose = 'business' for all already reconciled bank transactions
   sqlite.exec(`
     UPDATE bank_transactions
@@ -1118,6 +1134,24 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_reconciliation_rules_pattern ON reconciliation_rules(bank_pattern_type, bank_pattern_value);
   `);
 
+  // Create gearup_team_members table for team sharing
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS gearup_team_members (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      member_email TEXT NOT NULL,
+      member_user_id TEXT,
+      role TEXT DEFAULT 'viewer',
+      invited_at TEXT NOT NULL,
+      accepted_at TEXT,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gearup_team_members_owner ON gearup_team_members(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_gearup_team_members_email ON gearup_team_members(member_email);
+    CREATE INDEX IF NOT EXISTS idx_gearup_team_members_member ON gearup_team_members(member_user_id);
+  `);
+
   // Create indexes for business accounting
   const businessAccountingIndexes = [
     'CREATE INDEX IF NOT EXISTS idx_bank_transactions_biz_type ON bank_transactions(biz_type)',
@@ -1192,6 +1226,7 @@ export * from './schema/templates.js';
 export * from './schema/business-invoices.js';
 export * from './schema/enrichment-rules.js';
 export * from './schema/reconciliation-rules.js';
+export * from './schema/gearup-team.js';
 
 // Export sqlite for direct queries
 export { sqlite };

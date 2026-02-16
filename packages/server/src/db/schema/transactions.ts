@@ -29,6 +29,7 @@ export const bankTransactions = sqliteTable('bank_transactions', {
   igstAmount: real('igst_amount'), // Integrated GST (interstate)
   gstType: text('gst_type'), // 'input' (purchases) or 'output' (sales)
   purpose: text('purpose'), // 'business', 'personal', or null (null = business)
+  updatedByEmail: text('updated_by_email'), // Email of user who last updated (for team tracking)
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
