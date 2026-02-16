@@ -741,9 +741,12 @@ router.post('/repair-matches', async (req, res) => {
     const bankMap = new Map(allBankTxns.map(t => [t.id, t]));
     const vyaparMap = new Map(allVyaparTxns.map(t => [t.id, t]));
 
-    // 1. For each matched bank transaction, ensure Vyapar side is also matched
+    // 1. For each matched bank transaction, ensure the other side still exists
     for (const bank of allBankTxns) {
-      if (bank.isReconciled && bank.reconciledWithId && bank.reconciledWithType === 'vyapar') {
+      if (!bank.isReconciled || !bank.reconciledWithId) continue;
+
+      if (bank.reconciledWithType === 'vyapar') {
+        // Single match - check if vyapar transaction still exists
         const vyapar = vyaparMap.get(bank.reconciledWithId);
         if (vyapar) {
           // Vyapar exists - ensure it's marked as matched back to this bank
@@ -772,30 +775,85 @@ router.post('/repair-matches', async (req, res) => {
             .where(eq(bankTransactions.id, bank.id));
           orphanedBankCount++;
         }
+      } else if (bank.reconciledWithType === 'multi_vyapar') {
+        // Multi-match - check if match group still has valid vyapar transactions
+        const matchGroupId = bank.reconciledWithId;
+        const groupRecords = await db
+          .select()
+          .from(reconciliationMatches)
+          .where(eq(reconciliationMatches.matchGroupId, matchGroupId));
+
+        const vyaparIdsInGroup = groupRecords
+          .filter(r => r.vyaparTransactionId)
+          .map(r => r.vyaparTransactionId!);
+
+        // Check if any vyapar transactions in this group still exist
+        const existingVyapar = vyaparIdsInGroup.filter(id => vyaparMap.has(id));
+
+        if (existingVyapar.length === 0) {
+          // No vyapar transactions exist - unlink all bank transactions in this group
+          const bankIdsInGroup = groupRecords
+            .filter(r => r.bankTransactionId)
+            .map(r => r.bankTransactionId!);
+
+          for (const bankId of bankIdsInGroup) {
+            await db
+              .update(bankTransactions)
+              .set({
+                isReconciled: false,
+                reconciledWithId: null,
+                reconciledWithType: null,
+                purpose: null,
+                updatedAt: now,
+              })
+              .where(eq(bankTransactions.id, bankId));
+          }
+
+          // Clean up the match group records
+          await db
+            .delete(reconciliationMatches)
+            .where(eq(reconciliationMatches.matchGroupId, matchGroupId));
+
+          orphanedBankCount += bankIdsInGroup.length;
+        }
       }
     }
 
     // 2. For each matched Vyapar transaction, ensure Bank side is also matched
     for (const vyapar of allVyaparTxns) {
-      if (vyapar.isReconciled && vyapar.reconciledWithId) {
-        const bank = bankMap.get(vyapar.reconciledWithId);
-        if (bank) {
-          // Bank exists - ensure it's marked as matched back to this Vyapar
-          if (!bank.isReconciled || bank.reconciledWithId !== vyapar.id) {
-            await db
-              .update(bankTransactions)
-              .set({
-                isReconciled: true,
-                reconciledWithId: vyapar.id,
-                reconciledWithType: 'vyapar',
-                purpose: 'business',
-                updatedAt: now,
-              })
-              .where(eq(bankTransactions.id, bank.id));
-            repairedCount++;
-          }
-        } else {
-          // Bank doesn't exist - unlink the Vyapar transaction
+      if (!vyapar.isReconciled || !vyapar.reconciledWithId) continue;
+
+      // Check if reconciledWithId is a bank ID (single match) or match group ID (multi match)
+      const bank = bankMap.get(vyapar.reconciledWithId);
+      if (bank) {
+        // Bank exists - ensure it's marked as matched back to this Vyapar
+        if (!bank.isReconciled || bank.reconciledWithId !== vyapar.id) {
+          await db
+            .update(bankTransactions)
+            .set({
+              isReconciled: true,
+              reconciledWithId: vyapar.id,
+              reconciledWithType: 'vyapar',
+              purpose: 'business',
+              updatedAt: now,
+            })
+            .where(eq(bankTransactions.id, bank.id));
+          repairedCount++;
+        }
+      } else {
+        // reconciledWithId might be a match group ID - check if group still has valid bank transactions
+        const groupRecords = await db
+          .select()
+          .from(reconciliationMatches)
+          .where(eq(reconciliationMatches.matchGroupId, vyapar.reconciledWithId));
+
+        const bankIdsInGroup = groupRecords
+          .filter(r => r.bankTransactionId)
+          .map(r => r.bankTransactionId!);
+        const existingBanks = bankIdsInGroup.filter(id => bankMap.has(id));
+
+        if (existingBanks.length === 0 && groupRecords.length === 0) {
+          // Not a valid group either - orphaned vyapar transaction
           await db
             .update(vyaparTransactions)
             .set({
@@ -806,6 +864,7 @@ router.post('/repair-matches', async (req, res) => {
             .where(eq(vyaparTransactions.id, vyapar.id));
           orphanedVyaparCount++;
         }
+        // If group exists with valid banks, the match is fine (handled by bank side)
       }
     }
 
