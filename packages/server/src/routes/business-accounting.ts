@@ -1843,12 +1843,11 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        // Pending Payments = Sale Orders (full amount) + Sales with balance > 0 (partial paid)
-        // For Sale Orders: use amount (full pending)
-        // For Sales: use balance if > 0 (remaining after partial payment)
+        // Pending Payments = Sale Orders + Sales with balance > 0 (partial paid)
+        // Always use balance when available, fallback to amount
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN ${vyaparTransactions.amount}
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
             WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
             ELSE 0
           END)`,

@@ -264,6 +264,44 @@ export function BusinessAccounting() {
     }
   };
 
+  // Export filtered transactions as CSV
+  const handleCSVExport = () => {
+    const rows = filteredTransactions.map(tx => ({
+      Date: tx.date,
+      Description: tx.bizDescription || tx.narration,
+      Account: tx.accountName || '',
+      Vendor: tx.vendorName || '',
+      Type: tx.bizType ? getTypeLabel(tx.bizType) : '',
+      Credit: tx.transactionType === 'credit' ? tx.amount : '',
+      Debit: tx.transactionType === 'debit' ? tx.amount : '',
+      Balance: tx.balance ?? '',
+      Status: tx.isReconciled ? 'Reconciled' : 'Unreconciled',
+    }));
+
+    const headers = Object.keys(rows[0] || {});
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row =>
+        headers.map(h => {
+          const val = String(row[h as keyof typeof row] ?? '');
+          return val.includes(',') || val.includes('"') || val.includes('\n')
+            ? `"${val.replace(/"/g, '""')}"` : val;
+        }).join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const filterSuffix = tileFilter ? `_${tileFilter}` : '';
+    a.download = `Transactions_${startDate}_${endDate}${filterSuffix}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Extract unique account names for filter options
   const uniqueAccountNames = useMemo(() => {
     const names = new Set<string>();
@@ -532,6 +570,10 @@ export function BusinessAccounting() {
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />
             Export for CA
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleCSVExport} disabled={filteredTransactions.length === 0}>
+            <Download className="mr-2 h-4 w-4" />
+            CSV{tileFilter ? ` (${filteredTransactions.length})` : ''}
           </Button>
         </div>
       </div>
