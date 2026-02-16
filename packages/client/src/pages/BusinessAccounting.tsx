@@ -138,11 +138,7 @@ export function BusinessAccounting() {
       // Toggle filter if already active
       setTileFilter(prev => prev === filter ? null : filter);
       // Reset other filters when tile is clicked
-      if (filter === 'saleOrders') {
-        setBizTypeFilter('SALE_ORDER');
-      } else {
-        setBizTypeFilter('all');
-      }
+      setBizTypeFilter('all');
       setInvoiceFilter(filter === 'pending' ? 'needs' : 'all');
     }
   };
@@ -291,7 +287,11 @@ export function BusinessAccounting() {
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
       case 'saleOrders':
-        return transactions.filter(tx => tx.bizType === 'SALE_ORDER');
+        // Include Sale Orders (full pending) + Sales with balance > 0 (partial paid)
+        return transactions.filter(tx =>
+          tx.bizType === 'SALE_ORDER' ||
+          (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
+        );
       default:
         return transactions;
     }
@@ -633,7 +633,7 @@ export function BusinessAccounting() {
           onClick={() => handleTileClick('saleOrders')}
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Sale Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
             <ShoppingCart className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
@@ -641,7 +641,7 @@ export function BusinessAccounting() {
               {formatCurrency(summary?.saleOrdersTotal || 0)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {summary?.saleOrdersCount || 0} pending payments
+              {summary?.saleOrdersCount || 0} orders/invoices
             </p>
           </CardContent>
         </Card>
@@ -679,7 +679,7 @@ export function BusinessAccounting() {
                   {tileFilter === 'expenses' && 'Debits only'}
                   {tileFilter === 'income' && 'Credits only'}
                   {tileFilter === 'pending' && 'Pending invoices'}
-                  {tileFilter === 'saleOrders' && 'Sale Orders'}
+                  {tileFilter === 'saleOrders' && 'Pending Payments'}
                   <button
                     onClick={() => {
                       setTileFilter(null);
@@ -729,7 +729,7 @@ export function BusinessAccounting() {
             data={filteredTransactions}
             columns={columns}
             isLoading={isLoading}
-            emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : tileFilter === 'saleOrders' ? 'sale order' : 'pending invoice'} transactions found` : 'No transactions found'}
+            emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : tileFilter === 'saleOrders' ? 'pending payment' : 'pending invoice'} transactions found` : 'No transactions found'}
             onRowClick={(row) => setSelectedTransaction(row)}
             getRowId={(row) => row.id}
             showGlobalSearch={true}

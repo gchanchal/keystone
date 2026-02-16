@@ -1843,9 +1843,21 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        // Sale Orders = Pending payments (not yet converted to Sale)
-        saleOrdersTotal: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        saleOrdersCount: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN 1 ELSE 0 END)`,
+        // Pending Payments = Sale Orders (full amount) + Sales with balance > 0 (partial paid)
+        // For Sale Orders: use amount (full pending)
+        // For Sales: use balance if > 0 (remaining after partial payment)
+        pendingPaymentsTotal: sql<number>`
+          SUM(CASE
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN ${vyaparTransactions.amount}
+            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
+            ELSE 0
+          END)`,
+        pendingPaymentsCount: sql<number>`
+          SUM(CASE
+            WHEN ${vyaparTransactions.transactionType} = 'Sale Order' THEN 1
+            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
+            ELSE 0
+          END)`,
       })
       .from(vyaparTransactions)
       .where(and(...vyaparConditions));
@@ -1892,8 +1904,9 @@ router.get('/summary', async (req, res) => {
       pendingInvoices: bankTotals.pendingInvoices || 0,
       gstPayable: (bankTotals.gstOutput || 0) - (bankTotals.gstInput || 0),
       vendorCount: vendorResult.vendorCount || 0,
-      saleOrdersTotal: vyaparTotals.saleOrdersTotal || 0,
-      saleOrdersCount: vyaparTotals.saleOrdersCount || 0,
+      // Pending payments includes Sale Orders + Sales with outstanding balance
+      saleOrdersTotal: vyaparTotals.pendingPaymentsTotal || 0,
+      saleOrdersCount: vyaparTotals.pendingPaymentsCount || 0,
     });
   } catch (error) {
     console.error('Error fetching summary:', error);
