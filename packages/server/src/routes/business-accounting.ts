@@ -1844,14 +1844,15 @@ router.get('/summary', async (req, res) => {
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Pending Payments = Sale Orders (not converted to Sale) + Sales with balance > 0 (partial paid)
-        // A Sale Order is "converted" if a Sale exists with the same party_name
+        // A Sale Order is "converted" if a Sale exists with the same party_name AND amount
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
             WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
               AND NOT EXISTS (
                 SELECT 1 FROM vyapar_transactions v2
                 WHERE v2.transaction_type = 'Sale'
-                  AND v2.party_name = vyapar_transactions.party_name
+                  AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
+                  AND v2.amount = vyapar_transactions.amount
                   AND v2.party_name IS NOT NULL
                   AND v2.user_id = vyapar_transactions.user_id
               )
@@ -1865,7 +1866,8 @@ router.get('/summary', async (req, res) => {
               AND NOT EXISTS (
                 SELECT 1 FROM vyapar_transactions v2
                 WHERE v2.transaction_type = 'Sale'
-                  AND v2.party_name = vyapar_transactions.party_name
+                  AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
+                  AND v2.amount = vyapar_transactions.amount
                   AND v2.party_name IS NOT NULL
                   AND v2.user_id = vyapar_transactions.user_id
               )
