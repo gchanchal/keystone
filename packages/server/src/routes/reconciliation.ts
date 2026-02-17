@@ -894,8 +894,25 @@ router.post('/repair-matches', async (req, res) => {
             })
             .where(eq(vyaparTransactions.id, vyapar.id));
           orphanedVyaparCount++;
+        } else if (existingBanks.length > 0) {
+          // Group exists with valid banks - ensure all bank txns in group are marked reconciled
+          for (const bankId of existingBanks) {
+            const bankTxn = bankMap.get(bankId)!;
+            if (!bankTxn.isReconciled || bankTxn.reconciledWithId !== vyapar.reconciledWithId) {
+              await db
+                .update(bankTransactions)
+                .set({
+                  isReconciled: true,
+                  reconciledWithId: vyapar.reconciledWithId, // match group ID
+                  reconciledWithType: 'multi_vyapar',
+                  purpose: 'business',
+                  updatedAt: now,
+                })
+                .where(eq(bankTransactions.id, bankId));
+              repairedCount++;
+            }
+          }
         }
-        // If group exists with valid banks, the match is fine (handled by bank side)
       }
     }
 
