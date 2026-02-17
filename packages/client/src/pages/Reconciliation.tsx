@@ -16,6 +16,9 @@ import {
   RefreshCw,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,6 +67,12 @@ export function Reconciliation() {
   const [viewingMatchVyaparId, setViewingMatchVyaparId] = useState<string | null>(null);
   // View mode: 'split' shows side-by-side lists, 'matched-pairs' shows all matched pairs together
   const [viewMode, setViewMode] = useState<ViewMode>('split');
+
+  // Matched pairs sorting & filtering
+  const [mpSortField, setMpSortField] = useState<'date' | 'bankAmt' | 'vyaparAmt' | 'type'>('date');
+  const [mpSortDir, setMpSortDir] = useState<'asc' | 'desc'>('desc');
+  const [mpSearch, setMpSearch] = useState('');
+  const [mpTypeFilter, setMpTypeFilter] = useState<'all' | 'sale' | 'expense'>('all');
 
   // Fetch match details when viewing a matched transaction
   const { data: matchDetails, isLoading: matchDetailsLoading } = useQuery({
@@ -911,100 +920,172 @@ export function Reconciliation() {
       )}
 
       {/* Matched Pairs View */}
-      {viewMode === 'matched-pairs' && (
+      {viewMode === 'matched-pairs' && (() => {
+        // Build enriched rows with vyapar lookup done once
+        const vyaparMatchMap = new Map<string, VyaparTransaction>();
+        for (const v of vyapar.matched) {
+          vyaparMatchMap.set(v.id, v);
+          if (v.reconciledWithId) vyaparMatchMap.set(v.reconciledWithId, v);
+        }
+        const allRows = bank.matched.map((bankTxn: BankTransaction) => {
+          const vyaparTxn = vyaparMatchMap.get(bankTxn.reconciledWithId!) || vyaparMatchMap.get(bankTxn.id) || null;
+          const isSale = vyaparTxn && ['Sale', 'Payment-In', 'Credit Note'].includes(vyaparTxn.transactionType);
+          return { bankTxn, vyaparTxn, isSale };
+        });
+
+        // Filter
+        const filtered = allRows.filter(({ bankTxn, vyaparTxn }) => {
+          if (mpSearch) {
+            const s = mpSearch.toLowerCase();
+            const matchNarration = bankTxn.narration?.toLowerCase().includes(s);
+            const matchParty = vyaparTxn?.partyName?.toLowerCase().includes(s);
+            if (!matchNarration && !matchParty) return false;
+          }
+          if (mpTypeFilter !== 'all' && vyaparTxn) {
+            const saleTypes = ['Sale', 'Payment-In', 'Credit Note'];
+            if (mpTypeFilter === 'sale' && !saleTypes.includes(vyaparTxn.transactionType)) return false;
+            if (mpTypeFilter === 'expense' && saleTypes.includes(vyaparTxn.transactionType)) return false;
+          }
+          return true;
+        });
+
+        // Sort
+        const sorted = [...filtered].sort((a, b) => {
+          const dir = mpSortDir === 'asc' ? 1 : -1;
+          switch (mpSortField) {
+            case 'date': return dir * (new Date(a.bankTxn.date).getTime() - new Date(b.bankTxn.date).getTime());
+            case 'bankAmt': return dir * (a.bankTxn.amount - b.bankTxn.amount);
+            case 'vyaparAmt': return dir * ((a.vyaparTxn?.amount || 0) - (b.vyaparTxn?.amount || 0));
+            case 'type': return dir * ((a.vyaparTxn?.transactionType || '').localeCompare(b.vyaparTxn?.transactionType || ''));
+            default: return 0;
+          }
+        });
+
+        const toggleSort = (field: typeof mpSortField) => {
+          if (mpSortField === field) {
+            setMpSortDir(d => d === 'asc' ? 'desc' : 'asc');
+          } else {
+            setMpSortField(field);
+            setMpSortDir(field === 'date' ? 'desc' : 'asc');
+          }
+        };
+
+        const SortIcon = ({ field }: { field: typeof mpSortField }) => {
+          if (mpSortField !== field) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />;
+          return mpSortDir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1" /> : <ArrowDown className="h-3 w-3 ml-1" />;
+        };
+
+        return (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Link className="h-5 w-5" />
-              All Matched Pairs ({bank.matched.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {bank.matched.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No matched transactions yet. Use the split view to manually match or run Auto Match.
-                </div>
-              ) : (
-                bank.matched.map((bankTxn: BankTransaction) => {
-                  // For single match: reconciledWithId is the vyapar ID
-                  // For multi-match: reconciledWithId is a match group ID, find vyapar txn that references same group
-                  const vyaparTxn = vyapar.matched.find((v: VyaparTransaction) =>
-                    v.id === bankTxn.reconciledWithId || v.reconciledWithId === bankTxn.id || v.reconciledWithId === bankTxn.reconciledWithId
-                  );
-                  return (
-                    <div
-                      key={bankTxn.id}
-                      className="rounded-lg border p-4 hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="grid gap-4 md:grid-cols-2">
-                        {/* Bank Side */}
-                        <div className="space-y-1 border-r pr-4">
-                          <div className="flex items-center gap-2">
-                            <Badge className="bg-blue-500 text-xs">Bank</Badge>
-                            <Badge variant={bankTxn.transactionType === 'credit' ? 'success' : 'destructive'} className="text-xs">
-                              {bankTxn.transactionType === 'credit' ? 'Credit' : 'Debit'}
-                            </Badge>
-                          </div>
-                          <p className={`text-lg font-bold ${bankTxn.transactionType === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatCurrency(bankTxn.amount)}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{formatDate(bankTxn.date)}</p>
-                          <p className="text-sm line-clamp-1">{bankTxn.narration}</p>
-                        </div>
-
-                        {/* Vyapar Side */}
-                        <div className="space-y-1 pl-4">
-                          <div className="flex items-center gap-2">
-                            <Badge className="bg-green-600 text-xs">Vyapar</Badge>
-                            {vyaparTxn && <Badge variant="secondary" className="text-xs">{vyaparTxn.transactionType}</Badge>}
-                          </div>
-                          {vyaparTxn ? (
-                            <>
-                              <p className="text-lg font-bold">{formatCurrency(vyaparTxn.amount)}</p>
-                              <p className="text-sm text-muted-foreground">{formatDate(vyaparTxn.date)}</p>
-                              <p className="text-sm font-medium line-clamp-1">
-                                {vyaparTxn.partyName || vyaparTxn.invoiceNumber || vyaparTxn.categoryName || '-'}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-sm text-muted-foreground italic">Vyapar record not found (ID: {bankTxn.reconciledWithId})</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                        <div>
-                          {vyaparTxn && Math.abs(bankTxn.amount - vyaparTxn.amount) < 1 ? (
-                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
-                              <Check className="mr-1 h-3 w-3" />
-                              Exact Match
-                            </Badge>
-                          ) : vyaparTxn ? (
-                            <Badge variant="outline" className="text-amber-600 border-amber-600 text-xs">
-                              Diff: {formatCurrency(Math.abs(bankTxn.amount - vyaparTxn.amount))}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => unmatchMutation.mutate(bankTxn.id)}
-                        >
-                          <Unlink className="mr-1 h-3 w-3" />
-                          Unmatch
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Link className="h-4 w-4" />
+                Matched Pairs ({filtered.length}{filtered.length !== allRows.length ? ` / ${allRows.length}` : ''})
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Search narration / party..."
+                  value={mpSearch}
+                  onChange={e => setMpSearch(e.target.value)}
+                  className="h-7 w-48 text-xs"
+                />
+                <Select value={mpTypeFilter} onValueChange={(v: 'all' | 'sale' | 'expense') => setMpTypeFilter(v)}>
+                  <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="sale">Sales</SelectItem>
+                    <SelectItem value="expense">Expenses</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {sorted.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {allRows.length === 0
+                  ? 'No matched transactions yet. Use the split view to manually match or run Auto Match.'
+                  : 'No matches found for the current filters.'}
+              </div>
+            ) : (
+              <div className="max-h-[700px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+                    <tr className="text-xs text-muted-foreground">
+                      <th className="text-left px-3 py-2 font-medium cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('date')}>
+                        <span className="inline-flex items-center">Date<SortIcon field="date" /></span>
+                      </th>
+                      <th className="text-left px-3 py-2 font-medium">Bank Narration</th>
+                      <th className="text-right px-3 py-2 font-medium cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('bankAmt')}>
+                        <span className="inline-flex items-center">Bank Amt<SortIcon field="bankAmt" /></span>
+                      </th>
+                      <th className="text-left px-3 py-2 font-medium">Vyapar Party</th>
+                      <th className="text-left px-3 py-2 font-medium cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('type')}>
+                        <span className="inline-flex items-center">Type<SortIcon field="type" /></span>
+                      </th>
+                      <th className="text-right px-3 py-2 font-medium cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort('vyaparAmt')}>
+                        <span className="inline-flex items-center">Vyapar Amt<SortIcon field="vyaparAmt" /></span>
+                      </th>
+                      <th className="text-center px-3 py-2 font-medium">Status</th>
+                      <th className="text-right px-3 py-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {sorted.map(({ bankTxn, vyaparTxn, isSale }) => {
+                      const isCredit = bankTxn.transactionType === 'credit';
+                      return (
+                        <tr key={bankTxn.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">{formatDate(bankTxn.date)}</td>
+                          <td className="px-3 py-1.5 max-w-[200px] truncate" title={bankTxn.narration}>{bankTxn.narration}</td>
+                          <td className={`px-3 py-1.5 text-right font-medium whitespace-nowrap ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(bankTxn.amount)}
+                          </td>
+                          <td className="px-3 py-1.5 max-w-[160px] truncate" title={vyaparTxn?.partyName || ''}>
+                            {vyaparTxn ? (vyaparTxn.partyName || vyaparTxn.invoiceNumber || '-') : (
+                              <span className="text-muted-foreground italic text-xs">Not found</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {vyaparTxn && (
+                              <Badge className={`text-[10px] px-1.5 py-0 ${isSale ? 'bg-green-600' : 'bg-red-600'}`}>
+                                {vyaparTxn.transactionType}
+                              </Badge>
+                            )}
+                          </td>
+                          <td className={`px-3 py-1.5 text-right font-medium whitespace-nowrap ${vyaparTxn ? (isSale ? 'text-green-600' : 'text-red-600') : ''}`}>
+                            {vyaparTxn ? formatCurrency(vyaparTxn.amount) : '-'}
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            {vyaparTxn && Math.abs(bankTxn.amount - vyaparTxn.amount) < 1 ? (
+                              <Check className="h-3.5 w-3.5 text-green-600 inline" />
+                            ) : vyaparTxn ? (
+                              <span className="text-[10px] text-amber-600">{formatCurrency(Math.abs(bankTxn.amount - vyaparTxn.amount))}</span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-1.5 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                              onClick={() => unmatchMutation.mutate(bankTxn.id)}
+                            >
+                              <Unlink className="h-3 w-3" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
 
       {/* Split View */}
       {viewMode === 'split' && <div className="grid gap-6 lg:grid-cols-2">
