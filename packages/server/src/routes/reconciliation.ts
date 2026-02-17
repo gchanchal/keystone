@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db, bankTransactions, vyaparTransactions, reconciliationRules, accounts } from '../db/index.js';
 import { eq, and, between, sql, desc } from 'drizzle-orm';
+import { getGearupDataUserId } from '../utils/gearup-auth.js';
 
 // Helper to check if Vyapar is enabled as a GearUp business data source
 async function isVyaparEnabled(userId: string): Promise<boolean> {
@@ -44,13 +45,14 @@ router.get('/', async (req, res) => {
       })
       .parse(req.query);
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
     // Get bank transactions (exclude personal)
     const bankConditions = [
       between(bankTransactions.date, startDate, endDate),
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
     if (accountId) {
@@ -63,12 +65,12 @@ router.get('/', async (req, res) => {
       .where(and(...bankConditions));
 
     // Get vyapar transactions only if Vyapar is enabled as a data source
-    const vyaparEnabled = await isVyaparEnabled(req.userId!);
+    const vyaparEnabled = await isVyaparEnabled(dataUserId);
     const vyaparTxns = vyaparEnabled
       ? await db
           .select()
           .from(vyaparTransactions)
-          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)))
+          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, dataUserId)))
       : [];
 
     // Separate matched and unmatched
@@ -118,10 +120,11 @@ router.post('/auto-match', async (req, res) => {
       })
       .parse(req.body);
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
-    const matches = await autoReconcile(startDate, endDate, accountIds, req.userId!);
+    const matches = await autoReconcile(startDate, endDate, accountIds, dataUserId);
 
     if (apply && matches.length > 0) {
       const appliedCount = await applyMatches(matches);
@@ -192,7 +195,9 @@ router.post('/manual-match', async (req, res) => {
       })
       .parse(req.body);
 
-    await manualMatch(bankTransactionId, vyaparTransactionId, req.userId);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId;
+
+    await manualMatch(bankTransactionId, vyaparTransactionId, dataUserId);
 
     res.json({ success: true });
   } catch (error) {
@@ -373,6 +378,7 @@ router.get('/match-details', async (req, res) => {
       return res.status(400).json({ error: 'Either bankId or vyaparId is required' });
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     let matchGroupId: string | null = null;
     let bankTxnIds: string[] = [];
     let vyaparTxnIds: string[] = [];
@@ -382,7 +388,7 @@ router.get('/match-details', async (req, res) => {
       const [bankTxn] = await db
         .select()
         .from(bankTransactions)
-        .where(and(eq(bankTransactions.id, bankId), eq(bankTransactions.userId, req.userId!)));
+        .where(and(eq(bankTransactions.id, bankId), eq(bankTransactions.userId, dataUserId)));
 
       if (!bankTxn) {
         return res.status(404).json({ error: 'Bank transaction not found' });
@@ -405,7 +411,7 @@ router.get('/match-details', async (req, res) => {
       const [vyaparTxn] = await db
         .select()
         .from(vyaparTransactions)
-        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, req.userId!)));
+        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, dataUserId)));
 
       if (!vyaparTxn) {
         return res.status(404).json({ error: 'Vyapar transaction not found' });
@@ -432,7 +438,7 @@ router.get('/match-details', async (req, res) => {
           .where(
             and(
               eq(bankTransactions.reconciledWithId, vyaparId),
-              eq(bankTransactions.userId, req.userId!)
+              eq(bankTransactions.userId, dataUserId)
             )
           );
 
@@ -499,13 +505,14 @@ router.get('/export', async (req, res) => {
       })
       .parse(req.query);
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const startDate = `${startMonth}-01`;
     const endDate = `${endMonth}-31`;
 
     // Get bank transactions (exclude personal)
     const bankConditions = [
       between(bankTransactions.date, startDate, endDate),
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`(${bankTransactions.purpose} IS NULL OR ${bankTransactions.purpose} != 'personal')`,
     ];
     if (accountId) {
@@ -518,12 +525,12 @@ router.get('/export', async (req, res) => {
       .where(and(...bankConditions));
 
     // Get vyapar transactions only if Vyapar is enabled
-    const vyaparEnabled = await isVyaparEnabled(req.userId!);
+    const vyaparEnabled = await isVyaparEnabled(dataUserId);
     const vyaparTxns = vyaparEnabled
       ? await db
           .select()
           .from(vyaparTransactions)
-          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, req.userId!)))
+          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, dataUserId)))
       : [];
 
     // Build matched pairs
@@ -600,10 +607,11 @@ router.get('/export', async (req, res) => {
 // Get all reconciliation rules
 router.get('/rules', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const rules = await db
       .select()
       .from(reconciliationRules)
-      .where(eq(reconciliationRules.userId, req.userId!))
+      .where(eq(reconciliationRules.userId, dataUserId))
       .orderBy(desc(reconciliationRules.matchCount), desc(reconciliationRules.priority));
 
     res.json(rules);
@@ -617,12 +625,13 @@ router.get('/rules', async (req, res) => {
 router.delete('/rules/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Verify rule belongs to user
     const [rule] = await db
       .select()
       .from(reconciliationRules)
-      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, req.userId!)));
+      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, dataUserId)));
 
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
@@ -642,12 +651,13 @@ router.patch('/rules/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Verify rule belongs to user
     const [rule] = await db
       .select()
       .from(reconciliationRules)
-      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, req.userId!)));
+      .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.userId, dataUserId)));
 
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
@@ -676,13 +686,15 @@ router.patch('/rules/:id', async (req, res) => {
 // Find orphaned Vyapar matches (marked as matched but bank transaction doesn't exist)
 router.get('/orphaned-matches', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+
     // Find all Vyapar transactions that are marked as reconciled
     const matchedVyapar = await db
       .select()
       .from(vyaparTransactions)
       .where(
         and(
-          eq(vyaparTransactions.userId, req.userId!),
+          eq(vyaparTransactions.userId, dataUserId),
           eq(vyaparTransactions.isReconciled, true)
         )
       );
@@ -691,7 +703,7 @@ router.get('/orphaned-matches', async (req, res) => {
     const allBankTxns = await db
       .select({ id: bankTransactions.id })
       .from(bankTransactions)
-      .where(eq(bankTransactions.userId, req.userId!));
+      .where(eq(bankTransactions.userId, dataUserId));
 
     const bankTxnIds = new Set(allBankTxns.map(t => t.id));
 
@@ -721,6 +733,7 @@ router.get('/orphaned-matches', async (req, res) => {
 // Repair all match inconsistencies (sync both sides)
 router.post('/repair-matches', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const now = new Date().toISOString();
     let repairedCount = 0;
     let orphanedBankCount = 0;
@@ -730,13 +743,13 @@ router.post('/repair-matches', async (req, res) => {
     const allBankTxns = await db
       .select()
       .from(bankTransactions)
-      .where(eq(bankTransactions.userId, req.userId!));
+      .where(eq(bankTransactions.userId, dataUserId));
 
     // Get all Vyapar transactions
     const allVyaparTxns = await db
       .select()
       .from(vyaparTransactions)
-      .where(eq(vyaparTransactions.userId, req.userId!));
+      .where(eq(vyaparTransactions.userId, dataUserId));
 
     const bankMap = new Map(allBankTxns.map(t => [t.id, t]));
     const vyaparMap = new Map(allVyaparTxns.map(t => [t.id, t]));
@@ -884,6 +897,7 @@ router.post('/repair-matches', async (req, res) => {
 router.post('/fix-orphaned-matches', async (req, res) => {
   // Redirect to the comprehensive repair function
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const now = new Date().toISOString();
     let fixedCount = 0;
 
@@ -893,7 +907,7 @@ router.post('/fix-orphaned-matches', async (req, res) => {
       .from(vyaparTransactions)
       .where(
         and(
-          eq(vyaparTransactions.userId, req.userId!),
+          eq(vyaparTransactions.userId, dataUserId),
           eq(vyaparTransactions.isReconciled, true)
         )
       );
@@ -902,7 +916,7 @@ router.post('/fix-orphaned-matches', async (req, res) => {
     const allBankTxns = await db
       .select({ id: bankTransactions.id })
       .from(bankTransactions)
-      .where(eq(bankTransactions.userId, req.userId!));
+      .where(eq(bankTransactions.userId, dataUserId));
 
     const bankTxnIds = new Set(allBankTxns.map(t => t.id));
 

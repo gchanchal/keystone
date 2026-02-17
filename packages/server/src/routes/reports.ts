@@ -13,6 +13,7 @@ import {
 } from '../services/export-service.js';
 import { db, bankTransactions, vyaparTransactions, categories } from '../db/index.js';
 import { between, eq, and, desc, sql } from 'drizzle-orm';
+import { getGearupDataUserId } from '../utils/gearup-auth.js';
 
 const router = Router();
 
@@ -25,7 +26,8 @@ router.get('/pl', async (req, res) => {
       })
       .parse(req.query);
 
-    const pl = await getMonthlyPL(month, req.userId!);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const pl = await getMonthlyPL(month, dataUserId);
     res.json(pl);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -46,7 +48,8 @@ router.get('/pl/export', async (req, res) => {
       })
       .parse(req.query);
 
-    const pl = await getMonthlyPL(month, req.userId!);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const pl = await getMonthlyPL(month, dataUserId);
 
     if (exportFormat === 'xlsx') {
       const buffer = formatPLReport(pl);
@@ -86,7 +89,8 @@ router.get('/gst', async (req, res) => {
       })
       .parse(req.query);
 
-    const summary = await getGSTSummary(startDate, endDate, req.userId!);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const summary = await getGSTSummary(startDate, endDate, dataUserId);
     res.json(summary);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -108,7 +112,8 @@ router.get('/category-breakdown', async (req, res) => {
       })
       .parse(req.query);
 
-    const breakdown = await getExpenseBreakdown(startDate, endDate, req.userId!);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const breakdown = await getExpenseBreakdown(startDate, endDate, dataUserId);
 
     // If type is specified, filter appropriately
     // For now, getExpenseBreakdown returns expenses only
