@@ -927,7 +927,11 @@ export function Reconciliation() {
                 </div>
               ) : (
                 bank.matched.map((bankTxn: BankTransaction) => {
-                  const vyaparTxn = vyapar.matched.find((v: VyaparTransaction) => v.id === bankTxn.reconciledWithId);
+                  // For single match: reconciledWithId is the vyapar ID
+                  // For multi-match: reconciledWithId is a match group ID, find vyapar txn that references same group
+                  const vyaparTxn = vyapar.matched.find((v: VyaparTransaction) =>
+                    v.id === bankTxn.reconciledWithId || v.reconciledWithId === bankTxn.id || v.reconciledWithId === bankTxn.reconciledWithId
+                  );
                   return (
                     <div
                       key={bankTxn.id}

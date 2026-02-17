@@ -76,6 +76,24 @@ router.get('/', async (req, res) => {
     // Separate matched and unmatched
     const matchedBank = bankTxns.filter(t => t.isReconciled);
     const unmatchedBank = bankTxns.filter(t => !t.isReconciled);
+
+    // Also fetch matched vyapar records that are outside the date range but linked to bank txns in range
+    const vyaparTxnIds = new Set(vyaparTxns.map(v => v.id));
+    const missingVyaparIds = matchedBank
+      .filter(b => b.reconciledWithId && b.reconciledWithType === 'vyapar' && !vyaparTxnIds.has(b.reconciledWithId))
+      .map(b => b.reconciledWithId!);
+
+    if (missingVyaparIds.length > 0 && vyaparEnabled) {
+      const missingVyapar = await db
+        .select()
+        .from(vyaparTransactions)
+        .where(and(
+          sql`${vyaparTransactions.id} IN (${sql.join(missingVyaparIds.map(id => sql`${id}`), sql`, `)})`,
+          eq(vyaparTransactions.userId, dataUserId)
+        ));
+      vyaparTxns.push(...missingVyapar);
+    }
+
     const matchedVyapar = vyaparTxns.filter(t => t.isReconciled);
     const unmatchedVyapar = vyaparTxns.filter(t => !t.isReconciled);
 
