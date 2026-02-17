@@ -299,7 +299,7 @@ router.get('/transactions', async (req, res) => {
       return res.json([]);
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
@@ -598,8 +598,9 @@ function getVyaparVendorName(partyName: string | null, transactionType: string |
 // Run auto-enrichment on transactions
 router.post('/enrich', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const { accountId, overwrite = false } = req.body;
-    const asgAccountIds = accountId ? [accountId] : await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = accountId ? [accountId] : await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ enriched: 0, message: 'No ASG accounts found' });
@@ -611,7 +612,7 @@ router.post('/enrich', async (req, res) => {
       .from(enrichmentRules)
       .where(
         and(
-          eq(enrichmentRules.userId, req.userId!),
+          eq(enrichmentRules.userId, dataUserId),
           eq(enrichmentRules.isActive, 1)
         )
       )
@@ -653,7 +654,7 @@ router.post('/enrich', async (req, res) => {
       .from(bankTransactions)
       .where(
         and(
-          eq(bankTransactions.userId, req.userId!),
+          eq(bankTransactions.userId, dataUserId),
           sql`${bankTransactions.accountId} IN (${sql.join(
             asgAccountIds.map((id) => sql`${id}`),
             sql`, `
@@ -681,7 +682,7 @@ router.post('/enrich', async (req, res) => {
 
     // Get transactions that need enrichment
     const conditions = [
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
@@ -783,10 +784,11 @@ router.post('/enrich', async (req, res) => {
 // Get all enrichment rules
 router.get('/enrichment-rules', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const rules = await db
       .select()
       .from(enrichmentRules)
-      .where(eq(enrichmentRules.userId, req.userId!))
+      .where(eq(enrichmentRules.userId, dataUserId))
       .orderBy(desc(enrichmentRules.matchCount), desc(enrichmentRules.priority));
 
     res.json(rules);
@@ -800,12 +802,13 @@ router.get('/enrichment-rules', async (req, res) => {
 router.delete('/enrichment-rules/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Verify rule belongs to user
     const [rule] = await db
       .select()
       .from(enrichmentRules)
-      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, req.userId!)));
+      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, dataUserId)));
 
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
@@ -825,12 +828,13 @@ router.patch('/enrichment-rules/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Verify rule belongs to user
     const [rule] = await db
       .select()
       .from(enrichmentRules)
-      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, req.userId!)));
+      .where(and(eq(enrichmentRules.id, id), eq(enrichmentRules.userId, dataUserId)));
 
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
@@ -875,6 +879,7 @@ router.patch('/transaction/:id', async (req, res) => {
     const { id } = req.params;
     const data = updateSchema.parse(req.body);
     const now = new Date().toISOString();
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Check if this is a Vyapar transaction
     const isVyaparTransaction = id.startsWith('vyapar-');
@@ -887,7 +892,7 @@ router.patch('/transaction/:id', async (req, res) => {
       const [vyaparTx] = await db
         .select()
         .from(vyaparTransactions)
-        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, req.userId!)));
+        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, dataUserId)));
 
       if (!vyaparTx) {
         return res.status(404).json({ error: 'Transaction not found' });
@@ -922,7 +927,7 @@ router.patch('/transaction/:id', async (req, res) => {
     const [tx] = await db
       .select()
       .from(bankTransactions)
-      .where(and(eq(bankTransactions.id, id), eq(bankTransactions.userId, req.userId!)));
+      .where(and(eq(bankTransactions.id, id), eq(bankTransactions.userId, dataUserId)));
 
     if (!tx) {
       return res.status(404).json({ error: 'Transaction not found' });
@@ -947,7 +952,7 @@ router.patch('/transaction/:id', async (req, res) => {
           .from(enrichmentRules)
           .where(
             and(
-              eq(enrichmentRules.userId, req.userId!),
+              eq(enrichmentRules.userId, dataUserId),
               eq(enrichmentRules.patternType, 'narration_key'),
               eq(enrichmentRules.patternValue, narrationKey)
             )
@@ -972,7 +977,7 @@ router.patch('/transaction/:id', async (req, res) => {
           // Create new rule
           await db.insert(enrichmentRules).values({
             id: uuidv4(),
-            userId: req.userId!,
+            userId: dataUserId,
             patternType: 'narration_key',
             patternValue: narrationKey,
             bizType: data.bizType,
@@ -993,9 +998,9 @@ router.patch('/transaction/:id', async (req, res) => {
     let propagatedCount = 0;
 
     if (data.vendorName || data.bizType) {
-      const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+      const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
       propagatedCount = await propagateToSimilarTransactions(
-        req.userId!,
+        dataUserId,
         asgAccountIds,
         tx.narration,
         tx.id,
@@ -1041,11 +1046,13 @@ router.post('/invoice', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Transaction ID is required' });
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+
     // Verify transaction belongs to user
     const [tx] = await db
       .select()
       .from(bankTransactions)
-      .where(and(eq(bankTransactions.id, transactionId), eq(bankTransactions.userId, req.userId!)));
+      .where(and(eq(bankTransactions.id, transactionId), eq(bankTransactions.userId, dataUserId)));
 
     if (!tx) {
       fs.unlinkSync(req.file.path);
@@ -1077,7 +1084,7 @@ router.post('/invoice', upload.single('file'), async (req, res) => {
     // Create invoice record with extracted data
     await db.insert(businessInvoices).values({
       id: invoiceId,
-      userId: req.userId!,
+      userId: dataUserId,
       transactionId,
       filename: req.file.filename,
       originalName: req.file.originalname,
@@ -1147,11 +1154,12 @@ router.post('/invoice', upload.single('file'), async (req, res) => {
 router.get('/invoice/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     const [invoice] = await db
       .select()
       .from(businessInvoices)
-      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, req.userId!)));
+      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, dataUserId)));
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -1179,11 +1187,12 @@ router.get('/invoice/:id', async (req, res) => {
 router.delete('/invoice/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     const [invoice] = await db
       .select()
       .from(businessInvoices)
-      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, req.userId!)));
+      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, dataUserId)));
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -1220,18 +1229,19 @@ router.delete('/invoice/:id', async (req, res) => {
 router.get('/transaction/:id/matches', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Get the transaction
     const [tx] = await db
       .select()
       .from(bankTransactions)
-      .where(and(eq(bankTransactions.id, id), eq(bankTransactions.userId, req.userId!)));
+      .where(and(eq(bankTransactions.id, id), eq(bankTransactions.userId, dataUserId)));
 
     if (!tx) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
     if (asgAccountIds.length === 0) {
       return res.json({ matches: [], totalAmount: 0 });
     }
@@ -1242,7 +1252,7 @@ router.get('/transaction/:id/matches', async (req, res) => {
       .from(bankTransactions)
       .where(
         and(
-          eq(bankTransactions.userId, req.userId!),
+          eq(bankTransactions.userId, dataUserId),
           sql`${bankTransactions.accountId} IN (${sql.join(
             asgAccountIds.map((aid) => sql`${aid}`),
             sql`, `
@@ -1319,7 +1329,7 @@ router.get('/vendors', async (req, res) => {
       return res.json([]);
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     // Check if Vyapar is enabled
     const [vyaparAccount] = await db
@@ -1486,7 +1496,8 @@ router.get('/vendors/:name/payments', async (req, res) => {
   try {
     const { name } = req.params;
     const decodedName = decodeURIComponent(name);
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
@@ -1501,7 +1512,7 @@ router.get('/vendors/:name/payments', async (req, res) => {
       .from(bankTransactions)
       .where(
         and(
-          eq(bankTransactions.userId, req.userId!),
+          eq(bankTransactions.userId, dataUserId),
           sql`${bankTransactions.accountId} IN (${sql.join(
             asgAccountIds.map((id) => sql`${id}`),
             sql`, `
@@ -1525,14 +1536,15 @@ router.get('/vendors/:name/transactions', async (req, res) => {
     const { name } = req.params;
     const { month } = req.query; // Optional: filter by month (YYYY-MM)
     const decodedName = decodeURIComponent(name);
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json([]);
     }
 
     const conditions = [
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
@@ -1572,7 +1584,8 @@ router.patch('/vendors/:name', async (req, res) => {
     }
 
     const trimmedNewName = newName.trim();
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.status(404).json({ error: 'No ASG accounts found' });
@@ -1589,7 +1602,7 @@ router.patch('/vendors/:name', async (req, res) => {
       })
       .where(
         and(
-          eq(bankTransactions.userId, req.userId!),
+          eq(bankTransactions.userId, dataUserId),
           sql`${bankTransactions.accountId} IN (${sql.join(
             asgAccountIds.map((id) => sql`${id}`),
             sql`, `
@@ -1608,7 +1621,7 @@ router.patch('/vendors/:name', async (req, res) => {
       })
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           sql`(${businessInvoices.vendorName} = ${decodedName} OR ${businessInvoices.partyName} = ${decodedName})`
         )
       );
@@ -1629,14 +1642,15 @@ router.patch('/vendors/:name', async (req, res) => {
 router.get('/gst-summary', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ months: [], totals: { input: 0, output: 0, net: 0 } });
     }
 
     const conditions = [
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
@@ -1723,7 +1737,7 @@ router.get('/summary', async (req, res) => {
       });
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({
@@ -1845,14 +1859,15 @@ router.get('/summary', async (req, res) => {
 router.get('/ca-export', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.status(400).json({ error: 'No ASG accounts found' });
     }
 
     const conditions = [
-      eq(bankTransactions.userId, req.userId!),
+      eq(bankTransactions.userId, dataUserId),
       sql`${bankTransactions.accountId} IN (${sql.join(
         asgAccountIds.map((id) => sql`${id}`),
         sql`, `
@@ -1941,6 +1956,7 @@ router.get('/biz-types', (_req, res) => {
 // Fix/migrate old invoices that don't have GST fields set properly
 router.post('/fix-invoices', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     // Get all invoices that need fixing:
     // 1. gstType is NULL, OR
     // 2. gstAmount is NULL (missing GST extraction)
@@ -1949,7 +1965,7 @@ router.post('/fix-invoices', async (req, res) => {
       .from(businessInvoices)
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           sql`(${businessInvoices.gstType} IS NULL OR ${businessInvoices.gstAmount} IS NULL OR ${businessInvoices.gstAmount} = 0)`
         )
       );
@@ -2086,6 +2102,7 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
       totalAmount: req.body.totalAmount ? parseFloat(req.body.totalAmount) : undefined,
     });
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const now = new Date().toISOString();
     const invoiceId = uuidv4();
 
@@ -2112,7 +2129,7 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
         .from(businessInvoices)
         .where(
           and(
-            eq(businessInvoices.userId, req.userId!),
+            eq(businessInvoices.userId, dataUserId),
             eq(businessInvoices.invoiceNumber, invoiceNumber),
             eq(businessInvoices.partyGstin, vendorGstin)
           )
@@ -2142,7 +2159,7 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
         .from(businessInvoices)
         .where(
           and(
-            eq(businessInvoices.userId, req.userId!),
+            eq(businessInvoices.userId, dataUserId),
             eq(businessInvoices.invoiceNumber, invoiceNumber),
             totalAmount ? sql`ABS(${businessInvoices.totalAmount} - ${totalAmount}) < 1` : sql`1=1`
           )
@@ -2220,7 +2237,7 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
         .from(bankTransactions)
         .where(
           and(
-            eq(bankTransactions.userId, req.userId!),
+            eq(bankTransactions.userId, dataUserId),
             between(bankTransactions.date, dateStart.toISOString().split('T')[0], dateEnd.toISOString().split('T')[0]),
             isNull(bankTransactions.invoiceFileId) // Not already linked to an invoice
           )
@@ -2265,7 +2282,7 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
     // Create invoice record
     await db.insert(businessInvoices).values({
       id: invoiceId,
-      userId: req.userId!,
+      userId: dataUserId,
       transactionId: matchedTransactionId,
       filename: req.file?.filename || null,
       originalName: req.file?.originalname || null,
@@ -2336,8 +2353,9 @@ router.post('/gst-invoice', upload.single('file'), async (req, res) => {
 router.get('/gst-invoices', async (req, res) => {
   try {
     const { startDate, endDate, gstType, hasFile, isExternal } = req.query;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
-    const conditions = [eq(businessInvoices.userId, req.userId!)];
+    const conditions = [eq(businessInvoices.userId, dataUserId)];
 
     if (startDate && endDate) {
       conditions.push(between(businessInvoices.invoiceDate, startDate as string, endDate as string));
@@ -2372,12 +2390,13 @@ router.patch('/gst-invoice/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     // Verify invoice belongs to user
     const [existing] = await db
       .select()
       .from(businessInvoices)
-      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, req.userId!)));
+      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, dataUserId)));
 
     if (!existing) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -2438,6 +2457,7 @@ router.patch('/gst-invoices/bulk', async (req, res) => {
       return res.status(400).json({ error: 'No invoice IDs provided' });
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const now = new Date().toISOString();
     let updatedCount = 0;
 
@@ -2446,7 +2466,7 @@ router.patch('/gst-invoices/bulk', async (req, res) => {
       const [existing] = await db
         .select()
         .from(businessInvoices)
-        .where(and(eq(businessInvoices.id, invoiceId), eq(businessInvoices.userId, req.userId!)));
+        .where(and(eq(businessInvoices.id, invoiceId), eq(businessInvoices.userId, dataUserId)));
 
       if (existing) {
         await db
@@ -2480,11 +2500,12 @@ router.patch('/gst-invoices/bulk', async (req, res) => {
 router.delete('/gst-invoice/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
     const [existing] = await db
       .select()
       .from(businessInvoices)
-      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, req.userId!)));
+      .where(and(eq(businessInvoices.id, id), eq(businessInvoices.userId, dataUserId)));
 
     if (!existing) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -2527,8 +2548,9 @@ router.delete('/gst-invoice/:id', async (req, res) => {
 router.get('/gst-ledger', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
 
-    const conditions = [eq(businessInvoices.userId, req.userId!)];
+    const conditions = [eq(businessInvoices.userId, dataUserId)];
 
     if (startDate && endDate) {
       // Use invoiceDate if available, otherwise use createdAt
@@ -2640,6 +2662,7 @@ router.get('/invoices-by-vendor', async (req, res) => {
       return res.json([]);
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const vendorLower = vendorName.toLowerCase().trim();
 
     // Get all unlinked invoices
@@ -2648,7 +2671,7 @@ router.get('/invoices-by-vendor', async (req, res) => {
       .from(businessInvoices)
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           sql`(${businessInvoices.transactionId} IS NULL OR ${businessInvoices.transactionId} = '')`
         )
       )
@@ -2686,11 +2709,13 @@ router.post('/link-invoice', async (req, res) => {
       return res.status(400).json({ error: 'invoiceId and transactionId are required' });
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+
     // Verify invoice belongs to user
     const [invoice] = await db
       .select()
       .from(businessInvoices)
-      .where(and(eq(businessInvoices.id, invoiceId), eq(businessInvoices.userId, req.userId!)));
+      .where(and(eq(businessInvoices.id, invoiceId), eq(businessInvoices.userId, dataUserId)));
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -2742,7 +2767,8 @@ router.post('/link-invoice', async (req, res) => {
 // Auto-match unlinked invoices to transactions
 router.post('/auto-match-invoices', async (req, res) => {
   try {
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     if (asgAccountIds.length === 0) {
       return res.json({ matched: 0, message: 'No ASG accounts found' });
@@ -2756,7 +2782,7 @@ router.post('/auto-match-invoices', async (req, res) => {
       .from(businessInvoices)
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           sql`${businessInvoices.transactionId} IS NOT NULL AND ${businessInvoices.transactionId} != ''`
         )
       );
@@ -2789,7 +2815,7 @@ router.post('/auto-match-invoices', async (req, res) => {
       .from(businessInvoices)
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           isNull(businessInvoices.transactionId),
           sql`${businessInvoices.totalAmount} > 0`
         )
@@ -2831,7 +2857,7 @@ router.post('/auto-match-invoices', async (req, res) => {
         .from(bankTransactions)
         .where(
           and(
-            eq(bankTransactions.userId, req.userId!),
+            eq(bankTransactions.userId, dataUserId),
             sql`${bankTransactions.accountId} IN (${sql.join(
               asgAccountIds.map((id) => sql`${id}`),
               sql`, `
@@ -3046,6 +3072,8 @@ router.post('/import-amazon-csv', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+
     // Read the uploaded CSV file
     const content = fs.readFileSync(req.file.path, 'utf8');
     const parsed = parseAmazonCSV(content);
@@ -3070,7 +3098,7 @@ router.post('/import-amazon-csv', upload.single('file'), async (req, res) => {
       .from(businessInvoices)
       .where(
         and(
-          eq(businessInvoices.userId, req.userId!),
+          eq(businessInvoices.userId, dataUserId),
           eq(businessInvoices.invoiceNumber, invoiceNumber)
         )
       )
@@ -3099,7 +3127,7 @@ router.post('/import-amazon-csv', upload.single('file'), async (req, res) => {
     // Create a consolidated GST invoice entry
     await db.insert(businessInvoices).values({
       id: invoiceId,
-      userId: req.userId!,
+      userId: dataUserId,
       transactionId: null, // External - no linked transaction
       filename: req.file.filename,
       originalName: req.file.originalname,
@@ -3752,7 +3780,7 @@ router.delete('/transaction/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const asgAccountIds = await getASGAccountIds(req.userId!, req.user?.email);
+    const asgAccountIds = await getASGAccountIds(dataUserId, req.user?.email);
 
     // Determine transaction type: check query param, prefix, or look up in both tables
     let isVyapar = id.startsWith('vyapar-') || req.query.type === 'vyapar';

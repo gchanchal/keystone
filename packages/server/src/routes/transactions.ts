@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, categories } from '../db/index.js';
 import { eq, and, between, like, desc, asc, or, sql, isNull, inArray } from 'drizzle-orm';
+import { getGearupDataUserId } from '../utils/gearup-auth.js';
 
 const router = Router();
 
@@ -503,6 +504,7 @@ router.patch('/bank/bulk-category', async (req, res) => {
 // Get vyapar item details (expense/sales line items)
 router.get('/vyapar-items', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const query = z.object({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
@@ -514,7 +516,7 @@ router.get('/vyapar-items', async (req, res) => {
       offset: z.string().optional(),
     }).parse(req.query);
 
-    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
+    const conditions = [eq(vyaparItemDetails.userId, dataUserId)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(vyaparItemDetails.date, query.startDate, query.endDate));
@@ -575,6 +577,7 @@ router.get('/vyapar-items', async (req, res) => {
 // Auto-categorize vyapar items based on pattern rules
 router.post('/vyapar-items/auto-categorize', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const { rules, onlyUncategorized = true } = z
       .object({
         rules: z.array(z.object({
@@ -587,7 +590,7 @@ router.post('/vyapar-items/auto-categorize', async (req, res) => {
       .parse(req.body);
 
     // Get items to categorize
-    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
+    const conditions = [eq(vyaparItemDetails.userId, dataUserId)];
     if (onlyUncategorized) {
       const uncatCondition = or(
         isNull(vyaparItemDetails.category),
@@ -646,6 +649,7 @@ router.post('/vyapar-items/auto-categorize', async (req, res) => {
 // Update vyapar item category (with auto-propagation to similar uncategorized items)
 router.patch('/vyapar-items/:id/category', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const { category, autoPropagate = true } = z
       .object({
         category: z.string().nullable(),
@@ -657,7 +661,7 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
     const [currentItem] = await db
       .select()
       .from(vyaparItemDetails)
-      .where(and(eq(vyaparItemDetails.id, req.params.id), eq(vyaparItemDetails.userId, req.userId!)))
+      .where(and(eq(vyaparItemDetails.id, req.params.id), eq(vyaparItemDetails.userId, dataUserId)))
       .limit(1);
 
     if (!currentItem) {
@@ -695,7 +699,7 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
         .from(vyaparItemDetails)
         .where(
           and(
-            eq(vyaparItemDetails.userId, req.userId!),
+            eq(vyaparItemDetails.userId, dataUserId),
             or(
               isNull(vyaparItemDetails.category),
               eq(vyaparItemDetails.category, '')
@@ -750,13 +754,14 @@ router.patch('/vyapar-items/:id/category', async (req, res) => {
 // Get vyapar item categories summary (for filtering and reports)
 router.get('/vyapar-items/categories', async (req, res) => {
   try {
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     const query = z.object({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
       transactionType: z.string().optional(),
     }).parse(req.query);
 
-    const conditions = [eq(vyaparItemDetails.userId, req.userId!)];
+    const conditions = [eq(vyaparItemDetails.userId, dataUserId)];
 
     if (query.startDate && query.endDate) {
       conditions.push(between(vyaparItemDetails.date, query.startDate, query.endDate));

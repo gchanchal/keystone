@@ -142,12 +142,16 @@ router.get('/transactions/export', async (req, res) => {
       })
       .parse(req.query);
 
+    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
     let transactions: any[] = [];
     const allCategories = await db.select().from(categories);
     const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
 
     if (type === 'bank' || type === 'all') {
-      const conditions = [between(bankTransactions.date, startDate, endDate)];
+      const conditions = [
+        between(bankTransactions.date, startDate, endDate),
+        eq(bankTransactions.userId, dataUserId),
+      ];
       if (accountId) {
         conditions.push(eq(bankTransactions.accountId, accountId));
       }
@@ -165,7 +169,7 @@ router.get('/transactions/export', async (req, res) => {
       const vyaparTxns = await db
         .select()
         .from(vyaparTransactions)
-        .where(between(vyaparTransactions.date, startDate, endDate))
+        .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, dataUserId)))
         .orderBy(desc(vyaparTransactions.date));
 
       transactions.push(
