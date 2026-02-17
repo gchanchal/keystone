@@ -122,9 +122,10 @@ export function BusinessAccounting() {
 
   const [selectedTransaction, setSelectedTransaction] = useState<BusinessTransaction | null>(null);
   const [notesTransaction, setNotesTransaction] = useState<BusinessTransaction | null>(null);
+  const initialFilter = searchParams.get('filter') as 'expenses' | 'income' | 'pending' | 'saleOrders' | null;
   const [bizTypeFilter, setBizTypeFilter] = useState<string>('all');
-  const [invoiceFilter, setInvoiceFilter] = useState<string>('all');
-  const [tileFilter, setTileFilter] = useState<'expenses' | 'income' | 'pending' | 'saleOrders' | null>(null);
+  const [invoiceFilter, setInvoiceFilter] = useState<string>(initialFilter === 'pending' ? 'needs' : 'all');
+  const [tileFilter, setTileFilter] = useState<'expenses' | 'income' | 'pending' | 'saleOrders' | null>(initialFilter);
 
   // Handle tile click - filter transactions and switch to transactions tab
   const handleTileClick = (filter: 'expenses' | 'income' | 'pending' | 'gst' | 'vendors' | 'saleOrders') => {

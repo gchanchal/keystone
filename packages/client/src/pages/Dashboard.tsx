@@ -77,7 +77,6 @@ export function Dashboard() {
   // Navigation helpers
   const goToTransactions = (tab: string, filters?: Record<string, string>) => {
     const params = new URLSearchParams();
-    params.set('tab', tab);
     params.set('startDate', startDate);
     params.set('endDate', endDate);
     if (filters) {
@@ -85,7 +84,20 @@ export function Dashboard() {
         params.set(key, value);
       });
     }
-    navigate(`/transactions?${params.toString()}`);
+
+    // GearUp business mode → navigate to Business Accounting Transactions
+    if (activeTab === 'business') {
+      params.set('tab', 'transactions');
+      // Map vyapar transaction types to Business Accounting tile filters
+      const txType = filters?.transactionType;
+      if (txType === 'Sale') params.set('filter', 'income');
+      else if (txType === 'Sale Order') params.set('filter', 'saleOrders');
+      else if (txType === 'Expense') params.set('filter', 'expenses');
+      navigate(`/gearup/accounting?${params.toString()}`);
+    } else {
+      params.set('tab', tab);
+      navigate(`/transactions?${params.toString()}`);
+    }
   };
 
   // ===== SHARED DATA =====
