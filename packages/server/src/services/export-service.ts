@@ -51,6 +51,7 @@ export function formatTransactionsForExport(
     balance?: number | null;
     categoryId?: string | null;
     isReconciled?: boolean;
+    notes?: string | null;
   }>,
   categories?: Map<string, string>
 ): ExportData {
@@ -62,6 +63,7 @@ export function formatTransactionsForExport(
     'Balance',
     'Category',
     'Reconciled',
+    'Comment',
   ];
 
   const rows = transactions.map(t => [
@@ -72,6 +74,7 @@ export function formatTransactionsForExport(
     t.balance ?? '',
     categories?.get(t.categoryId || '') || '',
     t.isReconciled ? 'Yes' : 'No',
+    t.notes || '',
   ]);
 
   return { headers, rows };
