@@ -534,7 +534,12 @@ export function BusinessAccounting() {
     {
       id: 'notes',
       header: 'Notes',
-      accessorKey: (row) => noteData[row.id]?.latestNote || '',
+      accessorKey: (row) => noteData[row.id]?.count ? 'Has Notes' : 'No Notes',
+      filterType: 'select',
+      filterOptions: [
+        { label: 'Has Notes', value: 'Has Notes' },
+        { label: 'No Notes', value: 'No Notes' },
+      ],
       width: '180px',
       minWidth: 140,
       cell: (row) => {

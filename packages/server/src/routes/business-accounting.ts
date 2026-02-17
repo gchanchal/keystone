@@ -1886,6 +1886,25 @@ router.get('/ca-export', async (req, res) => {
       .where(and(...conditions))
       .orderBy(desc(bankTransactions.date));
 
+    // Fetch all notes for these transactions
+    const txIds = transactions.map(t => t.id);
+    const allNotes = txIds.length > 0 ? await db
+      .select()
+      .from(bankTransactionNotes)
+      .where(sql`${bankTransactionNotes.transactionId} IN (${sql.join(txIds.map(id => sql`${id}`), sql`, `)})`)
+      .orderBy(desc(bankTransactionNotes.createdAt)) : [];
+
+    // Build notes map: transactionId -> concatenated notes
+    const notesMap = new Map<string, string>();
+    for (const note of allNotes) {
+      const existing = notesMap.get(note.transactionId);
+      if (existing) {
+        notesMap.set(note.transactionId, existing + ' | ' + note.note);
+      } else {
+        notesMap.set(note.transactionId, note.note);
+      }
+    }
+
     // Create workbook
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Transactions');
@@ -1903,6 +1922,7 @@ router.get('/ca-export', async (req, res) => {
       { header: 'GST Amount', key: 'gstAmount', width: 12 },
       { header: 'Has Invoice', key: 'hasInvoice', width: 12 },
       { header: 'Reference', key: 'reference', width: 20 },
+      { header: 'Notes', key: 'notes', width: 40 },
     ];
 
     // Style header row
@@ -1927,6 +1947,7 @@ router.get('/ca-export', async (req, res) => {
         gstAmount: tx.gstAmount || '',
         hasInvoice: tx.invoiceFileId ? 'Yes' : 'No',
         reference: tx.reference || '',
+        notes: notesMap.get(tx.id) || '',
       });
     }
 

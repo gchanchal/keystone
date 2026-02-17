@@ -934,7 +934,7 @@ export function Reconciliation() {
         });
 
         // Filter
-        const filtered = allRows.filter(({ bankTxn, vyaparTxn }) => {
+        const filtered = allRows.filter(({ bankTxn, vyaparTxn }: { bankTxn: BankTransaction; vyaparTxn: VyaparTransaction | null }) => {
           if (mpSearch) {
             const s = mpSearch.toLowerCase();
             const matchNarration = bankTxn.narration?.toLowerCase().includes(s);
