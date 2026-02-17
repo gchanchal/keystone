@@ -342,9 +342,9 @@ export function BusinessAccounting() {
             .filter(tx => tx.accountName === 'Vyapar' && tx.bizType === 'SALE' && tx.vendorName)
             .map(tx => `${tx.vendorName!.toLowerCase()}|${tx.amount}`)
         );
-        // Include Sale Orders (exclude those converted to Sale by matching party+amount) + Sales with balance > 0 (partial paid) - Vyapar only
+        // Include Sale Orders (exclude reconciled + those converted to Sale by matching party+amount) + Sales with balance > 0 (partial paid) - Vyapar only
         return transactions.filter(tx =>
-          tx.accountName === 'Vyapar' && (
+          tx.accountName === 'Vyapar' && !tx.isReconciled && (
             (tx.bizType === 'SALE_ORDER' && !(tx.vendorName && salesKeys.has(`${tx.vendorName.toLowerCase()}|${tx.amount}`))) ||
             (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
           )

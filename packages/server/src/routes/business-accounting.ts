@@ -1756,6 +1756,7 @@ router.get('/summary', async (req, res) => {
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
             WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+              AND ${vyaparTransactions.isReconciled} = 0
               AND NOT EXISTS (
                 SELECT 1 FROM vyapar_transactions v2
                 WHERE v2.transaction_type = 'Sale'
@@ -1765,12 +1766,13 @@ router.get('/summary', async (req, res) => {
                   AND v2.user_id = vyapar_transactions.user_id
               )
               THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
-            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
+            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND ${vyaparTransactions.isReconciled} = 0 AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
             ELSE 0
           END)`,
         pendingPaymentsCount: sql<number>`
           SUM(CASE
             WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+              AND ${vyaparTransactions.isReconciled} = 0
               AND NOT EXISTS (
                 SELECT 1 FROM vyapar_transactions v2
                 WHERE v2.transaction_type = 'Sale'
@@ -1780,7 +1782,7 @@ router.get('/summary', async (req, res) => {
                   AND v2.user_id = vyapar_transactions.user_id
               )
               THEN 1
-            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
+            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND ${vyaparTransactions.isReconciled} = 0 AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
             ELSE 0
           END)`,
       })
