@@ -273,13 +273,6 @@ export function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          {/* Only show unreconciled count on business tab - personal doesn't need reconciliation */}
-          {activeTab === 'business' && stats.unreconciledCount > 0 && (
-            <Badge variant="warning" className="flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" />
-              {stats.unreconciledCount} unreconciled
-            </Badge>
-          )}
         </div>
       </div>
 
@@ -692,11 +685,6 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm text-muted-foreground">Sales Revenue</p>
                   <p className="text-2xl font-bold text-green-600">{formatAmount(vyaparData?.sales || 0)}</p>
-                  {vyaparData?.salesUnreconciledCount > 0 && (
-                    <p className="text-xs text-orange-500">
-                      {vyaparData.salesUnreconciledCount} unreconciled
-                    </p>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -730,11 +718,6 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm text-muted-foreground">Expenses</p>
                   <p className="text-2xl font-bold text-red-600">{formatAmount(vyaparData?.expenses || 0)}</p>
-                  {vyaparData?.expensesUnreconciledCount > 0 && (
-                    <p className="text-xs text-orange-500">
-                      {vyaparData.expensesUnreconciledCount} unreconciled
-                    </p>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -898,35 +881,6 @@ export function Dashboard() {
                       )}
                     </div>
 
-                    {/* Reconciliation Status */}
-                    {(vyaparData.salesUnreconciledCount > 0 || vyaparData.expensesUnreconciledCount > 0) && (
-                      <div className="grid grid-cols-2 gap-3">
-                        {vyaparData.salesUnreconciledCount > 0 && (
-                          <div
-                            className="rounded-lg bg-orange-50 dark:bg-orange-900/20 p-3 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
-                            onClick={() => goToTransactions('vyapar', { transactionType: 'Sale', status: 'Unreconciled' })}
-                          >
-                            <div className="flex items-center gap-2 text-orange-600">
-                              <AlertCircle className="h-4 w-4" />
-                              <span className="text-xs font-medium">Sales Unreconciled ({vyaparData.salesUnreconciledCount})</span>
-                            </div>
-                            <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.salesUnreconciled)}</p>
-                          </div>
-                        )}
-                        {vyaparData.expensesUnreconciledCount > 0 && (
-                          <div
-                            className="rounded-lg bg-orange-50 dark:bg-orange-900/20 p-3 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
-                            onClick={() => goToTransactions('vyapar', { transactionType: 'Expense', status: 'Unreconciled' })}
-                          >
-                            <div className="flex items-center gap-2 text-orange-600">
-                              <AlertCircle className="h-4 w-4" />
-                              <span className="text-xs font-medium">Expenses Unreconciled ({vyaparData.expensesUnreconciledCount})</span>
-                            </div>
-                            <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.expensesUnreconciled)}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     <div className="border-t pt-3">
                       <div className="flex justify-between text-sm">
