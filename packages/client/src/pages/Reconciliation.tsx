@@ -19,6 +19,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  CreditCard,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1039,7 +1040,10 @@ export function Reconciliation() {
                       return (
                         <tr key={bankTxn.id} className="hover:bg-muted/30 transition-colors">
                           <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">{formatDate(bankTxn.date)}</td>
-                          <td className="px-3 py-1.5 max-w-[200px] truncate" title={bankTxn.narration}>{bankTxn.narration}</td>
+                          <td className="px-3 py-1.5 max-w-[200px] truncate" title={bankTxn.narration}>
+                            {bankTxn.source === 'credit_card' && <CreditCard className="inline h-3 w-3 mr-1 text-purple-500" />}
+                            {bankTxn.narration}
+                          </td>
                           <td className={`px-3 py-1.5 text-right font-medium whitespace-nowrap ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
                             {formatCurrency(bankTxn.amount)}
                           </td>
@@ -1181,7 +1185,10 @@ export function Reconciliation() {
                               <Check className="h-4 w-4 text-primary" />
                             )}
                           </div>
-                          <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
+                          <p className="text-sm font-medium line-clamp-1 mt-1">
+                            {txn.source === 'credit_card' && <CreditCard className="inline h-3 w-3 mr-1 text-purple-500" />}
+                            {txn.narration}
+                          </p>
                           <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
                             <BankDetailsPopover

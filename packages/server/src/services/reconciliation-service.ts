@@ -1,8 +1,113 @@
 import { db } from '../db/index.js';
-import { bankTransactions, vyaparTransactions, reconciliationMatches, reconciliationRules } from '../db/index.js';
+import { bankTransactions, vyaparTransactions, reconciliationMatches, reconciliationRules, creditCardTransactions } from '../db/index.js';
 import { eq, and, between, sql, inArray, desc } from 'drizzle-orm';
 import { addDays, subDays, parseISO } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
+
+// Helper: Check if a transaction ID belongs to credit_card_transactions table
+async function findCCTransaction(id: string) {
+  const [ccTxn] = await db
+    .select()
+    .from(creditCardTransactions)
+    .where(eq(creditCardTransactions.id, id))
+    .limit(1);
+  return ccTxn || null;
+}
+
+// Helper: Mark a bank or CC transaction as reconciled
+async function markReconciled(
+  txnId: string,
+  reconciledWithId: string,
+  reconciledWithType: string,
+  now: string
+) {
+  // Try bank first
+  const [bankTxn] = await db
+    .select({ id: bankTransactions.id })
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, txnId))
+    .limit(1);
+
+  if (bankTxn) {
+    await db
+      .update(bankTransactions)
+      .set({
+        isReconciled: true,
+        reconciledWithId,
+        reconciledWithType,
+        purpose: 'business',
+        updatedAt: now,
+      })
+      .where(eq(bankTransactions.id, txnId));
+    return 'bank';
+  }
+
+  // Try credit card
+  await db
+    .update(creditCardTransactions)
+    .set({
+      isReconciled: true,
+      reconciledWithId,
+      updatedAt: now,
+    })
+    .where(eq(creditCardTransactions.id, txnId));
+  return 'credit_card';
+}
+
+// Helper: Clear reconciliation on a bank or CC transaction
+async function clearReconciled(txnId: string, now: string) {
+  const [bankTxn] = await db
+    .select({ id: bankTransactions.id })
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, txnId))
+    .limit(1);
+
+  if (bankTxn) {
+    await db
+      .update(bankTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        reconciledWithType: null,
+        updatedAt: now,
+      })
+      .where(eq(bankTransactions.id, txnId));
+    return;
+  }
+
+  await db
+    .update(creditCardTransactions)
+    .set({
+      isReconciled: false,
+      reconciledWithId: null,
+      updatedAt: now,
+    })
+    .where(eq(creditCardTransactions.id, txnId));
+}
+
+// Normalize a credit card transaction to bank-like shape for reconciliation
+export function normalizeCCTransaction(cc: any): any {
+  return {
+    ...cc,
+    narration: cc.description,
+    reference: null,
+    balance: null,
+    valueDate: null,
+    purpose: null,
+    bizType: null,
+    bizDescription: null,
+    vendorName: null,
+    needsInvoice: false,
+    invoiceFileId: null,
+    gstAmount: null,
+    cgstAmount: null,
+    sgstAmount: null,
+    igstAmount: null,
+    gstType: null,
+    updatedByEmail: null,
+    source: 'credit_card',
+  };
+}
 
 export interface ReconciliationMatch {
   bankTransactionId: string;
@@ -150,10 +255,29 @@ export async function autoReconcile(
     bankConditions.push(eq(bankTransactions.userId, userId));
   }
 
-  const bankTxns = await db
+  const bankTxns: any[] = await db
     .select()
     .from(bankTransactions)
     .where(and(...bankConditions));
+
+  // Also fetch unreconciled credit card transactions and merge
+  const ccConditions = [
+    sql`(${creditCardTransactions.isReconciled} = 0 OR ${creditCardTransactions.isReconciled} IS NULL OR ${creditCardTransactions.isReconciled} = false)`,
+    between(creditCardTransactions.date, startDate, endDate),
+  ];
+  if (userId) {
+    ccConditions.push(eq(creditCardTransactions.userId, userId));
+  }
+
+  const ccTxns = await db
+    .select()
+    .from(creditCardTransactions)
+    .where(and(...ccConditions));
+
+  // Normalize CC transactions and merge into bank array
+  for (const cc of ccTxns) {
+    bankTxns.push(normalizeCCTransaction(cc));
+  }
 
   // Get unreconciled vyapar transactions (isReconciled = false, 0, or null)
   // Exclude:
@@ -369,38 +493,38 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
   const now = new Date().toISOString();
 
   for (const match of matches) {
-    // Fetch bank transaction to get fingerprint data
-    const bankTxn = await db
+    // Fetch bank transaction (or CC transaction) to get fingerprint data
+    let bankTxn = await db
       .select()
       .from(bankTransactions)
       .where(eq(bankTransactions.id, match.bankTransactionId))
       .limit(1);
 
-    if (!bankTxn[0]) continue;
+    let isCCTxn = false;
+    let txnData: any = bankTxn[0];
 
-    // Update bank transaction - also set purpose to 'business' since it's matched with Vyapar
-    await db
-      .update(bankTransactions)
-      .set({
-        isReconciled: true,
-        reconciledWithId: match.vyaparTransactionId,
-        reconciledWithType: 'vyapar',
-        purpose: 'business',
-        updatedAt: now,
-      })
-      .where(eq(bankTransactions.id, match.bankTransactionId));
+    if (!txnData) {
+      // Check if it's a credit card transaction
+      const ccTxn = await findCCTransaction(match.bankTransactionId);
+      if (!ccTxn) continue;
+      txnData = ccTxn;
+      isCCTxn = true;
+    }
+
+    // Update bank or CC transaction as reconciled
+    await markReconciled(match.bankTransactionId, match.vyaparTransactionId, 'vyapar', now);
 
     // Update vyapar transaction with fingerprint for auto-restore
+    const narration = isCCTxn ? txnData.description : txnData.narration;
     await db
       .update(vyaparTransactions)
       .set({
         isReconciled: true,
         reconciledWithId: match.bankTransactionId,
-        // Store fingerprint for auto-restore after account deletion/re-add
-        matchedBankDate: bankTxn[0].date,
-        matchedBankAmount: bankTxn[0].amount,
-        matchedBankNarration: bankTxn[0].narration?.substring(0, 100), // First 100 chars
-        matchedBankAccountId: bankTxn[0].accountId,
+        matchedBankDate: txnData.date,
+        matchedBankAmount: txnData.amount,
+        matchedBankNarration: narration?.substring(0, 100),
+        matchedBankAccountId: txnData.accountId,
         updatedAt: now,
       })
       .where(eq(vyaparTransactions.id, match.vyaparTransactionId));
@@ -418,14 +542,24 @@ export async function manualMatch(
 ): Promise<boolean> {
   const now = new Date().toISOString();
 
-  // Fetch bank transaction to get fingerprint data
+  // Fetch bank transaction (or CC transaction) to get fingerprint data
+  let txnData: any = null;
+  let isCCTxn = false;
+
   const bankTxn = await db
     .select()
     .from(bankTransactions)
     .where(eq(bankTransactions.id, bankTransactionId))
     .limit(1);
 
-  if (!bankTxn[0]) return false;
+  if (bankTxn[0]) {
+    txnData = bankTxn[0];
+  } else {
+    const ccTxn = await findCCTransaction(bankTransactionId);
+    if (!ccTxn) return false;
+    txnData = ccTxn;
+    isCCTxn = true;
+  }
 
   // Fetch vyapar transaction to get party name
   const vyaparTxn = await db
@@ -434,36 +568,27 @@ export async function manualMatch(
     .where(eq(vyaparTransactions.id, vyaparTransactionId))
     .limit(1);
 
-  // Update bank transaction - also set purpose to 'business' since it's matched with Vyapar
-  await db
-    .update(bankTransactions)
-    .set({
-      isReconciled: true,
-      reconciledWithId: vyaparTransactionId,
-      reconciledWithType: 'vyapar',
-      purpose: 'business',
-      updatedAt: now,
-    })
-    .where(eq(bankTransactions.id, bankTransactionId));
+  // Update bank or CC transaction as reconciled
+  await markReconciled(bankTransactionId, vyaparTransactionId, 'vyapar', now);
 
+  const narration = isCCTxn ? txnData.description : txnData.narration;
   await db
     .update(vyaparTransactions)
     .set({
       isReconciled: true,
       reconciledWithId: bankTransactionId,
-      // Store fingerprint for auto-restore after account deletion/re-add
-      matchedBankDate: bankTxn[0].date,
-      matchedBankAmount: bankTxn[0].amount,
-      matchedBankNarration: bankTxn[0].narration?.substring(0, 100),
-      matchedBankAccountId: bankTxn[0].accountId,
+      matchedBankDate: txnData.date,
+      matchedBankAmount: txnData.amount,
+      matchedBankNarration: narration?.substring(0, 100),
+      matchedBankAccountId: txnData.accountId,
       updatedAt: now,
     })
     .where(eq(vyaparTransactions.id, vyaparTransactionId));
 
-  // Save reconciliation rule for future auto-matching
-  const effectiveUserId = userId || bankTxn[0].userId;
-  if (effectiveUserId && vyaparTxn[0]?.partyName) {
-    const pattern = extractBankPattern(bankTxn[0].narration);
+  // Save reconciliation rule for future auto-matching (bank transactions only, not CC)
+  const effectiveUserId = userId || txnData.userId;
+  if (!isCCTxn && effectiveUserId && vyaparTxn[0]?.partyName) {
+    const pattern = extractBankPattern(txnData.narration);
     if (pattern) {
       // Check if rule already exists
       const [existingRule] = await db
@@ -511,13 +636,21 @@ export async function manualMatch(
 export async function unmatch(bankTransactionId: string): Promise<boolean> {
   const now = new Date().toISOString();
 
+  // Check bank transactions first, then credit card transactions
+  let txnData: any = null;
   const bankTxn = await db
     .select()
     .from(bankTransactions)
     .where(eq(bankTransactions.id, bankTransactionId))
     .limit(1);
 
-  if (!bankTxn[0]) return false;
+  if (bankTxn[0]) {
+    txnData = bankTxn[0];
+  } else {
+    const ccTxn = await findCCTransaction(bankTransactionId);
+    if (!ccTxn) return false;
+    txnData = ccTxn;
+  }
 
   // Check if it's part of a match group
   const matchRecord = await db
@@ -532,18 +665,10 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
   }
 
   // Not in match group - could be legacy single match or multi-match without match record
-  const reconciledWithId = bankTxn[0].reconciledWithId;
+  const reconciledWithId = txnData.reconciledWithId;
 
-  // Update bank transaction first
-  await db
-    .update(bankTransactions)
-    .set({
-      isReconciled: false,
-      reconciledWithId: null,
-      reconciledWithType: null,
-      updatedAt: now,
-    })
-    .where(eq(bankTransactions.id, bankTransactionId));
+  // Clear reconciliation on the bank/CC transaction
+  await clearReconciled(bankTransactionId, now);
 
   // Try multiple strategies to find and update the matched vyapar transaction(s)
 
@@ -570,7 +695,7 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
     .where(eq(vyaparTransactions.reconciledWithId, bankTransactionId));
 
   // Strategy 3: If reconciledWithId was a matchGroupId, find vyapar transactions with that group ID
-  if (reconciledWithId && bankTxn[0].reconciledWithType === 'multi_vyapar') {
+  if (reconciledWithId && txnData.reconciledWithType === 'multi_vyapar') {
     await db
       .update(vyaparTransactions)
       .set({
@@ -597,13 +722,26 @@ export async function multiMatch(
   const now = new Date().toISOString();
   const matchGroupId = uuidv4();
 
-  // Fetch all bank transactions for fingerprinting
-  const bankTxns = await db
+  // Fetch all bank transactions for fingerprinting (check both tables)
+  const bankTxns: any[] = await db
     .select()
     .from(bankTransactions)
     .where(inArray(bankTransactions.id, bankTransactionIds));
 
-  // Use first bank transaction for fingerprint (representative of the group)
+  // Also check credit card transactions for any IDs not found in bank
+  const foundBankIds = new Set(bankTxns.map(t => t.id));
+  const missingIds = bankTransactionIds.filter(id => !foundBankIds.has(id));
+  if (missingIds.length > 0) {
+    const ccTxns = await db
+      .select()
+      .from(creditCardTransactions)
+      .where(inArray(creditCardTransactions.id, missingIds));
+    for (const cc of ccTxns) {
+      bankTxns.push(normalizeCCTransaction(cc));
+    }
+  }
+
+  // Use first transaction for fingerprint (representative of the group)
   const primaryBankTxn = bankTxns[0];
 
   // Create match records for all transactions in this group
@@ -616,19 +754,11 @@ export async function multiMatch(
       createdAt: now,
     });
 
-    // Mark bank transaction as reconciled - also set purpose to 'business' since it's matched with Vyapar
-    await db
-      .update(bankTransactions)
-      .set({
-        isReconciled: true,
-        reconciledWithId: matchGroupId, // Store group ID for reference
-        reconciledWithType: 'multi_vyapar',
-        purpose: 'business',
-        updatedAt: now,
-      })
-      .where(eq(bankTransactions.id, bankId));
+    // Mark bank or CC transaction as reconciled
+    await markReconciled(bankId, matchGroupId, 'multi_vyapar', now);
   }
 
+  const narration = primaryBankTxn?.narration || primaryBankTxn?.description;
   for (const vyaparId of vyaparTransactionIds) {
     await db.insert(reconciliationMatches).values({
       id: uuidv4(),
@@ -643,11 +773,10 @@ export async function multiMatch(
       .update(vyaparTransactions)
       .set({
         isReconciled: true,
-        reconciledWithId: matchGroupId, // Store group ID for reference
-        // Store fingerprint from first bank transaction for auto-restore hint
+        reconciledWithId: matchGroupId,
         matchedBankDate: primaryBankTxn?.date,
         matchedBankAmount: primaryBankTxn?.amount,
-        matchedBankNarration: primaryBankTxn?.narration?.substring(0, 100),
+        matchedBankNarration: narration?.substring(0, 100),
         matchedBankAccountId: primaryBankTxn?.accountId,
         updatedAt: now,
       })
@@ -677,7 +806,7 @@ export async function unmatchGroup(matchGroupId: string): Promise<boolean> {
     .filter(r => r.vyaparTransactionId)
     .map(r => r.vyaparTransactionId!);
 
-  // Update bank transactions
+  // Update bank transactions (and any CC transactions in the group)
   if (bankIds.length > 0) {
     await db
       .update(bankTransactions)
@@ -688,6 +817,16 @@ export async function unmatchGroup(matchGroupId: string): Promise<boolean> {
         updatedAt: now,
       })
       .where(inArray(bankTransactions.id, bankIds));
+
+    // Also clear any credit card transactions in this group
+    await db
+      .update(creditCardTransactions)
+      .set({
+        isReconciled: false,
+        reconciledWithId: null,
+        updatedAt: now,
+      })
+      .where(inArray(creditCardTransactions.id, bankIds));
   }
 
   // Update vyapar transactions

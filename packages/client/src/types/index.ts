@@ -54,6 +54,7 @@ export interface BankTransaction {
   reconciledWithType: string | null;
   uploadId: string | null;
   purpose: 'business' | 'personal' | null;
+  source?: 'credit_card';
   createdAt: string;
   updatedAt: string;
 }

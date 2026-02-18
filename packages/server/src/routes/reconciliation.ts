@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { db, bankTransactions, vyaparTransactions, reconciliationRules, accounts } from '../db/index.js';
+import { db, bankTransactions, vyaparTransactions, creditCardTransactions, reconciliationRules, accounts } from '../db/index.js';
 import { eq, and, between, sql, desc } from 'drizzle-orm';
 import { getGearupDataUserId } from '../utils/gearup-auth.js';
+import { normalizeCCTransaction } from '../services/reconciliation-service.js';
 
 // Helper to check if Vyapar is enabled as a GearUp business data source
 async function isVyaparEnabled(userId: string): Promise<boolean> {
@@ -59,10 +60,28 @@ router.get('/', async (req, res) => {
       bankConditions.push(eq(bankTransactions.accountId, accountId));
     }
 
-    const bankTxns = await db
+    const bankTxns: any[] = await db
       .select()
       .from(bankTransactions)
       .where(and(...bankConditions));
+
+    // Also fetch credit card transactions and merge
+    const ccConditions = [
+      between(creditCardTransactions.date, startDate, endDate),
+      eq(creditCardTransactions.userId, dataUserId),
+    ];
+    if (accountId) {
+      ccConditions.push(eq(creditCardTransactions.accountId, accountId));
+    }
+
+    const ccTxns = await db
+      .select()
+      .from(creditCardTransactions)
+      .where(and(...ccConditions));
+
+    for (const cc of ccTxns) {
+      bankTxns.push(normalizeCCTransaction(cc));
+    }
 
     // Get vyapar transactions only if Vyapar is enabled as a data source
     const vyaparEnabled = await isVyaparEnabled(dataUserId);
@@ -299,6 +318,27 @@ router.post('/unmatch-vyapar', async (req, res) => {
           updatedAt: now,
         })
         .where(eq(bankTransactions.id, vyaparTxn.reconciledWithId));
+
+      // Also check credit card transactions
+      await db
+        .update(creditCardTransactions)
+        .set({
+          isReconciled: false,
+          reconciledWithId: null,
+          updatedAt: now,
+        })
+        .where(eq(creditCardTransactions.reconciledWithId, vyaparTransactionId));
+
+      if (vyaparTxn.reconciledWithId) {
+        await db
+          .update(creditCardTransactions)
+          .set({
+            isReconciled: false,
+            reconciledWithId: null,
+            updatedAt: now,
+          })
+          .where(eq(creditCardTransactions.id, vyaparTxn.reconciledWithId));
+      }
     }
 
     // Update the vyapar transaction
@@ -402,27 +442,41 @@ router.get('/match-details', async (req, res) => {
     let vyaparTxnIds: string[] = [];
 
     if (bankId) {
-      // Find the bank transaction
+      // Find the bank transaction (or credit card transaction)
+      let txnData: any = null;
       const [bankTxn] = await db
         .select()
         .from(bankTransactions)
         .where(and(eq(bankTransactions.id, bankId), eq(bankTransactions.userId, dataUserId)));
 
-      if (!bankTxn) {
-        return res.status(404).json({ error: 'Bank transaction not found' });
+      if (bankTxn) {
+        txnData = bankTxn;
+      } else {
+        // Check credit card transactions
+        const [ccTxn] = await db
+          .select()
+          .from(creditCardTransactions)
+          .where(and(eq(creditCardTransactions.id, bankId), eq(creditCardTransactions.userId, dataUserId)));
+        if (ccTxn) {
+          txnData = normalizeCCTransaction(ccTxn);
+        }
       }
 
-      if (!bankTxn.isReconciled || !bankTxn.reconciledWithId) {
-        return res.json({ bankTransactions: [bankTxn], vyaparTransactions: [], matchType: 'unmatched' });
+      if (!txnData) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      if (!txnData.isReconciled || !txnData.reconciledWithId) {
+        return res.json({ bankTransactions: [txnData], vyaparTransactions: [], matchType: 'unmatched' });
       }
 
       // Check if it's a multi-match (match group) or single match
-      if (bankTxn.reconciledWithType === 'multi_vyapar') {
-        matchGroupId = bankTxn.reconciledWithId;
+      if (txnData.reconciledWithType === 'multi_vyapar') {
+        matchGroupId = txnData.reconciledWithId;
       } else {
         // Single match - reconciledWithId is the vyapar transaction ID
         bankTxnIds = [bankId];
-        vyaparTxnIds = [bankTxn.reconciledWithId];
+        vyaparTxnIds = [txnData.reconciledWithId];
       }
     } else if (vyaparId) {
       // Find the vyapar transaction
@@ -482,13 +536,28 @@ router.get('/match-details', async (req, res) => {
       vyaparTxnIds = groupRecords.filter(r => r.vyaparTransactionId).map(r => r.vyaparTransactionId!);
     }
 
-    // Fetch full transaction data
-    const bankTxns = bankTxnIds.length > 0
+    // Fetch full transaction data (from both bank and credit card tables)
+    let bankTxns: any[] = bankTxnIds.length > 0
       ? await db
           .select()
           .from(bankTransactions)
           .where(sql`${bankTransactions.id} IN (${sql.join(bankTxnIds.map(id => sql`${id}`), sql`, `)})`)
       : [];
+
+    // Check for CC transactions not found in bank table
+    if (bankTxnIds.length > 0) {
+      const foundIds = new Set(bankTxns.map(t => t.id));
+      const missingIds = bankTxnIds.filter(id => !foundIds.has(id));
+      if (missingIds.length > 0) {
+        const ccTxns = await db
+          .select()
+          .from(creditCardTransactions)
+          .where(sql`${creditCardTransactions.id} IN (${sql.join(missingIds.map(id => sql`${id}`), sql`, `)})`);
+        for (const cc of ccTxns) {
+          bankTxns.push(normalizeCCTransaction(cc));
+        }
+      }
+    }
 
     const vyaparTxns = vyaparTxnIds.length > 0
       ? await db
