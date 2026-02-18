@@ -1,6 +1,6 @@
 # Nixpacks configuration for Railway deployment
 [phases.setup]
-nixPkgs = ["nodejs_20", "python312", "python312Packages.pip"]
+nixPkgs = ["nodejs_20", "python312", "python312Packages.pip", "poppler_utils"]
 
 [phases.install]
 cmds = ["npm install", "pip3 install --break-system-packages pdfplumber || pip install --break-system-packages pdfplumber || echo 'pip failed'"]
