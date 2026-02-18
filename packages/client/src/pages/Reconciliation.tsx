@@ -701,14 +701,6 @@ export function Reconciliation() {
         </Card>
       )}
 
-      {/* How to Reconcile Guide */}
-      <Alert>
-        <Info className="h-4 w-4" />
-        <AlertDescription>
-          <strong>How to reconcile manually:</strong> Click on transactions to select them. You can select multiple bank transactions and/or multiple Vyapar transactions to match together (many-to-many). The difference in totals is shown when both sides are selected. Click "Match Selected" when ready, or use "Auto Match" for automatic 1:1 matching.
-        </AlertDescription>
-      </Alert>
-
       {/* Manual Match Action */}
       {(selectedBankIds.length > 0 || selectedVyaparIds.length > 0) && (
         <Card className="border-primary">
