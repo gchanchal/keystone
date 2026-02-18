@@ -36,8 +36,10 @@ import {
 import {
   parseCreditCardStatement,
   parseHDFCInfiniaCreditCard,
+  parseICICICreditCard,
   convertToDBTransactions as convertCreditCard,
   type HDFCInfiniaStatementData,
+  type ICICICCStatementData,
 } from '../parsers/credit-card-parser.js';
 import {
   convertToDBStatement as convertInfiniaStatement,
@@ -693,20 +695,29 @@ router.post('/credit-card/preview', upload.single('file'), async (req, res) => {
     // Check if this is an HDFC Infinia statement for enhanced parsing
     let isInfinia = bankHint === 'hdfc_infinia';
     let infiniaData: HDFCInfiniaStatementData | null = null;
+    let isICICI = bankHint === 'icici';
+    let iciciData: ICICICCStatementData | null = null;
 
     if (isPDF && !isInfinia) {
-      // Auto-detect Infinia
+      // Auto-detect Infinia or ICICI
       const pdfParse = (await import('pdf-parse')).default;
       const data = await pdfParse(buffer);
       const text = data.text.toLowerCase();
       isInfinia = text.includes('infinia') ||
         (text.includes('diners club') && text.includes('hdfc')) ||
         (text.includes('reward points') && text.includes('hdfc') && text.includes('credit card'));
+      if (!isICICI) {
+        isICICI = text.includes('icici');
+      }
     }
 
     if (isInfinia && isPDF) {
       // Use HDFC Infinia parser for full metadata extraction
       infiniaData = await parseHDFCInfiniaCreditCard(buffer);
+    }
+
+    if (isICICI && isPDF) {
+      iciciData = await parseICICICreditCard(buffer);
     }
 
     const transactions = await parseCreditCardStatement(buffer, req.file.mimetype, bankHint);
@@ -747,7 +758,7 @@ router.post('/credit-card/preview', upload.single('file'), async (req, res) => {
       mimeType: req.file.mimetype,
       size: req.file.size,
       uploadType: isInfinia ? 'credit_card_infinia' : 'credit_card_statement',
-      bankName: isInfinia ? 'hdfc_infinia' : (bankHint || null),
+      bankName: isInfinia ? 'hdfc_infinia' : isICICI ? 'icici' : (bankHint || null),
       accountId,
       status: 'pending',
       transactionCount: transactions.length,
@@ -790,6 +801,28 @@ router.post('/credit-card/preview', upload.single('file'), async (req, res) => {
         totalDebits: infiniaData.totalDebits,
       };
       response.cardHolders = infiniaData.cardHolders;
+    }
+
+    // Add ICICI-specific metadata
+    if (iciciData) {
+      const m = iciciData.metadata;
+      response.statementMetadata = {
+        cardNumber: m.cardNumber,
+        statementDate: m.statementDate,
+        billingPeriodStart: m.billingPeriodStart,
+        billingPeriodEnd: m.billingPeriodEnd,
+        dueDate: m.dueDate,
+        totalDue: m.totalDue,
+        minimumDue: m.minimumDue,
+        creditLimit: m.creditLimit,
+        availableLimit: m.availableCredit,
+        rewardPointsEarned: m.rewardPointsEarned,
+        openingBalance: m.previousBalance,
+        totalCredits: m.paymentsCredits,
+        totalDebits: m.purchasesCharges,
+      };
+      response.emiDetails = iciciData.emiDetails;
+      response.isICICI = true;
     }
 
     res.json(response);
@@ -1656,6 +1689,11 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
       return await handleInfiniaCreditCardSmartImport(req, res, buffer, filePath, now);
     }
 
+    // Handle ICICI Credit Cards
+    if (detection.fileType === 'credit_card' && detection.bankName === 'icici') {
+      return await handleICICICreditCardSmartImport(req, res, buffer, filePath, now);
+    }
+
     // For other credit cards, show message to use manual upload for now
     if (detection.fileType === 'credit_card') {
       return res.status(400).json({
@@ -2281,6 +2319,215 @@ async function handleInfiniaCreditCardSmartImport(
     console.error('[SmartImport CC] Error:', error);
     res.status(500).json({
       error: 'Failed to import credit card statement',
+      details: error.message,
+    });
+  }
+}
+
+// Helper function for ICICI Credit Card smart import
+async function handleICICICreditCardSmartImport(
+  req: any,
+  res: any,
+  buffer: Buffer,
+  filePath: string,
+  now: string
+) {
+  try {
+    const iciciData = await parseICICICreditCard(buffer);
+
+    if (!iciciData || !iciciData.transactions || iciciData.transactions.length === 0) {
+      return res.status(400).json({
+        error: 'Could not parse ICICI credit card statement or no transactions found',
+      });
+    }
+
+    const meta = iciciData.metadata;
+    const cardNumber = meta.cardNumber || '';
+    const lastFour = cardNumber.replace(/X/g, '').slice(-4) || '';
+
+    console.log(`[SmartImport CC] ICICI - Card: ${cardNumber}, Last4: ${lastFour}, Transactions: ${iciciData.transactions.length}`);
+
+    // Find or create the credit card account
+    let account = null;
+    const existingAccounts = await db
+      .select()
+      .from(accounts)
+      .where(and(
+        eq(accounts.userId, req.userId!),
+        eq(accounts.accountType, 'credit_card')
+      ));
+
+    for (const acc of existingAccounts) {
+      const accBankLower = (acc.bankName || '').toLowerCase();
+      if (accBankLower.includes('icici') && (
+        acc.accountNumber?.endsWith(lastFour) ||
+        acc.accountNumber?.includes(cardNumber)
+      )) {
+        account = acc;
+        break;
+      }
+    }
+
+    let accountCreated = false;
+
+    if (!account) {
+      const accountId = uuidv4();
+      await db.insert(accounts).values({
+        id: accountId,
+        userId: req.userId!,
+        name: `ICICI Credit Card${lastFour ? ` ****${lastFour}` : ''}`,
+        bankName: 'ICICI Bank',
+        accountNumber: cardNumber || `XXXX${lastFour}`,
+        accountType: 'credit_card',
+        currency: 'INR',
+        openingBalance: 0,
+        currentBalance: -(meta.totalDue || 0),
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const [newAccount] = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, accountId));
+      account = newAccount;
+      accountCreated = true;
+      console.log(`[SmartImport CC] Created new ICICI account: ${accountId}`);
+    }
+
+    // Create upload record
+    const uploadId = uuidv4();
+    await db.insert(uploads).values({
+      id: uploadId,
+      userId: req.userId!,
+      filename: path.basename(filePath),
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadType: 'credit_card',
+      bankName: 'icici',
+      accountId: account.id,
+      status: 'processing',
+      createdAt: now,
+    });
+
+    // Check for duplicates
+    const existingTxns = await db
+      .select()
+      .from(creditCardTransactions)
+      .where(and(
+        eq(creditCardTransactions.userId, req.userId!),
+        eq(creditCardTransactions.accountId, account.id)
+      ));
+
+    const existingSignatures = new Set(
+      existingTxns.map(t => `${t.date}|${t.amount}|${t.description?.substring(0, 30)}`)
+    );
+
+    // Filter and insert transactions
+    const newTransactions = iciciData.transactions.filter(t => {
+      const sig = `${t.date}|${t.amount}|${t.description?.substring(0, 30)}`;
+      return !existingSignatures.has(sig);
+    });
+
+    let insertedCount = 0;
+    for (const txn of newTransactions) {
+      await db.insert(creditCardTransactions).values({
+        id: uuidv4(),
+        userId: req.userId!,
+        accountId: account.id,
+        date: txn.date,
+        description: txn.description,
+        amount: txn.amount,
+        transactionType: txn.transactionType,
+        isEmi: txn.isEmi,
+        rewardPoints: txn.rewardPoints || 0,
+        merchantLocation: txn.merchantLocation,
+        uploadId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertedCount++;
+    }
+
+    // Create statement record
+    await db.insert(creditCardStatements).values({
+      id: uuidv4(),
+      userId: req.userId!,
+      accountId: account.id,
+      statementDate: meta.statementDate || now.split('T')[0],
+      billingPeriodStart: meta.billingPeriodStart || '',
+      billingPeriodEnd: meta.billingPeriodEnd || '',
+      dueDate: meta.dueDate || '',
+      totalDue: meta.totalDue || 0,
+      minimumDue: meta.minimumDue || 0,
+      creditLimit: meta.creditLimit || null,
+      availableLimit: meta.availableCredit || null,
+      rewardPointsEarned: meta.rewardPointsEarned || null,
+      openingBalance: meta.previousBalance || null,
+      totalCredits: meta.paymentsCredits || null,
+      totalDebits: meta.purchasesCharges || null,
+      uploadId,
+      createdAt: now,
+    });
+
+    // Update upload status
+    await db
+      .update(uploads)
+      .set({
+        status: 'completed',
+        transactionCount: insertedCount,
+        processedAt: now,
+      })
+      .where(eq(uploads.id, uploadId));
+
+    // Update account balance
+    if (meta.totalDue) {
+      await db
+        .update(accounts)
+        .set({
+          currentBalance: -meta.totalDue,
+          updatedAt: now,
+        })
+        .where(eq(accounts.id, account.id));
+    }
+
+    // Clean up temp file
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {}
+
+    const skippedCount = iciciData.transactions.length - insertedCount;
+
+    res.json({
+      success: true,
+      message: `Smart import complete! ${insertedCount} transactions imported${skippedCount > 0 ? `, ${skippedCount} duplicates skipped` : ''}.`,
+      accountCreated,
+      account: {
+        id: account.id,
+        name: account.name,
+        bankName: account.bankName,
+      },
+      transactionCount: insertedCount,
+      duplicatesSkipped: skippedCount,
+      statementInfo: {
+        statementDate: meta.statementDate,
+        totalDue: meta.totalDue,
+        minimumDue: meta.minimumDue,
+        dueDate: meta.dueDate,
+        rewardPoints: meta.rewardPointsEarned,
+        creditLimit: meta.creditLimit,
+        availableCredit: meta.availableCredit,
+      },
+      emiDetails: iciciData.emiDetails,
+    });
+  } catch (error: any) {
+    console.error('[SmartImport CC ICICI] Error:', error);
+    res.status(500).json({
+      error: 'Failed to import ICICI credit card statement',
       details: error.message,
     });
   }

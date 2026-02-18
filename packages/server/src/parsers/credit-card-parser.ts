@@ -7,6 +7,10 @@ import {
   type ParsedHDFCInfiniaTransaction,
   type HDFCInfiniaStatementData,
 } from './hdfc-infinia-parser.js';
+import {
+  parseICICICreditCardStatement,
+  type ICICICCStatementData,
+} from './icici-cc-parser.js';
 
 export interface ParsedCreditCardTransaction {
   date: string;
@@ -194,6 +198,20 @@ export async function parseCreditCardStatement(
     }));
   }
 
+  // Route to ICICI dedicated parser for PDFs
+  if (bank === 'icici' && isPDF) {
+    const iciciData = await parseICICICreditCardStatement(buffer);
+    return iciciData.transactions.map(t => ({
+      date: t.date,
+      description: t.description,
+      amount: t.amount,
+      transactionType: t.transactionType,
+      isEmi: t.isEmi,
+      rewardPoints: t.rewardPoints,
+      merchantLocation: t.merchantLocation || undefined,
+    }));
+  }
+
   switch (bank) {
     case 'hdfc':
       return parseHDFCCreditCard(buffer, isPDF);
@@ -204,6 +222,16 @@ export async function parseCreditCardStatement(
       return parseGenericCreditCard(buffer, isPDF);
   }
 }
+
+// Parse ICICI credit card statement with full metadata
+export async function parseICICICreditCard(
+  buffer: Buffer
+): Promise<ICICICCStatementData> {
+  return parseICICICreditCardStatement(buffer);
+}
+
+// Re-export ICICI types
+export type { ICICICCStatementData };
 
 // Parse HDFC Infinia statement with full metadata
 export async function parseHDFCInfiniaCreditCard(
