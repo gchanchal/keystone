@@ -107,6 +107,8 @@ export function Reconciliation() {
         endMonth,
         selectedAccount !== 'all' ? selectedAccount : undefined
       ),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const autoMatchMutation = useMutation({
