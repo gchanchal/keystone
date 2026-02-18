@@ -41,7 +41,7 @@ import { ItemDetailsPopover } from '@/components/reconciliation/ItemDetailsPopov
 import { BankDetailsPopover } from '@/components/reconciliation/BankDetailsPopover';
 import { reconciliationApi, accountsApi, transactionsApi } from '@/lib/api';
 import { formatCurrency, formatDate, getMonthYear, parseMonthYear } from '@/lib/utils';
-import { format, addMonths, subMonths, parseISO, differenceInDays } from 'date-fns';
+import { format, addMonths, subMonths, parseISO, differenceInDays, formatDistanceToNow } from 'date-fns';
 import type { BankTransaction, VyaparTransaction, Account, ReconciliationMatch } from '@/types';
 
 type FilterStatus = 'all' | 'matched' | 'unmatched';
@@ -1092,6 +1092,11 @@ export function Reconciliation() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle>Bank Transactions</CardTitle>
+              {reconciliationData?.bank?.lastImportAt && (
+                <span className="text-xs text-muted-foreground">
+                  Updated {formatDistanceToNow(new Date(reconciliationData.bank.lastImportAt), { addSuffix: true })}
+                </span>
+              )}
             </div>
             <div className="flex gap-2 mt-2">
               <div className="relative flex-1">
@@ -1295,6 +1300,11 @@ export function Reconciliation() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle>Vyapar Transactions</CardTitle>
+              {reconciliationData?.vyapar?.lastImportAt && (
+                <span className="text-xs text-muted-foreground">
+                  Updated {formatDistanceToNow(new Date(reconciliationData.vyapar.lastImportAt), { addSuffix: true })}
+                </span>
+              )}
             </div>
             <div className="flex gap-2 mt-2">
               <div className="relative flex-1">

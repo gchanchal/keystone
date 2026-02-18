@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { db, bankTransactions, vyaparTransactions, creditCardTransactions, reconciliationRules, accounts } from '../db/index.js';
-import { eq, and, between, sql, desc } from 'drizzle-orm';
+import { db, bankTransactions, vyaparTransactions, creditCardTransactions, reconciliationRules, accounts, uploads } from '../db/index.js';
+import { eq, and, between, sql, desc, or } from 'drizzle-orm';
 import { getGearupDataUserId } from '../utils/gearup-auth.js';
 import { normalizeCCTransaction } from '../services/reconciliation-service.js';
 
@@ -116,16 +116,46 @@ router.get('/', async (req, res) => {
     const matchedVyapar = vyaparTxns.filter(t => t.isReconciled);
     const unmatchedVyapar = vyaparTxns.filter(t => !t.isReconciled);
 
+    // Get last import timestamps
+    const [lastBankUpload] = await db
+      .select({ processedAt: uploads.processedAt })
+      .from(uploads)
+      .where(and(
+        eq(uploads.userId, dataUserId),
+        eq(uploads.status, 'completed'),
+        or(
+          eq(uploads.uploadType, 'bank_statement'),
+          eq(uploads.uploadType, 'credit_card'),
+          eq(uploads.uploadType, 'credit_card_statement'),
+          eq(uploads.uploadType, 'credit_card_infinia')
+        )
+      ))
+      .orderBy(desc(uploads.processedAt))
+      .limit(1);
+
+    const [lastVyaparUpload] = await db
+      .select({ processedAt: uploads.processedAt })
+      .from(uploads)
+      .where(and(
+        eq(uploads.userId, dataUserId),
+        eq(uploads.status, 'completed'),
+        eq(uploads.uploadType, 'vyapar_report')
+      ))
+      .orderBy(desc(uploads.processedAt))
+      .limit(1);
+
     res.json({
       bank: {
         matched: matchedBank,
         unmatched: unmatchedBank,
         total: bankTxns.length,
+        lastImportAt: lastBankUpload?.processedAt || null,
       },
       vyapar: {
         matched: matchedVyapar,
         unmatched: unmatchedVyapar,
         total: vyaparTxns.length,
+        lastImportAt: lastVyaparUpload?.processedAt || null,
       },
       summary: {
         matchedCount: matchedBank.length,
