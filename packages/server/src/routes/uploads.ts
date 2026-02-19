@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { db, uploads, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, creditCardStatements, cardHolders, accounts, investments } from '../db/index.js';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, gte, lte } from 'drizzle-orm';
 import {
   parseHDFCStatement,
   convertToDBTransactions as convertHDFC,
@@ -448,7 +448,7 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
     const transactions = parseVyaparReport(buffer);
     const itemDetails = parseVyaparItemDetails(buffer);
 
-    // Check for duplicates
+    // Check for duplicates and updates using invoice number
     const existingTxns = await db
       .select({
         date: vyaparTransactions.date,
@@ -458,22 +458,28 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
       })
       .from(vyaparTransactions);
 
-    const existingSignatures = new Set<string>();
+    // Build a map of existing invoice numbers to their amounts
+    const existingByInvoice = new Map<string, { amount: number; date: string }>();
     for (const txn of existingTxns) {
-      const signature = `${txn.date}|${txn.amount}|${txn.invoiceNumber || ''}|${txn.partyName || ''}`;
-      existingSignatures.add(signature);
+      if (txn.invoiceNumber) {
+        existingByInvoice.set(txn.invoiceNumber, { amount: txn.amount, date: txn.date });
+      }
     }
 
     const transactionsWithStatus = transactions.map(txn => {
-      const signature = `${txn.date}|${txn.amount}|${txn.invoiceNumber || ''}|${txn.partyName || ''}`;
+      const existing = txn.invoiceNumber ? existingByInvoice.get(txn.invoiceNumber) : null;
+      const isDuplicate = existing ? (existing.amount === txn.amount && existing.date === txn.date) : false;
+      const isUpdate = existing ? !isDuplicate : false;
       return {
         ...txn,
-        isDuplicate: existingSignatures.has(signature),
+        isDuplicate,
+        isUpdate,
       };
     });
 
-    const newTransactions = transactionsWithStatus.filter(t => !t.isDuplicate);
+    const newTransactions = transactionsWithStatus.filter(t => !t.isDuplicate && !t.isUpdate);
     const duplicateCount = transactionsWithStatus.filter(t => t.isDuplicate).length;
+    const updateCount = transactionsWithStatus.filter(t => t.isUpdate).length;
 
     // Get unique categories from item details for display
     const categories = [...new Set(itemDetails.map(item => item.category).filter(Boolean))];
@@ -504,6 +510,7 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
       transactionCount: transactions.length,
       newTransactionCount: newTransactions.length,
       duplicateCount,
+      updateCount,
       preview: transactionsWithStatus.slice(0, 10),
       allTransactions: transactionsWithStatus,
       itemDetails: {
@@ -548,11 +555,109 @@ router.post('/vyapar/confirm', async (req, res) => {
 
     const now = new Date().toISOString();
 
-    // Filter out duplicates if skipDuplicates is true
-    let transactionsToImport = transactions;
-    if (skipDuplicates) {
-      transactionsToImport = transactions.filter((t: any) => !t.isDuplicate);
+    // --- Stale record cleanup ---
+    // Determine the date range of the new export
+    const allDates = transactions.map((t: any) => t.date).filter(Boolean).sort();
+    const minDate = allDates[0];
+    const maxDate = allDates[allDates.length - 1];
+
+    // Collect all invoice numbers from the new export
+    const exportInvoiceNumbers = new Set<string>(
+      transactions.map((t: any) => t.invoiceNumber).filter(Boolean)
+    );
+
+    // Track which invoice numbers were already updated (to avoid re-inserting)
+    const updatedInvoiceNumbers = new Set<string>();
+    let staleDeletedCount = 0;
+
+    if (minDate && maxDate && exportInvoiceNumbers.size > 0) {
+      // Find existing unreconciled Vyapar transactions in this date range
+      const existingInRange = await db
+        .select({ id: vyaparTransactions.id, invoiceNumber: vyaparTransactions.invoiceNumber })
+        .from(vyaparTransactions)
+        .where(
+          and(
+            eq(vyaparTransactions.userId, req.userId!),
+            gte(vyaparTransactions.date, minDate),
+            lte(vyaparTransactions.date, maxDate),
+            eq(vyaparTransactions.isReconciled, false)
+          )
+        );
+
+      // Delete stale records: unreconciled, in date range, invoice number NOT in new export
+      const staleIds: string[] = [];
+      const staleInvoiceNumbers: string[] = [];
+      for (const txn of existingInRange) {
+        if (txn.invoiceNumber && !exportInvoiceNumbers.has(txn.invoiceNumber)) {
+          staleIds.push(txn.id);
+          staleInvoiceNumbers.push(txn.invoiceNumber);
+        }
+      }
+
+      if (staleIds.length > 0) {
+        for (const id of staleIds) {
+          await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, id));
+        }
+        // Also delete stale item details for those invoice numbers
+        for (const invNum of [...new Set(staleInvoiceNumbers)]) {
+          await db.delete(vyaparItemDetails).where(
+            and(
+              eq(vyaparItemDetails.invoiceNumber, invNum),
+              gte(vyaparItemDetails.date, minDate),
+              lte(vyaparItemDetails.date, maxDate)
+            )
+          );
+        }
+        staleDeletedCount = staleIds.length;
+        console.log(`Cleaned up ${staleDeletedCount} stale Vyapar transactions (invoice numbers no longer in export)`);
+      }
+
+      // Update existing unreconciled records with same invoice number (amount/date/type may have changed)
+      const existingByInvoice = new Map<string, string[]>();
+      for (const txn of existingInRange) {
+        if (txn.invoiceNumber && exportInvoiceNumbers.has(txn.invoiceNumber)) {
+          if (!existingByInvoice.has(txn.invoiceNumber)) {
+            existingByInvoice.set(txn.invoiceNumber, []);
+          }
+          existingByInvoice.get(txn.invoiceNumber)!.push(txn.id);
+        }
+      }
+
+      for (const t of transactions) {
+        if (t.invoiceNumber && existingByInvoice.has(t.invoiceNumber) && !updatedInvoiceNumbers.has(t.invoiceNumber)) {
+          const idsToUpdate = existingByInvoice.get(t.invoiceNumber)!;
+          // Update the first record, delete extras (cleans up old duplicates)
+          const [keepId, ...extraIds] = idsToUpdate;
+          await db
+            .update(vyaparTransactions)
+            .set({
+              date: t.date,
+              transactionType: t.transactionType,
+              partyName: t.partyName || null,
+              categoryName: t.categoryName || null,
+              paymentType: t.paymentType || null,
+              amount: t.amount,
+              balance: t.balance || null,
+              description: t.description || null,
+              updatedAt: now,
+            })
+            .where(eq(vyaparTransactions.id, keepId));
+          for (const extraId of extraIds) {
+            await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, extraId));
+          }
+          updatedInvoiceNumbers.add(t.invoiceNumber);
+        }
+      }
     }
+
+    // Filter out duplicates and already-updated invoice numbers
+    let transactionsToImport = transactions.filter((t: any) => {
+      // Skip duplicates if requested
+      if (skipDuplicates && t.isDuplicate) return false;
+      // Skip if this invoice number was already updated in the cleanup above
+      if (t.invoiceNumber && updatedInvoiceNumbers.has(t.invoiceNumber)) return false;
+      return true;
+    });
 
     const dbTransactions = transactionsToImport.map((t: any) => ({
       id: uuidv4(),
@@ -655,11 +760,13 @@ router.post('/vyapar/confirm', async (req, res) => {
       })
       .where(eq(uploads.id, uploadId));
 
-    const skippedCount = transactions.length - importedCount;
+    const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size;
 
     res.json({
       success: true,
       imported: importedCount,
+      updated: updatedInvoiceNumbers.size,
+      staleDeleted: staleDeletedCount,
       skipped: skippedCount,
       total: transactions.length,
       itemDetailsImported,
