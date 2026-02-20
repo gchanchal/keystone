@@ -354,14 +354,22 @@ export function Reconciliation() {
     setViewingMatchVyaparId(null);
   };
 
+  // Sort matched transactions by date desc
+  const sortedBankMatched = [...filteredBankMatched].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+  const sortedVyaparMatched = [...filteredVyaparMatched].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
   // Filter matched transactions based on highlight selection
   const displayedBankMatched = viewingMatchBankId
-    ? filteredBankMatched.filter((t: BankTransaction) => t.id === viewingMatchBankId)
-    : filteredBankMatched;
+    ? sortedBankMatched.filter((t: BankTransaction) => t.id === viewingMatchBankId)
+    : sortedBankMatched;
 
   const displayedVyaparMatched = viewingMatchVyaparId
-    ? filteredVyaparMatched.filter((t: VyaparTransaction) => t.id === viewingMatchVyaparId)
-    : filteredVyaparMatched;
+    ? sortedVyaparMatched.filter((t: VyaparTransaction) => t.id === viewingMatchVyaparId)
+    : sortedVyaparMatched;
 
   // ============================================
   // Smart Match Suggestions
