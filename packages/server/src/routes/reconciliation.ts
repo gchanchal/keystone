@@ -1015,11 +1015,50 @@ router.post('/repair-matches', async (req, res) => {
       }
     }
 
+    // 3. Remove duplicate unreconciled Vyapar transactions (same invoiceNumber)
+    // Group unreconciled transactions by invoice number
+    let duplicateVyaparDeleted = 0;
+    const unreconciledByInvoice = new Map<string, typeof allVyaparTxns>();
+    for (const v of allVyaparTxns) {
+      if (v.isReconciled || !v.invoiceNumber) continue;
+      if (!unreconciledByInvoice.has(v.invoiceNumber)) {
+        unreconciledByInvoice.set(v.invoiceNumber, []);
+      }
+      unreconciledByInvoice.get(v.invoiceNumber)!.push(v);
+    }
+
+    for (const [invoiceNumber, dupes] of unreconciledByInvoice) {
+      if (dupes.length <= 1) continue;
+      // Also check if a reconciled version exists for this invoice number
+      const reconciledExists = allVyaparTxns.some(
+        v => v.invoiceNumber === invoiceNumber && v.isReconciled
+      );
+      if (reconciledExists) {
+        // Delete ALL unreconciled duplicates — the reconciled one is the keeper
+        for (const dupe of dupes) {
+          await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, dupe.id));
+          duplicateVyaparDeleted++;
+        }
+      } else {
+        // Keep the newest one (by createdAt), delete the rest
+        dupes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        for (let i = 1; i < dupes.length; i++) {
+          await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, dupes[i].id));
+          duplicateVyaparDeleted++;
+        }
+      }
+    }
+
+    if (duplicateVyaparDeleted > 0) {
+      console.log(`Deleted ${duplicateVyaparDeleted} duplicate unreconciled Vyapar transactions`);
+    }
+
     res.json({
       repaired: repairedCount,
       orphanedBankFixed: orphanedBankCount,
       orphanedVyaparFixed: orphanedVyaparCount,
-      message: `Repaired ${repairedCount} inconsistent matches, fixed ${orphanedBankCount} orphaned bank and ${orphanedVyaparCount} orphaned Vyapar transactions`,
+      duplicateVyaparDeleted,
+      message: `Repaired ${repairedCount} inconsistent matches, fixed ${orphanedBankCount} orphaned bank, ${orphanedVyaparCount} orphaned Vyapar, deleted ${duplicateVyaparDeleted} duplicate Vyapar transactions`,
     });
   } catch (error) {
     console.error('Error repairing matches:', error);
