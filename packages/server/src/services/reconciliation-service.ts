@@ -260,10 +260,11 @@ export async function autoReconcile(
     .from(bankTransactions)
     .where(and(...bankConditions));
 
-  // Also fetch unreconciled credit card transactions and merge
+  // Also fetch unreconciled credit card transactions and merge (exclude Gmail-synced)
   const ccConditions = [
     sql`(${creditCardTransactions.isReconciled} = 0 OR ${creditCardTransactions.isReconciled} IS NULL OR ${creditCardTransactions.isReconciled} = false)`,
     between(creditCardTransactions.date, startDate, endDate),
+    sql`(${creditCardTransactions.source} IS NULL OR ${creditCardTransactions.source} != 'gmail')`,
   ];
   if (userId) {
     ccConditions.push(eq(creditCardTransactions.userId, userId));

@@ -65,10 +65,11 @@ router.get('/', async (req, res) => {
       .from(bankTransactions)
       .where(and(...bankConditions));
 
-    // Also fetch credit card transactions and merge
+    // Also fetch credit card transactions and merge (exclude Gmail-synced, only statement imports)
     const ccConditions = [
       between(creditCardTransactions.date, startDate, endDate),
       eq(creditCardTransactions.userId, dataUserId),
+      sql`(${creditCardTransactions.source} IS NULL OR ${creditCardTransactions.source} != 'gmail')`,
     ];
     if (accountId) {
       ccConditions.push(eq(creditCardTransactions.accountId, accountId));
