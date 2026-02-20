@@ -1015,24 +1015,35 @@ router.post('/repair-matches', async (req, res) => {
       }
     }
 
-    // 3. Remove duplicate unreconciled Vyapar transactions (same invoiceNumber)
-    // Group unreconciled transactions by invoice number
+    // 3. Remove duplicate Vyapar transactions
+    // Group by invoice number (for transactions with invoice numbers)
+    // AND by date|amount|partyName|type (for transactions without invoice numbers, e.g. Expenses)
     let duplicateVyaparDeleted = 0;
-    const unreconciledByInvoice = new Map<string, typeof allVyaparTxns>();
+    const unreconciledByKey = new Map<string, typeof allVyaparTxns>();
     for (const v of allVyaparTxns) {
-      if (v.isReconciled || !v.invoiceNumber) continue;
-      if (!unreconciledByInvoice.has(v.invoiceNumber)) {
-        unreconciledByInvoice.set(v.invoiceNumber, []);
+      if (v.isReconciled) continue;
+      // Use invoice number as key if available, otherwise use composite key
+      const key = v.invoiceNumber
+        ? `inv:${v.invoiceNumber}`
+        : `sig:${v.date}|${v.amount}|${v.partyName || ''}|${v.transactionType}`;
+      if (!unreconciledByKey.has(key)) {
+        unreconciledByKey.set(key, []);
       }
-      unreconciledByInvoice.get(v.invoiceNumber)!.push(v);
+      unreconciledByKey.get(key)!.push(v);
     }
 
-    for (const [invoiceNumber, dupes] of unreconciledByInvoice) {
+    for (const [key, dupes] of unreconciledByKey) {
       if (dupes.length <= 1) continue;
-      // Also check if a reconciled version exists for this invoice number
-      const reconciledExists = allVyaparTxns.some(
-        v => v.invoiceNumber === invoiceNumber && v.isReconciled
-      );
+      // Check if a reconciled version exists for this key
+      const reconciledExists = allVyaparTxns.some(v => {
+        if (!v.isReconciled) return false;
+        if (key.startsWith('inv:')) {
+          return v.invoiceNumber === key.slice(4);
+        } else {
+          const sigKey = `sig:${v.date}|${v.amount}|${v.partyName || ''}|${v.transactionType}`;
+          return sigKey === key;
+        }
+      });
       if (reconciledExists) {
         // Delete ALL unreconciled duplicates — the reconciled one is the keeper
         for (const dupe of dupes) {
