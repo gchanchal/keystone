@@ -1017,16 +1017,23 @@ router.post('/repair-matches', async (req, res) => {
     }
 
     // 3. Remove duplicate Vyapar transactions
-    // Group by invoice number (for transactions with invoice numbers)
-    // AND by date|amount|partyName|type (for transactions without invoice numbers, e.g. Expenses)
+    // Build a set of keys for all reconciled transactions
     let duplicateVyaparDeleted = 0;
+    const getVyaparKey = (v: typeof allVyaparTxns[0]) =>
+      v.invoiceNumber
+        ? `inv:${v.invoiceNumber}`
+        : `sig:${v.date}|${v.amount}|${v.partyName || ''}|${v.transactionType}`;
+
+    const reconciledKeys = new Set<string>();
+    for (const v of allVyaparTxns) {
+      if (v.isReconciled) reconciledKeys.add(getVyaparKey(v));
+    }
+
+    // Group unreconciled transactions by key
     const unreconciledByKey = new Map<string, typeof allVyaparTxns>();
     for (const v of allVyaparTxns) {
       if (v.isReconciled) continue;
-      // Use invoice number as key if available, otherwise use composite key
-      const key = v.invoiceNumber
-        ? `inv:${v.invoiceNumber}`
-        : `sig:${v.date}|${v.amount}|${v.partyName || ''}|${v.transactionType}`;
+      const key = getVyaparKey(v);
       if (!unreconciledByKey.has(key)) {
         unreconciledByKey.set(key, []);
       }
@@ -1034,25 +1041,14 @@ router.post('/repair-matches', async (req, res) => {
     }
 
     for (const [key, dupes] of unreconciledByKey) {
-      if (dupes.length <= 1) continue;
-      // Check if a reconciled version exists for this key
-      const reconciledExists = allVyaparTxns.some(v => {
-        if (!v.isReconciled) return false;
-        if (key.startsWith('inv:')) {
-          return v.invoiceNumber === key.slice(4);
-        } else {
-          const sigKey = `sig:${v.date}|${v.amount}|${v.partyName || ''}|${v.transactionType}`;
-          return sigKey === key;
-        }
-      });
-      if (reconciledExists) {
-        // Delete ALL unreconciled duplicates — the reconciled one is the keeper
+      if (reconciledKeys.has(key)) {
+        // A reconciled version exists — delete ALL unreconciled copies
         for (const dupe of dupes) {
           await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, dupe.id));
           duplicateVyaparDeleted++;
         }
-      } else {
-        // Keep the newest one (by createdAt), delete the rest
+      } else if (dupes.length > 1) {
+        // No reconciled version, but multiple unreconciled — keep newest, delete rest
         dupes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         for (let i = 1; i < dupes.length; i++) {
           await db.delete(vyaparTransactions).where(eq(vyaparTransactions.id, dupes[i].id));
