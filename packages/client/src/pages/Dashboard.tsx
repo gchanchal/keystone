@@ -103,8 +103,8 @@ export function Dashboard() {
   // ===== SHARED DATA =====
   // Fetch dashboard stats (includes total balance)
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboard-stats', endMonth],
-    queryFn: () => dashboardApi.getStats(endMonth),
+    queryKey: ['dashboard-stats', endMonth, activeTab],
+    queryFn: () => dashboardApi.getStats(endMonth, activeTab === 'personal' ? 'personal' : undefined),
   });
 
   // Fetch portfolio summary (for consistent net worth calculation)

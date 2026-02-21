@@ -13,6 +13,14 @@ import {
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { getGearupDataUserId } from '../utils/gearup-auth.js';
 
+// Helper: resolve userId based on context query param
+// context=personal → always use own userId (for Personal Dashboard)
+// otherwise → use GearUp owner if accessible (for Business Dashboard)
+const resolveUserId = async (req: any): Promise<string> => {
+  if (req.query?.context === 'personal') return req.userId!;
+  return (await getGearupDataUserId(req)) || req.userId!;
+};
+
 const router = Router();
 
 // Get dashboard data
@@ -24,7 +32,7 @@ router.get('/', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const stats = await getDashboardStats(month, dataUserId);
     const cashFlow = await getCashFlowData(6, dataUserId);
     const recentTransactions = await getRecentTransactions(5, dataUserId);
@@ -56,7 +64,7 @@ router.get('/stats', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const stats = await getDashboardStats(month, dataUserId);
     res.json(stats);
   } catch (error) {
@@ -74,7 +82,7 @@ router.get('/cash-flow', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const cashFlow = await getCashFlowData(months ? parseInt(months) : 6, dataUserId);
     res.json(cashFlow);
   } catch (error) {
@@ -93,7 +101,7 @@ router.get('/expense-breakdown', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const breakdown = await getExpenseBreakdown(startDate, endDate, dataUserId);
     res.json(breakdown);
   } catch (error) {
@@ -114,7 +122,7 @@ router.get('/recent-transactions', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const transactions = await getRecentTransactions(limit ? parseInt(limit) : 10, dataUserId);
     res.json(transactions);
   } catch (error) {
@@ -134,7 +142,7 @@ router.get('/trends', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const trends = await getTransactionTrends(
       startDate,
       endDate,
@@ -163,7 +171,7 @@ router.get('/category-trends', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const trends = await getCategoryTrends(
       startDate,
       endDate,
@@ -192,7 +200,7 @@ router.get('/vyapar-trends', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const trends = await getVyaparTrends(
       startDate,
       endDate,
@@ -219,7 +227,7 @@ router.get('/vyapar-summary', async (req, res) => {
       })
       .parse(req.query);
 
-    const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
+    const dataUserId = await resolveUserId(req);
     const summary = await getVyaparSummary(startDate, endDate, dataUserId);
     res.json(summary);
   } catch (error) {
