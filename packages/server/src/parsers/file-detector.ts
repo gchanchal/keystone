@@ -344,7 +344,10 @@ async function detectPDFType(buffer: Buffer, filename?: string, password?: strin
     }
 
     // Check for Home Loan statement (Axis Bank specific patterns)
-    if ((text.includes('home loan') || text.includes('housing loan')) &&
+    // Only match if "home loan"/"housing loan" appears in the header area (first 500 chars),
+    // not in transaction narrations like "MB:Home loan000448..."
+    const headerText = text.substring(0, 500);
+    if ((headerText.includes('home loan') || headerText.includes('housing loan')) &&
         (text.includes('agreement number') || text.includes('loan account') ||
          text.includes('emi') || text.includes('disbursement'))) {
       let bankName = null;
