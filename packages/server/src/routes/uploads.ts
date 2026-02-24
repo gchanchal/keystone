@@ -701,14 +701,16 @@ router.post('/vyapar/confirm', async (req, res) => {
         .from(vyaparItemDetails);
 
       // Create a map of existing items by signature for quick lookup
+      // Exclude invoice number from signature since Vyapar Expense exports
+      // assign different invoice numbers (e.g. EXP-16) across exports
       const existingItemsMap = new Map<string, { id: string; category: string | null }>();
       for (const item of existingItems) {
-        const signature = `${item.date}|${item.invoiceNumber || ''}|${item.itemName}|${item.amount}`;
+        const signature = `${item.date}|${item.itemName}|${item.amount}`;
         existingItemsMap.set(signature, { id: item.id, category: item.category });
       }
 
       for (const item of itemDetails) {
-        const signature = `${item.date}|${item.invoiceNumber || ''}|${item.itemName}|${item.amount}`;
+        const signature = `${item.date}|${item.itemName}|${item.amount}`;
         const existingItem = existingItemsMap.get(signature);
 
         if (existingItem) {

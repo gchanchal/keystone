@@ -556,10 +556,12 @@ router.get('/vyapar-items', async (req, res) => {
 
     const items = await dbQuery;
 
-    // Deduplicate items based on date + invoiceNumber + itemName + amount
+    // Deduplicate items based on date + itemName + amount
+    // Invoice number is excluded because Vyapar Expense exports assign different
+    // invoice numbers (e.g. EXP-16) across exports for the same item
     const seen = new Set<string>();
     const uniqueItems = items.filter(item => {
-      const signature = `${item.date}|${item.invoiceNumber || ''}|${item.itemName}|${item.amount}`;
+      const signature = `${item.date}|${item.itemName}|${item.amount}`;
       if (seen.has(signature)) {
         return false;
       }
