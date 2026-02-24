@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { BarChart } from '@/components/charts/BarChart';
 import { PieChart } from '@/components/charts/PieChart';
 import { DataTable, ColumnDef } from '@/components/ui/data-table';
 import { reportsApi, transactionsApi } from '@/lib/api';
@@ -1002,23 +1003,12 @@ function ItemsAnalysis({
           </CardHeader>
           <CardContent>
             {expenseChartData.length > 0 ? (
-              <>
-                <PieChart data={expenseChartData} height={250} showLegend={false} />
-                <div className="mt-4 space-y-2">
-                  {expenseChartData.slice(0, 5).map((item, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="h-3 w-3 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="truncate max-w-[150px]">{item.name}</span>
-                      </div>
-                      <span className="font-medium">{formatCurrency(item.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
+              <BarChart
+                data={expenseChartData.map(d => ({ name: d.name, amount: d.value }))}
+                xKey="name"
+                yKeys={[{ key: 'amount', color: '#ef4444', name: 'Expenses' }]}
+                height={300}
+              />
             ) : (
               <div className="flex h-[250px] items-center justify-center text-muted-foreground">
                 No expense data
@@ -1033,23 +1023,12 @@ function ItemsAnalysis({
           </CardHeader>
           <CardContent>
             {salesChartData.length > 0 ? (
-              <>
-                <PieChart data={salesChartData} height={250} showLegend={false} />
-                <div className="mt-4 space-y-2">
-                  {salesChartData.slice(0, 5).map((item, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="h-3 w-3 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="truncate max-w-[150px]">{item.name}</span>
-                      </div>
-                      <span className="font-medium">{formatCurrency(item.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
+              <BarChart
+                data={salesChartData.map(d => ({ name: d.name, amount: d.value }))}
+                xKey="name"
+                yKeys={[{ key: 'amount', color: '#22c55e', name: 'Sales' }]}
+                height={300}
+              />
             ) : (
               <div className="flex h-[250px] items-center justify-center text-muted-foreground">
                 No sales data
