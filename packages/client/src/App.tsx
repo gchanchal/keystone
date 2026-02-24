@@ -18,6 +18,7 @@ import { CreditCards } from '@/pages/CreditCards';
 import { PortfolioPerformance } from '@/pages/PortfolioPerformance';
 import { LearnStatements } from '@/pages/settings/LearnStatements';
 import { BusinessAccounting } from '@/pages/BusinessAccounting';
+import { Calendar } from '@/pages/Calendar';
 
 function App() {
   return (
@@ -47,6 +48,7 @@ function App() {
           <Route path="investments/mutual-funds" element={<MutualFunds />} />
           <Route path="loans" element={<Loans />} />
           <Route path="loans/:id/details" element={<LoanGivenDetails />} />
+          <Route path="calendar" element={<Calendar />} />
           <Route path="reports" element={<Reports />} />
           <Route path="performance" element={<PortfolioPerformance />} />
           <Route path="settings" element={<Settings />} />

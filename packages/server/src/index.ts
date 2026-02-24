@@ -32,6 +32,7 @@ import templatesRouter from './routes/templates.js';
 import learnRouter from './routes/learn.js';
 import businessAccountingRouter from './routes/business-accounting.js';
 import investmentAdvisorRouter from './routes/investment-advisor.js';
+import calendarRouter from './routes/calendar.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +86,7 @@ app.use('/api/templates', requireAuth, templatesRouter);
 app.use('/api/learn', requireAuth, learnRouter);
 app.use('/api/business-accounting', requireAuth, businessAccountingRouter);
 app.use('/api/investment-advisor', requireAuth, investmentAdvisorRouter);
+app.use('/api/calendar', requireAuth, calendarRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

@@ -22,6 +22,7 @@ import {
   Calculator,
   PanelLeftClose,
   PanelLeft,
+  CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,7 @@ const personalItems = [
   { to: '/investments', icon: TrendingUp, label: 'Investments' },
   { to: '/loans', icon: HandCoins, label: 'Expenses & Income' },
   { to: '/credit-cards', icon: CreditCard, label: 'Credit Cards' },
+  { to: '/calendar', icon: CalendarDays, label: 'Calendar' },
   { to: '/accounts', icon: Building2, label: 'Accounts' },
   { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
 ];
@@ -87,7 +89,7 @@ export function Sidebar({ open, onClose, collapsed = false, onToggleCollapse }: 
   const isGearupOwner = userEmail === GEARUP_OWNER_EMAIL;
 
   // Determine which section is active based on current path
-  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/performance', '/loans'].some(
+  const isPersonalPath = ['/', '/accounts', '/transactions', '/credit-cards', '/investments', '/performance', '/loans', '/calendar'].some(
     path => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
   );
   const isGearupPath = ['/gearup', '/reconciliation', '/reports'].some(

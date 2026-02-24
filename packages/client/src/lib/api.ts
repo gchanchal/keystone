@@ -655,6 +655,12 @@ export const businessAccountingApi = {
     api.delete(`/business-accounting/transaction/${id}`).then((r) => r.data),
 };
 
+// Calendar
+export const calendarApi = {
+  getEvents: (year: number) =>
+    api.get('/calendar/events', { params: { year } }).then((r) => r.data),
+};
+
 // Investment Advisor (AI-powered)
 export const investmentAdvisorApi = {
   // Chat with AI advisor
