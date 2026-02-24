@@ -983,8 +983,8 @@ router.post('/repair-matches', async (req, res) => {
           .map(r => r.bankTransactionId!);
         const existingBanks = bankIdsInGroup.filter(id => bankMap.has(id));
 
-        if (existingBanks.length === 0 && groupRecords.length === 0) {
-          // Not a valid group either - orphaned vyapar transaction
+        if (existingBanks.length === 0) {
+          // No valid bank transactions remain - orphaned vyapar transaction
           await db
             .update(vyaparTransactions)
             .set({
@@ -993,6 +993,12 @@ router.post('/repair-matches', async (req, res) => {
               updatedAt: now,
             })
             .where(eq(vyaparTransactions.id, vyapar.id));
+          // Clean up orphaned match group records if any exist
+          if (groupRecords.length > 0) {
+            await db
+              .delete(reconciliationMatches)
+              .where(eq(reconciliationMatches.matchGroupId, vyapar.reconciledWithId!));
+          }
           orphanedVyaparCount++;
         } else if (existingBanks.length > 0) {
           // Group exists with valid banks - ensure all bank txns in group are marked reconciled

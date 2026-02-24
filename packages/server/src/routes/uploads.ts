@@ -5,8 +5,8 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, uploads, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, creditCardStatements, cardHolders, accounts, investments } from '../db/index.js';
-import { eq, desc, and, sql, gte, lte } from 'drizzle-orm';
+import { db, uploads, bankTransactions, vyaparTransactions, vyaparItemDetails, creditCardTransactions, creditCardStatements, cardHolders, accounts, investments, reconciliationMatches } from '../db/index.js';
+import { eq, desc, and, sql, gte, lte, inArray } from 'drizzle-orm';
 import {
   parseHDFCStatement,
   convertToDBTransactions as convertHDFC,
@@ -764,6 +764,83 @@ router.post('/vyapar/confirm', async (req, res) => {
 
     const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size;
 
+    // Auto-repair orphaned Vyapar matches (Vyapar marked reconciled but pointing to non-existent bank transactions)
+    let orphanedRepaired = 0;
+    try {
+      const reconciledVyapar = await db
+        .select({ id: vyaparTransactions.id, reconciledWithId: vyaparTransactions.reconciledWithId })
+        .from(vyaparTransactions)
+        .where(and(
+          eq(vyaparTransactions.userId, req.userId!),
+          eq(vyaparTransactions.isReconciled, true)
+        ));
+
+      if (reconciledVyapar.length > 0) {
+        // Get all bank transaction IDs for this user
+        const allBankTxns = await db
+          .select({ id: bankTransactions.id })
+          .from(bankTransactions)
+          .where(eq(bankTransactions.userId, req.userId!));
+        const bankIdSet = new Set(allBankTxns.map(t => t.id));
+
+        // Get all match group IDs that still have valid bank transactions
+        const allMatchRecords = await db
+          .select()
+          .from(reconciliationMatches)
+          .where(eq(reconciliationMatches.userId, req.userId!));
+        const validGroupIds = new Set<string>();
+        const groupBankIds = new Map<string, string[]>();
+        for (const record of allMatchRecords) {
+          if (!groupBankIds.has(record.matchGroupId)) {
+            groupBankIds.set(record.matchGroupId, []);
+          }
+          if (record.bankTransactionId) {
+            groupBankIds.get(record.matchGroupId)!.push(record.bankTransactionId);
+          }
+        }
+        for (const [groupId, bankIds] of groupBankIds) {
+          if (bankIds.some(id => bankIdSet.has(id))) {
+            validGroupIds.add(groupId);
+          }
+        }
+
+        // Find orphaned Vyapar: reconciledWithId is neither a valid bank ID nor a valid match group
+        const orphanedVyaparIds: string[] = [];
+        const orphanedGroupIds: string[] = [];
+        for (const v of reconciledVyapar) {
+          if (!v.reconciledWithId) continue;
+          const isValidBank = bankIdSet.has(v.reconciledWithId);
+          const isValidGroup = validGroupIds.has(v.reconciledWithId);
+          if (!isValidBank && !isValidGroup) {
+            orphanedVyaparIds.push(v.id);
+            // Check if it's an orphaned group (exists but no valid banks)
+            if (groupBankIds.has(v.reconciledWithId)) {
+              orphanedGroupIds.push(v.reconciledWithId);
+            }
+          }
+        }
+
+        if (orphanedVyaparIds.length > 0) {
+          await db
+            .update(vyaparTransactions)
+            .set({ isReconciled: false, reconciledWithId: null, updatedAt: now })
+            .where(inArray(vyaparTransactions.id, orphanedVyaparIds));
+          orphanedRepaired = orphanedVyaparIds.length;
+          console.log(`[Uploads] Auto-repaired ${orphanedRepaired} orphaned Vyapar matches`);
+        }
+
+        // Clean up orphaned match group records
+        if (orphanedGroupIds.length > 0) {
+          await db
+            .delete(reconciliationMatches)
+            .where(inArray(reconciliationMatches.matchGroupId, orphanedGroupIds));
+          console.log(`[Uploads] Deleted ${orphanedGroupIds.length} orphaned match groups`);
+        }
+      }
+    } catch (repairError) {
+      console.error('[Uploads] Auto-repair failed (non-fatal):', repairError);
+    }
+
     res.json({
       success: true,
       imported: importedCount,
@@ -773,6 +850,7 @@ router.post('/vyapar/confirm', async (req, res) => {
       total: transactions.length,
       itemDetailsImported,
       itemDetailsUpdated,
+      orphanedRepaired,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

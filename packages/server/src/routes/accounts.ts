@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { db, accounts, bankTransactions } from '../db/index.js';
-import { eq, and } from 'drizzle-orm';
+import { db, accounts, bankTransactions, vyaparTransactions, reconciliationMatches } from '../db/index.js';
+import { eq, and, inArray } from 'drizzle-orm';
 
 const router = Router();
 
@@ -144,12 +144,75 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
-    // Delete all related transactions first (cascade)
+    // Collect bank transaction IDs before deleting them
+    const bankTxns = await db
+      .select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(eq(bankTransactions.accountId, accountId));
+    const bankTxnIds = bankTxns.map(t => t.id);
+
+    if (bankTxnIds.length > 0) {
+      // Find Vyapar transactions directly matched to these bank transactions (single matches)
+      const directlyMatchedVyapar = await db
+        .select({ id: vyaparTransactions.id })
+        .from(vyaparTransactions)
+        .where(and(
+          eq(vyaparTransactions.isReconciled, true),
+          inArray(vyaparTransactions.reconciledWithId, bankTxnIds)
+        ));
+
+      // Find match group records that reference these bank transactions (multi-matches)
+      const matchGroupRecords = await db
+        .select()
+        .from(reconciliationMatches)
+        .where(inArray(reconciliationMatches.bankTransactionId, bankTxnIds));
+
+      // Collect unique match group IDs
+      const affectedGroupIds = [...new Set(matchGroupRecords.map(r => r.matchGroupId))];
+
+      // Unlink directly matched Vyapar transactions
+      if (directlyMatchedVyapar.length > 0) {
+        const vyaparIds = directlyMatchedVyapar.map(v => v.id);
+        await db
+          .update(vyaparTransactions)
+          .set({ isReconciled: false, reconciledWithId: null, updatedAt: new Date().toISOString() })
+          .where(inArray(vyaparTransactions.id, vyaparIds));
+        console.log(`[Accounts] Unlinked ${vyaparIds.length} directly matched Vyapar transactions`);
+      }
+
+      // For multi-match groups: unlink Vyapar transactions and delete group records
+      if (affectedGroupIds.length > 0) {
+        // Find Vyapar transactions linked via these match groups
+        const groupLinkedVyapar = await db
+          .select({ id: vyaparTransactions.id })
+          .from(vyaparTransactions)
+          .where(and(
+            eq(vyaparTransactions.isReconciled, true),
+            inArray(vyaparTransactions.reconciledWithId, affectedGroupIds)
+          ));
+
+        if (groupLinkedVyapar.length > 0) {
+          await db
+            .update(vyaparTransactions)
+            .set({ isReconciled: false, reconciledWithId: null, updatedAt: new Date().toISOString() })
+            .where(inArray(vyaparTransactions.id, groupLinkedVyapar.map(v => v.id)));
+          console.log(`[Accounts] Unlinked ${groupLinkedVyapar.length} group-matched Vyapar transactions`);
+        }
+
+        // Delete match group records
+        await db
+          .delete(reconciliationMatches)
+          .where(inArray(reconciliationMatches.matchGroupId, affectedGroupIds));
+        console.log(`[Accounts] Deleted ${affectedGroupIds.length} orphaned match groups`);
+      }
+    }
+
+    // Delete all related transactions (cascade)
     const deletedTransactions = await db
       .delete(bankTransactions)
       .where(eq(bankTransactions.accountId, accountId));
 
-    console.log(`[Accounts] Deleted transactions for account ${accountId}`);
+    console.log(`[Accounts] Deleted ${bankTxnIds.length} transactions for account ${accountId}`);
 
     // Then delete the account
     await db
