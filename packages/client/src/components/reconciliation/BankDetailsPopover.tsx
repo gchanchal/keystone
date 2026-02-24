@@ -72,7 +72,7 @@ export function BankDetailsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[400px] max-w-[90vw] p-0"
+        className="w-[500px] max-w-[90vw] p-0"
         side="right"
         align="start"
         onMouseEnter={() => !isPinned && setIsOpen(true)}
