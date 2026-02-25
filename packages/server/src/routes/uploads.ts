@@ -465,7 +465,9 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
     const transactions = parseVyaparReport(buffer);
     const itemDetails = parseVyaparItemDetails(buffer);
 
-    // Check for duplicates and updates using invoice number
+    // Check for duplicates and updates using invoice number AND content signature
+    // Vyapar exports use different invoice number series (INV, PI, EXP, SO) across exports,
+    // so we also match on party_name + date + amount to catch duplicates
     const existingTxns = await db
       .select({
         date: vyaparTransactions.date,
@@ -473,20 +475,25 @@ router.post('/vyapar/preview', upload.single('file'), async (req, res) => {
         invoiceNumber: vyaparTransactions.invoiceNumber,
         partyName: vyaparTransactions.partyName,
       })
-      .from(vyaparTransactions);
+      .from(vyaparTransactions)
+      .where(eq(vyaparTransactions.userId, req.userId!));
 
-    // Build a map of existing invoice numbers to their amounts
+    // Build maps for both invoice-based and content-based dedup
     const existingByInvoice = new Map<string, { amount: number; date: string }>();
+    const existingContentSignatures = new Set<string>();
     for (const txn of existingTxns) {
       if (txn.invoiceNumber) {
         existingByInvoice.set(txn.invoiceNumber, { amount: txn.amount, date: txn.date });
       }
+      existingContentSignatures.add(`${(txn.partyName || '').toLowerCase().trim()}|${txn.date}|${txn.amount}`);
     }
 
     const transactionsWithStatus = transactions.map(txn => {
       const existing = txn.invoiceNumber ? existingByInvoice.get(txn.invoiceNumber) : null;
-      const isDuplicate = existing ? (existing.amount === txn.amount && existing.date === txn.date) : false;
-      const isUpdate = existing ? !isDuplicate : false;
+      const contentSig = `${(txn.partyName || '').toLowerCase().trim()}|${txn.date}|${txn.amount}`;
+      const contentMatch = existingContentSignatures.has(contentSig);
+      const isDuplicate = contentMatch || (existing ? (existing.amount === txn.amount && existing.date === txn.date) : false);
+      const isUpdate = !isDuplicate && existing ? true : false;
       return {
         ...txn,
         isDuplicate,
@@ -585,27 +592,35 @@ router.post('/vyapar/confirm', async (req, res) => {
 
     // Track which invoice numbers were already updated (to avoid re-inserting)
     const updatedInvoiceNumbers = new Set<string>();
-    // Invoice numbers of reconciled transactions — NEVER touch these
-    const reconciledInvoiceNumbers = new Set<string>();
     let staleDeletedCount = 0;
 
-    if (minDate && maxDate && exportInvoiceNumbers.size > 0) {
-      // Find existing reconciled Vyapar transactions — these are protected
-      const reconciledInRange = await db
-        .select({ invoiceNumber: vyaparTransactions.invoiceNumber })
-        .from(vyaparTransactions)
-        .where(
-          and(
-            eq(vyaparTransactions.userId, req.userId!),
-            eq(vyaparTransactions.isReconciled, true)
-          )
-        );
-      for (const txn of reconciledInRange) {
-        if (txn.invoiceNumber) {
-          reconciledInvoiceNumbers.add(txn.invoiceNumber);
-        }
-      }
+    // Build content-based signature set from ALL existing Vyapar transactions
+    // This prevents duplicates even when invoice numbers change between exports (INV→PI→EXP→SO)
+    const allExisting = await db
+      .select({
+        date: vyaparTransactions.date,
+        partyName: vyaparTransactions.partyName,
+        amount: vyaparTransactions.amount,
+        invoiceNumber: vyaparTransactions.invoiceNumber,
+        isReconciled: vyaparTransactions.isReconciled,
+      })
+      .from(vyaparTransactions)
+      .where(eq(vyaparTransactions.userId, req.userId!));
 
+    // Content signature: normalized partyName + date + amount
+    const existingContentSignatures = new Set<string>();
+    const reconciledContentSignatures = new Set<string>();
+    const reconciledInvoiceNumbers = new Set<string>();
+    for (const txn of allExisting) {
+      const sig = `${(txn.partyName || '').toLowerCase().trim()}|${txn.date}|${txn.amount}`;
+      existingContentSignatures.add(sig);
+      if (txn.isReconciled) {
+        reconciledContentSignatures.add(sig);
+        if (txn.invoiceNumber) reconciledInvoiceNumbers.add(txn.invoiceNumber);
+      }
+    }
+
+    if (minDate && maxDate && exportInvoiceNumbers.size > 0) {
       // Find existing unreconciled Vyapar transactions in this date range
       const existingInRange = await db
         .select({ id: vyaparTransactions.id, invoiceNumber: vyaparTransactions.invoiceNumber })
@@ -685,14 +700,25 @@ router.post('/vyapar/confirm', async (req, res) => {
       }
     }
 
-    // Filter out duplicates, already-updated, and reconciled invoice numbers
+    // Filter out duplicates, already-updated, and content-matched reconciled transactions
+    let reconciledSkippedCount = 0;
     let transactionsToImport = transactions.filter((t: any) => {
       // Skip duplicates if requested
       if (skipDuplicates && t.isDuplicate) return false;
       // Skip if this invoice number was already updated in the cleanup above
       if (t.invoiceNumber && updatedInvoiceNumbers.has(t.invoiceNumber)) return false;
       // NEVER re-insert a transaction whose invoice number is already reconciled
-      if (t.invoiceNumber && reconciledInvoiceNumbers.has(t.invoiceNumber)) return false;
+      if (t.invoiceNumber && reconciledInvoiceNumbers.has(t.invoiceNumber)) {
+        reconciledSkippedCount++;
+        return false;
+      }
+      // NEVER re-insert a transaction that matches a reconciled one by content
+      // (handles invoice number changes across exports: INV→PI→EXP→SO)
+      const contentSig = `${(t.partyName || '').toLowerCase().trim()}|${t.date}|${t.amount}`;
+      if (reconciledContentSignatures.has(contentSig)) {
+        reconciledSkippedCount++;
+        return false;
+      }
       return true;
     });
 
@@ -799,8 +825,7 @@ router.post('/vyapar/confirm', async (req, res) => {
       })
       .where(eq(uploads.id, uploadId));
 
-    const reconciledSkipped = transactions.filter((t: any) => t.invoiceNumber && reconciledInvoiceNumbers.has(t.invoiceNumber)).length;
-    const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size - reconciledSkipped;
+    const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size - reconciledSkippedCount;
 
     // Auto-repair orphaned Vyapar matches (Vyapar marked reconciled but pointing to non-existent bank transactions)
     let orphanedRepaired = 0;
@@ -879,8 +904,8 @@ router.post('/vyapar/confirm', async (req, res) => {
       console.error('[Uploads] Auto-repair failed (non-fatal):', repairError);
     }
 
-    if (reconciledSkipped > 0) {
-      console.log(`[Uploads] Protected ${reconciledSkipped} reconciled transactions from re-import`);
+    if (reconciledSkippedCount > 0) {
+      console.log(`[Uploads] Protected ${reconciledSkippedCount} reconciled transactions from re-import`);
     }
 
     res.json({
@@ -889,7 +914,7 @@ router.post('/vyapar/confirm', async (req, res) => {
       updated: updatedInvoiceNumbers.size,
       staleDeleted: staleDeletedCount,
       skipped: skippedCount,
-      reconciledProtected: reconciledSkipped,
+      reconciledProtected: reconciledSkippedCount,
       total: transactions.length,
       itemDetailsImported,
       itemDetailsUpdated,
