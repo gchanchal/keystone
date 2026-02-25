@@ -1211,6 +1211,9 @@ export function Reconciliation() {
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                            {accountMap.get(txn.accountId) && (
+                              <span className="text-xs text-muted-foreground">{accountMap.get(txn.accountId)}</span>
+                            )}
                             <BankDetailsPopover
                               narration={txn.narration}
                               date={txn.date}
@@ -1268,6 +1271,9 @@ export function Reconciliation() {
                         <p className="text-sm font-medium line-clamp-1 mt-1">{txn.narration}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          {accountMap.get(txn.accountId) && (
+                            <span className="text-xs text-muted-foreground">{accountMap.get(txn.accountId)}</span>
+                          )}
                           <BankDetailsPopover
                             narration={txn.narration}
                             date={txn.date}
