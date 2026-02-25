@@ -847,10 +847,13 @@ router.post('/vyapar/confirm', async (req, res) => {
         const bankIdSet = new Set(allBankTxns.map(t => t.id));
 
         // Get all match group IDs that still have valid bank transactions
+        // Include records with NULL userId (legacy records created before userId was added)
         const allMatchRecords = await db
           .select()
           .from(reconciliationMatches)
-          .where(eq(reconciliationMatches.userId, req.userId!));
+          .where(
+            sql`(${reconciliationMatches.userId} = ${req.userId!} OR ${reconciliationMatches.userId} IS NULL)`
+          );
         const validGroupIds = new Set<string>();
         const groupBankIds = new Map<string, string[]>();
         for (const record of allMatchRecords) {

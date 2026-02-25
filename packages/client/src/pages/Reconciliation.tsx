@@ -60,6 +60,8 @@ export function Reconciliation() {
   const [vyaparFilter, setVyaparFilter] = useState<FilterStatus>('unmatched');
   const [bankDirectionFilter, setBankDirectionFilter] = useState<'all' | 'in' | 'out'>('all');
   const [vyaparDirectionFilter, setVyaparDirectionFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [bankDateSort, setBankDateSort] = useState<'desc' | 'asc'>('desc');
+  const [vyaparDateSort, setVyaparDateSort] = useState<'desc' | 'asc'>('desc');
   const [bankSearch, setBankSearch] = useState('');
   const [vyaparSearch, setVyaparSearch] = useState('');
   // State to track which matched transaction is selected to show details
@@ -354,12 +356,14 @@ export function Reconciliation() {
     setViewingMatchVyaparId(null);
   };
 
-  // Sort matched transactions by date desc
+  // Sort matched transactions by date
+  const bankSortDir = bankDateSort === 'asc' ? 1 : -1;
+  const vyaparSortDir = vyaparDateSort === 'asc' ? 1 : -1;
   const sortedBankMatched = [...filteredBankMatched].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
+    bankSortDir * (new Date(a.date).getTime() - new Date(b.date).getTime())
   );
   const sortedVyaparMatched = [...filteredVyaparMatched].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
+    vyaparSortDir * (new Date(a.date).getTime() - new Date(b.date).getTime())
   );
 
   // Filter matched transactions based on highlight selection
@@ -474,14 +478,14 @@ export function Reconciliation() {
     const scoreA = bankPotentialMatches.get(a.id) || 0;
     const scoreB = bankPotentialMatches.get(b.id) || 0;
     if (scoreA !== scoreB) return scoreB - scoreA; // Higher score first
-    return new Date(b.date).getTime() - new Date(a.date).getTime(); // Then by date desc
+    return bankSortDir * (new Date(a.date).getTime() - new Date(b.date).getTime());
   });
 
   const sortedVyaparUnmatched = [...filteredVyaparUnmatched].sort((a, b) => {
     const scoreA = vyaparPotentialMatches.get(a.id) || 0;
     const scoreB = vyaparPotentialMatches.get(b.id) || 0;
     if (scoreA !== scoreB) return scoreB - scoreA; // Higher score first
-    return new Date(b.date).getTime() - new Date(a.date).getTime(); // Then by date desc
+    return vyaparSortDir * (new Date(a.date).getTime() - new Date(b.date).getTime());
   });
 
   // Helper to get match quality label
@@ -1143,6 +1147,15 @@ export function Reconciliation() {
                 >
                   <ArrowUpRight className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBankDateSort(d => d === 'desc' ? 'asc' : 'desc')}
+                  className="px-2 ml-1"
+                  title={bankDateSort === 'desc' ? 'Newest first' : 'Oldest first'}
+                >
+                  {bankDateSort === 'desc' ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                </Button>
               </div>
             </div>
             <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
@@ -1351,6 +1364,15 @@ export function Reconciliation() {
                 >
                   <ArrowUpRight className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setVyaparDateSort(d => d === 'desc' ? 'asc' : 'desc')}
+                  className="px-2 ml-1"
+                  title={vyaparDateSort === 'desc' ? 'Newest first' : 'Oldest first'}
+                >
+                  {vyaparDateSort === 'desc' ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                </Button>
               </div>
             </div>
             <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
@@ -1406,6 +1428,9 @@ export function Reconciliation() {
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                            {txn.invoiceNumber && (
+                              <span className="text-xs text-muted-foreground">{txn.invoiceNumber}</span>
+                            )}
                             <ItemDetailsPopover
                               invoiceNumber={txn.invoiceNumber}
                               transactionType={txn.transactionType}
@@ -1444,6 +1469,9 @@ export function Reconciliation() {
                         </p>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-muted-foreground">{formatDate(txn.date)}</p>
+                          {txn.invoiceNumber && (
+                            <span className="text-xs text-muted-foreground">{txn.invoiceNumber}</span>
+                          )}
                           <ItemDetailsPopover
                             invoiceNumber={txn.invoiceNumber}
                             transactionType={txn.transactionType}

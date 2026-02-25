@@ -402,7 +402,7 @@ router.post('/multi-match', async (req, res) => {
       })
       .parse(req.body);
 
-    const result = await multiMatch(bankTransactionIds, vyaparTransactionIds);
+    const result = await multiMatch(bankTransactionIds, vyaparTransactionIds, req.userId);
 
     res.json(result);
   } catch (error) {

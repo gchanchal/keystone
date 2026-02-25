@@ -718,7 +718,8 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
 // Many-to-many matching: Multiple bank transactions to multiple vyapar transactions
 export async function multiMatch(
   bankTransactionIds: string[],
-  vyaparTransactionIds: string[]
+  vyaparTransactionIds: string[],
+  userId?: string
 ): Promise<{ success: boolean; matchGroupId: string }> {
   const now = new Date().toISOString();
   const matchGroupId = uuidv4();
@@ -749,6 +750,7 @@ export async function multiMatch(
   for (const bankId of bankTransactionIds) {
     await db.insert(reconciliationMatches).values({
       id: uuidv4(),
+      userId: userId || null,
       matchGroupId,
       bankTransactionId: bankId,
       vyaparTransactionId: null,
@@ -763,6 +765,7 @@ export async function multiMatch(
   for (const vyaparId of vyaparTransactionIds) {
     await db.insert(reconciliationMatches).values({
       id: uuidv4(),
+      userId: userId || null,
       matchGroupId,
       bankTransactionId: null,
       vyaparTransactionId: vyaparId,
