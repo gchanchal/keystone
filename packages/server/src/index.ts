@@ -33,6 +33,7 @@ import learnRouter from './routes/learn.js';
 import businessAccountingRouter from './routes/business-accounting.js';
 import investmentAdvisorRouter from './routes/investment-advisor.js';
 import calendarRouter from './routes/calendar.js';
+import personalTeamRouter from './routes/personal-team.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,7 @@ app.use('/api/learn', requireAuth, learnRouter);
 app.use('/api/business-accounting', requireAuth, businessAccountingRouter);
 app.use('/api/investment-advisor', requireAuth, investmentAdvisorRouter);
 app.use('/api/calendar', requireAuth, calendarRouter);
+app.use('/api/personal-team', requireAuth, personalTeamRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

@@ -655,6 +655,24 @@ export const businessAccountingApi = {
     api.delete(`/business-accounting/transaction/${id}`).then((r) => r.data),
 };
 
+// Personal Team (shared access to personal data)
+export const personalTeamApi = {
+  getMyAccess: () =>
+    api.get('/personal-team/my-access').then((r) => r.data),
+
+  getMembers: () =>
+    api.get('/personal-team/members').then((r) => r.data),
+
+  invite: (email: string, role: 'viewer' | 'editor' | 'admin' = 'viewer') =>
+    api.post('/personal-team/invite', { email, role }).then((r) => r.data),
+
+  updateRole: (id: string, role: 'viewer' | 'editor' | 'admin') =>
+    api.patch(`/personal-team/members/${id}`, { role }).then((r) => r.data),
+
+  remove: (id: string) =>
+    api.delete(`/personal-team/members/${id}`).then((r) => r.data),
+};
+
 // Calendar
 export const calendarApi = {
   getEvents: (year: number) =>

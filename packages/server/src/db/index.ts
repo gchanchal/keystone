@@ -25,6 +25,7 @@ import * as businessInvoicesSchema from './schema/business-invoices.js';
 import * as enrichmentRulesSchema from './schema/enrichment-rules.js';
 import * as reconciliationRulesSchema from './schema/reconciliation-rules.js';
 import * as gearupTeamSchema from './schema/gearup-team.js';
+import * as personalTeamSchema from './schema/personal-team.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +65,7 @@ export const db = drizzle(sqlite, {
     ...enrichmentRulesSchema,
     ...reconciliationRulesSchema,
     ...gearupTeamSchema,
+    ...personalTeamSchema,
   },
 });
 
@@ -1152,6 +1154,24 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_gearup_team_members_member ON gearup_team_members(member_user_id);
   `);
 
+  // Create personal_team_members table for personal data sharing
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS personal_team_members (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      member_email TEXT NOT NULL,
+      member_user_id TEXT,
+      role TEXT DEFAULT 'viewer',
+      invited_at TEXT NOT NULL,
+      accepted_at TEXT,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_personal_team_members_owner ON personal_team_members(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_personal_team_members_email ON personal_team_members(member_email);
+    CREATE INDEX IF NOT EXISTS idx_personal_team_members_member ON personal_team_members(member_user_id);
+  `);
+
   // Create vyapar_transaction_notes table for tracking reconciliation notes
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS vyapar_transaction_notes (
@@ -1257,6 +1277,7 @@ export * from './schema/business-invoices.js';
 export * from './schema/enrichment-rules.js';
 export * from './schema/reconciliation-rules.js';
 export * from './schema/gearup-team.js';
+export * from './schema/personal-team.js';
 
 // Export sqlite for direct queries
 export { sqlite };

@@ -29,6 +29,7 @@ import { categoriesApi, transactionsApi, accountsApi } from '@/lib/api';
 import type { Category, Account } from '@/types';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { GmailSettings } from '@/components/gmail/GmailSettings';
+import { PersonalTeamManagement } from '@/components/settings/PersonalTeamManagement';
 
 const colorOptions = [
   { value: '#ef4444', label: 'Red' },
@@ -282,6 +283,17 @@ export function Settings() {
               </Button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Shared Access */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Shared Access</CardTitle>
+          <CardDescription>Invite others to view or manage your personal financial data</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PersonalTeamManagement />
         </CardContent>
       </Card>
 
