@@ -117,24 +117,30 @@ async function findDuplicateBankTransactions(
     .from(bankTransactions)
     .where(eq(bankTransactions.accountId, accountId));
 
-  // Create a set of existing transaction signatures
+  // Create sets of existing transaction signatures (exact + fuzzy)
   const existingSignatures = new Set<string>();
+  const existingFuzzySignatures = new Set<string>();
   for (const txn of existingTxns) {
-    // Create a unique signature: date + amount + reference (or narration hash)
     const signature = createTransactionSignature(txn.date, txn.amount, txn.reference, txn.narration);
     existingSignatures.add(signature);
+    existingFuzzySignatures.add(createFuzzySignature(txn.date, txn.amount, txn.narration));
   }
 
-  // Check each new transaction for duplicates
+  // Check each new transaction for duplicates (exact match OR fuzzy match)
   for (const txn of transactions) {
     const narration = txn.narration || txn.description || '';
     const signature = createTransactionSignature(txn.date, txn.amount, txn.reference, narration);
-    if (existingSignatures.has(signature)) {
+    const fuzzy = createFuzzySignature(txn.date, txn.amount, narration);
+    if (existingSignatures.has(signature) || existingFuzzySignatures.has(fuzzy)) {
       duplicateKeys.add(signature);
     }
   }
 
   return duplicateKeys;
+}
+
+function normalizeNarration(narration: string | undefined | null): string {
+  return (narration || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function createTransactionSignature(
@@ -143,14 +149,25 @@ function createTransactionSignature(
   reference: string | null,
   narration: string | undefined | null
 ): string {
+  // Normalize narration: lowercase, collapse whitespace
+  const normalizedNarration = normalizeNarration(narration);
   // Use reference if available (most unique), otherwise use date + amount + narration prefix
   if (reference) {
     return `${date}|${amount}|${reference}`;
   }
-  // Use first 50 chars of narration as part of signature
-  const narrationStr = narration || '';
-  const narrationPrefix = narrationStr.substring(0, 50).trim();
+  // Use first 50 chars of normalized narration as part of signature
+  const narrationPrefix = normalizedNarration.substring(0, 50);
   return `${date}|${amount}|${narrationPrefix}`;
+}
+
+// Secondary signature using only date + amount + short narration (for fuzzy dedup)
+function createFuzzySignature(
+  date: string,
+  amount: number,
+  narration: string | undefined | null
+): string {
+  const normalized = normalizeNarration(narration);
+  return `${date}|${amount}|${normalized.substring(0, 30)}`;
 }
 
 // Get upload history
@@ -568,9 +585,27 @@ router.post('/vyapar/confirm', async (req, res) => {
 
     // Track which invoice numbers were already updated (to avoid re-inserting)
     const updatedInvoiceNumbers = new Set<string>();
+    // Invoice numbers of reconciled transactions — NEVER touch these
+    const reconciledInvoiceNumbers = new Set<string>();
     let staleDeletedCount = 0;
 
     if (minDate && maxDate && exportInvoiceNumbers.size > 0) {
+      // Find existing reconciled Vyapar transactions — these are protected
+      const reconciledInRange = await db
+        .select({ invoiceNumber: vyaparTransactions.invoiceNumber })
+        .from(vyaparTransactions)
+        .where(
+          and(
+            eq(vyaparTransactions.userId, req.userId!),
+            eq(vyaparTransactions.isReconciled, true)
+          )
+        );
+      for (const txn of reconciledInRange) {
+        if (txn.invoiceNumber) {
+          reconciledInvoiceNumbers.add(txn.invoiceNumber);
+        }
+      }
+
       // Find existing unreconciled Vyapar transactions in this date range
       const existingInRange = await db
         .select({ id: vyaparTransactions.id, invoiceNumber: vyaparTransactions.invoiceNumber })
@@ -650,12 +685,14 @@ router.post('/vyapar/confirm', async (req, res) => {
       }
     }
 
-    // Filter out duplicates and already-updated invoice numbers
+    // Filter out duplicates, already-updated, and reconciled invoice numbers
     let transactionsToImport = transactions.filter((t: any) => {
       // Skip duplicates if requested
       if (skipDuplicates && t.isDuplicate) return false;
       // Skip if this invoice number was already updated in the cleanup above
       if (t.invoiceNumber && updatedInvoiceNumbers.has(t.invoiceNumber)) return false;
+      // NEVER re-insert a transaction whose invoice number is already reconciled
+      if (t.invoiceNumber && reconciledInvoiceNumbers.has(t.invoiceNumber)) return false;
       return true;
     });
 
@@ -762,7 +799,8 @@ router.post('/vyapar/confirm', async (req, res) => {
       })
       .where(eq(uploads.id, uploadId));
 
-    const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size;
+    const reconciledSkipped = transactions.filter((t: any) => t.invoiceNumber && reconciledInvoiceNumbers.has(t.invoiceNumber)).length;
+    const skippedCount = transactions.length - importedCount - updatedInvoiceNumbers.size - reconciledSkipped;
 
     // Auto-repair orphaned Vyapar matches (Vyapar marked reconciled but pointing to non-existent bank transactions)
     let orphanedRepaired = 0;
@@ -841,12 +879,17 @@ router.post('/vyapar/confirm', async (req, res) => {
       console.error('[Uploads] Auto-repair failed (non-fatal):', repairError);
     }
 
+    if (reconciledSkipped > 0) {
+      console.log(`[Uploads] Protected ${reconciledSkipped} reconciled transactions from re-import`);
+    }
+
     res.json({
       success: true,
       imported: importedCount,
       updated: updatedInvoiceNumbers.size,
       staleDeleted: staleDeletedCount,
       skipped: skippedCount,
+      reconciledProtected: reconciledSkipped,
       total: transactions.length,
       itemDetailsImported,
       itemDetailsUpdated,
