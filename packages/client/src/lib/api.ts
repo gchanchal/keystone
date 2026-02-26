@@ -63,6 +63,8 @@ export const accountsApi = {
   delete: (id: string) => api.delete(`/accounts/${id}`).then((r) => r.data),
   updateBalance: (id: string, balance: number) =>
     api.patch(`/accounts/${id}/balance`, { balance }).then((r) => r.data),
+  saveStatementPassword: (id: string, password: string | null) =>
+    api.patch(`/accounts/${id}/statement-password`, { password }).then((r) => r.data),
 };
 
 // Transactions
@@ -156,11 +158,14 @@ export const uploadsApi = {
   },
   // Smart import: auto-detect bank, create account, import transactions
   // Supports password for encrypted PDFs
-  smartImport: (file: File, password?: string) => {
+  smartImport: (file: File, password?: string, rememberPassword?: boolean) => {
     const formData = new FormData();
     formData.append('file', file);
     if (password) {
       formData.append('password', password);
+    }
+    if (rememberPassword !== undefined) {
+      formData.append('rememberPassword', String(rememberPassword));
     }
     return api.post('/uploads/smart-import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

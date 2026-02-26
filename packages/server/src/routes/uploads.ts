@@ -1933,19 +1933,49 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
     const filePath = req.file.path;
     const buffer = fs.readFileSync(filePath);
     const now = new Date().toISOString();
-    const password = req.body?.password as string | undefined;
+    let password = req.body?.password as string | undefined;
+    let passwordSource: 'user' | 'saved' | null = password ? 'user' : null;
+    const rememberPassword = req.body?.rememberPassword !== 'false'; // default true
 
     // Step 1: Detect file type and bank (with password if provided)
-    const detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password, req.userId);
+    let detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password, req.userId);
 
-    // Check if PDF needs password
+    // Check if PDF needs password - try saved passwords from user's accounts
     if (detection.needsPassword && !password) {
-      return res.status(401).json({
-        error: 'Password required',
-        needsPassword: true,
-        detected: detection,
-        message: 'This PDF is password protected. Please provide the password.',
-      });
+      const userAccounts = await db
+        .select({ statementPassword: accounts.statementPassword })
+        .from(accounts)
+        .where(and(
+          eq(accounts.userId, req.userId!),
+          sql`${accounts.statementPassword} IS NOT NULL`
+        ));
+
+      const savedPasswords = [...new Set(userAccounts.map(a => a.statementPassword!))];
+
+      for (const savedPw of savedPasswords) {
+        try {
+          const retryDetection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, savedPw, req.userId);
+          if (!retryDetection.needsPassword) {
+            detection = retryDetection;
+            password = savedPw;
+            passwordSource = 'saved';
+            console.log('[SmartImport] Successfully used saved statement password');
+            break;
+          }
+        } catch (e) {
+          // Saved password didn't work, try next
+        }
+      }
+
+      // Still needs password after trying all saved ones
+      if (detection.needsPassword) {
+        return res.status(401).json({
+          error: 'Password required',
+          needsPassword: true,
+          detected: detection,
+          message: 'This PDF is password protected. Please provide the password.',
+        });
+      }
     }
 
     // Handle HDFC Credit Cards (Infinia and others)
@@ -2205,6 +2235,17 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
       })
       .where(eq(uploads.id, uploadId));
 
+    // Step 8b: Save password to account if user opted in and it's not already saved
+    let passwordSaved = false;
+    if (password && passwordSource === 'user' && rememberPassword && (account as any).statementPassword !== password) {
+      await db
+        .update(accounts)
+        .set({ statementPassword: password, updatedAt: now })
+        .where(eq(accounts.id, account.id));
+      passwordSaved = true;
+      console.log(`[SmartImport] Saved statement password for account ${account.id}`);
+    }
+
     // Step 9: Auto-restore reconciliation for Vyapar transactions with matching fingerprints
     let restoredCount = 0;
     try {
@@ -2309,6 +2350,8 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
         sweep: sweepBalance,
       },
       uploadId,
+      passwordSaved,
+      passwordAutoUsed: passwordSource === 'saved',
     });
   } catch (error: any) {
     console.error('Smart import error:', error);

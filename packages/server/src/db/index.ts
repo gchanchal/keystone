@@ -891,6 +891,13 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add saved statement password for encrypted PDFs
+  try {
+    sqlite.exec('ALTER TABLE accounts ADD COLUMN statement_password TEXT');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
   // Migration: Add GearUp Mods business account flag
   try {
     sqlite.exec('ALTER TABLE accounts ADD COLUMN is_gearup_business INTEGER DEFAULT 0');

@@ -255,4 +255,35 @@ router.patch('/:id/balance', async (req, res) => {
   }
 });
 
+// Save, update, or clear statement password for an account
+router.patch('/:id/statement-password', async (req, res) => {
+  try {
+    const { password } = z.object({ password: z.string().nullable() }).parse(req.body);
+    const now = new Date().toISOString();
+
+    const existing = await db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)))
+      .limit(1);
+
+    if (!existing[0]) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    await db
+      .update(accounts)
+      .set({ statementPassword: password, updatedAt: now })
+      .where(and(eq(accounts.id, req.params.id), eq(accounts.userId, req.userId!)));
+
+    res.json({ success: true, hasPassword: password !== null });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error updating statement password:', error);
+    res.status(500).json({ error: 'Failed to update statement password' });
+  }
+});
+
 export default router;

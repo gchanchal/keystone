@@ -94,6 +94,7 @@ export function Uploads() {
   const [smartImportPassword, setSmartImportPassword] = useState('');
   const [smartImportPasswordError, setSmartImportPasswordError] = useState('');
   const [pendingSmartImportFile, setPendingSmartImportFile] = useState<File | null>(null);
+  const [rememberPassword, setRememberPassword] = useState(true);
 
   const { data: uploads = [], isLoading } = useQuery({
     queryKey: ['uploads'],
@@ -162,12 +163,29 @@ export function Uploads() {
       const result = await uploadsApi.detectFileType(file);
       setDetection(result.detection);
 
-      // If file needs password, show password dialog immediately
+      // If file needs password, try smart-import first (server will try saved passwords)
       if (result.needsPassword) {
-        setUploadStep('select'); // Reset step
-        setPendingSmartImportFile(file);
-        setShowPasswordDialog(true);
-        setSmartImportPasswordError('');
+        setIsSmartImporting(true);
+        setUploadStep('select');
+        try {
+          const importResult = await uploadsApi.smartImport(file);
+          setSmartImportResult(importResult);
+          queryClient.invalidateQueries({ queryKey: ['uploads'] });
+          queryClient.invalidateQueries({ queryKey: ['accounts'] });
+          queryClient.invalidateQueries({ queryKey: ['transactions'] });
+          return;
+        } catch (importError: any) {
+          // Server couldn't use saved password - show dialog for manual entry
+          if (importError?.response?.data?.needsPassword) {
+            setIsSmartImporting(false);
+            setPendingSmartImportFile(file);
+            setShowPasswordDialog(true);
+            setSmartImportPasswordError('');
+            return;
+          }
+          // Other error
+          setIsSmartImporting(false);
+        }
         return;
       }
 
@@ -400,6 +418,7 @@ export function Uploads() {
     setSmartImportPassword('');
     setSmartImportPasswordError('');
     setPendingSmartImportFile(null);
+    setRememberPassword(true);
   };
 
   // Handle password submission for smart import
@@ -411,7 +430,7 @@ export function Uploads() {
     setIsSmartImporting(true);
 
     try {
-      const importResult = await uploadsApi.smartImport(pendingSmartImportFile, smartImportPassword);
+      const importResult = await uploadsApi.smartImport(pendingSmartImportFile, smartImportPassword, rememberPassword);
       setSmartImportResult(importResult);
 
       // Invalidate queries to refresh data
@@ -422,6 +441,7 @@ export function Uploads() {
       // Clear password state
       setPendingSmartImportFile(null);
       setSmartImportPassword('');
+      setRememberPassword(true);
     } catch (importError: any) {
       console.error('Smart import with password failed:', importError);
 
@@ -1141,6 +1161,15 @@ export function Uploads() {
                 <p className="text-sm text-destructive">{smartImportPasswordError}</p>
               )}
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberPassword}
+                onChange={(e) => setRememberPassword(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <span className="text-sm">Remember password for this account</span>
+            </label>
             <p className="text-xs text-muted-foreground">
               Common password formats: PAN number (first 5 letters in caps + DOB as DDMMYYYY),
               or customer ID, or date of birth.
