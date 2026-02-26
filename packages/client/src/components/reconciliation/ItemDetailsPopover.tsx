@@ -35,16 +35,35 @@ export function ItemDetailsPopover({
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
 
-  const { data: items = [], isLoading } = useQuery({
+  // Primary query: fetch by invoice number
+  const { data: itemsByInvoice = [], isLoading: isLoadingByInvoice } = useQuery({
     queryKey: ['vyapar-items', invoiceNumber],
     queryFn: () =>
       transactionsApi.getVyaparItems({
         invoiceNumber: invoiceNumber || undefined,
         limit: '50',
       }),
-    // Only fetch if we have an invoice number - otherwise items can't be reliably linked
     enabled: isOpen && !!invoiceNumber,
   });
+
+  // Fallback query: fetch by date + transaction type when invoice number returns nothing
+  // This handles Expense transactions where invoice numbers change across exports
+  const needsFallback = isOpen && (!invoiceNumber || (itemsByInvoice.length === 0 && !isLoadingByInvoice));
+  const { data: itemsByDate = [], isLoading: isLoadingByDate } = useQuery({
+    queryKey: ['vyapar-items-fallback', date, transactionType, partyName],
+    queryFn: () =>
+      transactionsApi.getVyaparItems({
+        date,
+        transactionType,
+        ...(partyName ? { partyName } : {}),
+        limit: '50',
+      }),
+    enabled: needsFallback && !!date,
+  });
+
+  // Use invoice-matched items if available, otherwise fallback
+  const items = itemsByInvoice.length > 0 ? itemsByInvoice : itemsByDate;
+  const isLoading = isLoadingByInvoice || (needsFallback && isLoadingByDate);
 
   const handleMouseEnter = () => {
     if (!isPinned) {
@@ -111,11 +130,7 @@ export function ItemDetailsPopover({
         </div>
 
         <div className="max-h-64 overflow-y-auto">
-          {!invoiceNumber ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">
-              No invoice number - item details unavailable
-            </div>
-          ) : isLoading ? (
+          {isLoading ? (
             <div className="flex items-center justify-center p-4">
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
               <span className="text-sm text-muted-foreground">Loading items...</span>
