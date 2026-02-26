@@ -156,6 +156,7 @@ export function Uploads() {
     setUploadStep('detecting');
     setDetection(null);
     setAutoDetected(false);
+    setSmartImportResult(null);
 
     try {
       // Auto-detect file type from first file
@@ -427,6 +428,7 @@ export function Uploads() {
 
     setSmartImportPasswordError('');
     setShowPasswordDialog(false);
+    setSmartImportResult(null);
     setIsSmartImporting(true);
 
     try {
