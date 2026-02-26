@@ -20,6 +20,9 @@ import {
   ArrowUp,
   ArrowDown,
   CreditCard,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -496,7 +499,7 @@ export function Reconciliation() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Reconciliation</h1>
         <div className="flex items-center gap-2">
@@ -576,45 +579,30 @@ export function Reconciliation() {
         </CardContent>
       </Card>
 
-      {/* Summary Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Matched</span>
-              <Badge variant="success">{summary.matchedCount}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Unmatched Bank</span>
-              <Badge variant="destructive">{summary.unmatchedBankCount}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Unmatched Vyapar</span>
-              <Badge variant="warning">{summary.unmatchedVyaparCount}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-        <Card
-          className={`cursor-pointer transition-colors ${viewMode === 'matched-pairs' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+      {/* Summary Stats Bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-sm font-medium text-green-600">
+            <CheckCircle className="h-3.5 w-3.5" />
+            {summary.matchedCount} Matched
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-sm font-medium text-red-600">
+            <XCircle className="h-3.5 w-3.5" />
+            {summary.unmatchedBankCount} Bank
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {summary.unmatchedVyaparCount} Vyapar
+          </span>
+        </div>
+        <Button
+          variant={viewMode === 'matched-pairs' ? 'default' : 'outline'}
+          size="sm"
           onClick={() => setViewMode(viewMode === 'matched-pairs' ? 'split' : 'matched-pairs')}
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                {viewMode === 'matched-pairs' ? 'Back to Split View' : 'View All Pairs'}
-              </span>
-              <Link className={`h-4 w-4 ${viewMode === 'matched-pairs' ? 'text-primary' : 'text-muted-foreground'}`} />
-            </div>
-          </CardContent>
-        </Card>
+          <Link className="mr-1.5 h-3.5 w-3.5" />
+          {viewMode === 'matched-pairs' ? 'Back to Split View' : 'View All Pairs'}
+        </Button>
       </div>
 
       {/* Auto-Match Results */}
@@ -1098,7 +1086,7 @@ export function Reconciliation() {
       })()}
 
       {/* Split View */}
-      {viewMode === 'split' && <div className="grid gap-6 lg:grid-cols-2">
+      {viewMode === 'split' && <div className="grid gap-3 lg:grid-cols-2">
         {/* Bank Transactions */}
         <Card>
           <CardHeader className="pb-2">
@@ -1110,7 +1098,7 @@ export function Reconciliation() {
                 </span>
               )}
             </div>
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-1">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1158,7 +1146,7 @@ export function Reconciliation() {
                 </Button>
               </div>
             </div>
-            <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
+            <Tabs value={bankFilter} onValueChange={(v) => { setBankFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({filteredBankMatched.length + filteredBankUnmatched.length})
@@ -1178,7 +1166,7 @@ export function Reconciliation() {
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
               </div>
             ) : (
-              <div className="max-h-[500px] overflow-y-auto">
+              <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
                 {/* Show unmatched transactions */}
                 {(bankFilter === 'all' || bankFilter === 'unmatched') &&
                   sortedBankUnmatched.map((txn: BankTransaction) => {
@@ -1187,7 +1175,7 @@ export function Reconciliation() {
                     return (
                       <div
                         key={txn.id}
-                        className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
+                        className={`flex cursor-pointer items-center justify-between border-b py-2.5 px-4 hover:bg-muted/50 ${
                           selectedBankIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' :
                           matchScore ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : ''
                         }`}
@@ -1254,7 +1242,7 @@ export function Reconciliation() {
                   displayedBankMatched.map((txn: BankTransaction) => (
                     <div
                       key={txn.id}
-                      className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
+                      className={`flex items-center justify-between border-b py-2.5 px-4 cursor-pointer hover:bg-green-500/10 ${
                         viewingMatchBankId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
                       }`}
                       onClick={() => handleBankMatchClick(txn)}
@@ -1333,7 +1321,7 @@ export function Reconciliation() {
                 </span>
               )}
             </div>
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-1">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1381,7 +1369,7 @@ export function Reconciliation() {
                 </Button>
               </div>
             </div>
-            <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-2">
+            <Tabs value={vyaparFilter} onValueChange={(v) => { setVyaparFilter(v as FilterStatus); if (v !== 'matched') clearMatchHighlight(); refreshData(); }} className="mt-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="all">
                   All ({filteredVyaparMatched.length + filteredVyaparUnmatched.length})
@@ -1401,7 +1389,7 @@ export function Reconciliation() {
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
               </div>
             ) : (
-              <div className="max-h-[500px] overflow-y-auto">
+              <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
                 {/* Show unmatched transactions */}
                 {(vyaparFilter === 'all' || vyaparFilter === 'unmatched') &&
                   sortedVyaparUnmatched.map((txn: VyaparTransaction) => {
@@ -1410,7 +1398,7 @@ export function Reconciliation() {
                     return (
                       <div
                         key={txn.id}
-                        className={`flex cursor-pointer items-center justify-between border-b p-4 hover:bg-muted/50 ${
+                        className={`flex cursor-pointer items-center justify-between border-b py-2.5 px-4 hover:bg-muted/50 ${
                           selectedVyaparIds.includes(txn.id) ? 'bg-primary/10 ring-2 ring-primary' :
                           matchScore ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : ''
                         }`}
@@ -1456,7 +1444,7 @@ export function Reconciliation() {
                   displayedVyaparMatched.map((txn: VyaparTransaction) => (
                     <div
                       key={txn.id}
-                      className={`flex items-center justify-between border-b p-4 cursor-pointer hover:bg-green-500/10 ${
+                      className={`flex items-center justify-between border-b py-2.5 px-4 cursor-pointer hover:bg-green-500/10 ${
                         viewingMatchVyaparId === txn.id ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'bg-green-500/5'
                       }`}
                       onClick={() => handleVyaparMatchClick(txn)}
