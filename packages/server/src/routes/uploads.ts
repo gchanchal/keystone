@@ -766,10 +766,10 @@ router.post('/vyapar/confirm', async (req, res) => {
       // Create a map of existing items by signature for quick lookup
       // Exclude invoice number from signature since Vyapar Expense exports
       // assign different invoice numbers (e.g. EXP-16) across exports
-      const existingItemsMap = new Map<string, { id: string; category: string | null }>();
+      const existingItemsMap = new Map<string, { id: string; category: string | null; invoiceNumber: string | null }>();
       for (const item of existingItems) {
         const signature = `${item.date}|${item.itemName}|${item.amount}`;
-        existingItemsMap.set(signature, { id: item.id, category: item.category });
+        existingItemsMap.set(signature, { id: item.id, category: item.category, invoiceNumber: item.invoiceNumber });
       }
 
       for (const item of itemDetails) {
@@ -777,15 +777,22 @@ router.post('/vyapar/confirm', async (req, res) => {
         const existingItem = existingItemsMap.get(signature);
 
         if (existingItem) {
-          // Item already exists - only update category if import has a category value AND existing is empty
+          // Item already exists - update invoice number to stay in sync with latest export
+          // and update category if import has a value and existing is empty
+          const updates: Record<string, any> = {};
+          if (item.invoiceNumber && item.invoiceNumber !== existingItem.invoiceNumber) {
+            updates.invoiceNumber = item.invoiceNumber;
+          }
           if (item.category && !existingItem.category) {
+            updates.category = item.category;
+          }
+          if (Object.keys(updates).length > 0) {
             await db
               .update(vyaparItemDetails)
-              .set({ category: item.category })
+              .set(updates)
               .where(eq(vyaparItemDetails.id, existingItem.id));
             itemDetailsUpdated++;
           }
-          // Otherwise, preserve existing category - skip this item
         } else {
           // New item - insert it
           const dbItem = {

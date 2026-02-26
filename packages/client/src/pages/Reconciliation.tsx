@@ -1442,6 +1442,7 @@ export function Reconciliation() {
                               transactionType={txn.transactionType}
                               partyName={txn.partyName || undefined}
                               date={txn.date}
+                              amount={txn.amount}
                             />
                           </div>
                         </div>
@@ -1483,6 +1484,7 @@ export function Reconciliation() {
                             transactionType={txn.transactionType}
                             partyName={txn.partyName || undefined}
                             date={txn.date}
+                            amount={txn.amount}
                           />
                         </div>
                       </div>

@@ -24,6 +24,7 @@ interface ItemDetailsPopoverProps {
   transactionType: string;
   partyName?: string;
   date: string;
+  amount?: number;
 }
 
 export function ItemDetailsPopover({
@@ -31,6 +32,7 @@ export function ItemDetailsPopover({
   transactionType,
   partyName,
   date,
+  amount,
 }: ItemDetailsPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
@@ -46,9 +48,20 @@ export function ItemDetailsPopover({
     enabled: isOpen && !!invoiceNumber,
   });
 
-  // Fallback query: fetch by date + transaction type when invoice number returns nothing
-  // This handles Expense transactions where invoice numbers change across exports
-  const needsFallback = isOpen && (!invoiceNumber || (itemsByInvoice.length === 0 && !isLoadingByInvoice));
+  // Check if invoice results are valid: total should approximately match transaction amount
+  // Expense invoice numbers get reassigned across exports, so items with a matching
+  // invoice number may actually belong to a different transaction
+  const invoiceResultsValid = (() => {
+    if (itemsByInvoice.length === 0) return false;
+    if (!amount) return true; // can't verify without amount, trust the results
+    const itemsTotal = itemsByInvoice.reduce((sum: number, item: VyaparItemDetail) => sum + item.amount, 0);
+    // Allow 5% tolerance for rounding
+    return Math.abs(itemsTotal - amount) / amount < 0.05;
+  })();
+
+  // Fallback query: fetch by date + transaction type + party name
+  // Used when invoice number is missing, returns no results, or returns wrong items
+  const needsFallback = isOpen && (!invoiceNumber || (!isLoadingByInvoice && !invoiceResultsValid));
   const { data: itemsByDate = [], isLoading: isLoadingByDate } = useQuery({
     queryKey: ['vyapar-items-fallback', date, transactionType, partyName],
     queryFn: () =>
@@ -61,8 +74,37 @@ export function ItemDetailsPopover({
     enabled: needsFallback && !!date,
   });
 
-  // Use invoice-matched items if available, otherwise fallback
-  const items = itemsByInvoice.length > 0 ? itemsByInvoice : itemsByDate;
+  // If fallback returns items from multiple transactions (no partyName filter),
+  // try to find the subset that sums to the transaction amount
+  const filteredFallbackItems = (() => {
+    if (itemsByDate.length === 0 || !amount) return itemsByDate;
+    const total = itemsByDate.reduce((sum: number, item: VyaparItemDetail) => sum + item.amount, 0);
+    // If total matches, all items belong to this transaction
+    if (Math.abs(total - amount) / amount < 0.05) return itemsByDate;
+    // Try to find items that sum to the transaction amount
+    // Simple greedy: sort by amount desc and try to match
+    const sorted = [...itemsByDate].sort((a, b) => b.amount - a.amount);
+    const subset: VyaparItemDetail[] = [];
+    let remaining = amount;
+    for (const item of sorted) {
+      if (Math.abs(item.amount - remaining) < 1) {
+        subset.push(item);
+        remaining = 0;
+        break;
+      }
+      if (item.amount <= remaining + 1) {
+        subset.push(item);
+        remaining -= item.amount;
+      }
+    }
+    // If we found a matching subset, use it
+    if (Math.abs(remaining) < 1 && subset.length > 0) return subset;
+    // Otherwise return all (can't determine which belong to this transaction)
+    return itemsByDate;
+  })();
+
+  // Use invoice-matched items if valid, otherwise fallback
+  const items = invoiceResultsValid ? itemsByInvoice : filteredFallbackItems;
   const isLoading = isLoadingByInvoice || (needsFallback && isLoadingByDate);
 
   const handleMouseEnter = () => {
