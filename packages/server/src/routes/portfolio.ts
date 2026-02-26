@@ -135,9 +135,21 @@ router.post('/initialize', async (req, res) => {
  * GET /api/portfolio/performance
  * Get performance data for charts
  * Query params: period (daily|weekly|monthly|quarterly), limit
+ * Auto-captures a snapshot if none exists for today
  */
 router.get('/performance', async (req, res) => {
   try {
+    // Auto-capture: if no snapshot for today, capture one now
+    const today = new Date().toISOString().split('T')[0];
+    const latest = await getLatestSnapshot(req.userId!);
+    if (!latest || latest.snapshotDate !== today) {
+      try {
+        await captureSnapshot(req.userId!, false, 'Auto-capture');
+      } catch (e) {
+        console.error('Auto-capture failed:', e);
+      }
+    }
+
     const { period = 'daily', limit = '30' } = req.query;
     const data = await getPerformanceData(
       req.userId!,

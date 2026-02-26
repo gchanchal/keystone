@@ -7,7 +7,10 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { initializeDatabase } from './db/index.js';
+import { initializeDatabase, db } from './db/index.js';
+import { users } from './db/schema/users.js';
+import { captureSnapshot, getLatestSnapshot } from './services/portfolio-service.js';
+import { eq } from 'drizzle-orm';
 
 // Routes
 import accountsRouter from './routes/accounts.js';
@@ -130,6 +133,28 @@ app.use((_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`KeyStone server running on http://localhost:${PORT}`);
+
+  // Daily auto-capture: take portfolio snapshots for all active users
+  async function autoCaptureSnapshots() {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const activeUsers = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
+
+      for (const user of activeUsers) {
+        const latest = await getLatestSnapshot(user.id);
+        if (!latest || latest.snapshotDate !== today) {
+          await captureSnapshot(user.id, false, 'Daily auto-capture');
+          console.log(`Auto-captured snapshot for user ${user.id}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in auto-capture:', error);
+    }
+  }
+
+  // Run once on startup (after a short delay), then every 6 hours
+  setTimeout(autoCaptureSnapshots, 10000);
+  setInterval(autoCaptureSnapshots, 6 * 60 * 60 * 1000);
 });
 
 export default app;
