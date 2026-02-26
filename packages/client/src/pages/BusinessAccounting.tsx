@@ -668,6 +668,21 @@ export function BusinessAccounting() {
       {/* Summary Cards - Clickable to filter transactions */}
       <div className="grid gap-4 md:grid-cols-6">
         <Card
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-green-300 ${tileFilter === 'income' ? 'ring-2 ring-green-500 border-green-500' : ''}`}
+          onClick={() => handleTileClick('income')}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Income</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCurrency(summary?.totalIncome || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Click to filter credits</p>
+          </CardContent>
+        </Card>
+        <Card
           className={`cursor-pointer transition-all hover:shadow-md hover:border-red-300 ${tileFilter === 'expenses' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
           onClick={() => handleTileClick('expenses')}
         >
@@ -683,18 +698,20 @@ export function BusinessAccounting() {
           </CardContent>
         </Card>
         <Card
-          className={`cursor-pointer transition-all hover:shadow-md hover:border-green-300 ${tileFilter === 'income' ? 'ring-2 ring-green-500 border-green-500' : ''}`}
-          onClick={() => handleTileClick('income')}
+          className={`cursor-pointer transition-all hover:shadow-md hover:border-orange-300 ${tileFilter === 'saleOrders' ? 'ring-2 ring-orange-500 border-orange-500' : ''}`}
+          onClick={() => handleTileClick('saleOrders')}
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
+            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(summary?.totalIncome || 0)}
+            <div className="text-2xl font-bold text-orange-600">
+              {formatCurrency(summary?.saleOrdersTotal || 0)}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Click to filter credits</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {summary?.saleOrdersCount || 0} orders/invoices
+            </p>
           </CardContent>
         </Card>
         <Card
@@ -725,23 +742,6 @@ export function BusinessAccounting() {
               {summary?.pendingInvoices || 0}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Click to filter</p>
-          </CardContent>
-        </Card>
-        <Card
-          className={`cursor-pointer transition-all hover:shadow-md hover:border-orange-300 ${tileFilter === 'saleOrders' ? 'ring-2 ring-orange-500 border-orange-500' : ''}`}
-          onClick={() => handleTileClick('saleOrders')}
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
-            <ShoppingCart className="h-4 w-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {formatCurrency(summary?.saleOrdersTotal || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {summary?.saleOrdersCount || 0} orders/invoices
-            </p>
           </CardContent>
         </Card>
         <Card
@@ -828,6 +828,7 @@ export function BusinessAccounting() {
             data={filteredTransactions}
             columns={columns}
             isLoading={isLoading}
+            initialFilters={(tileFilter === 'expenses' || tileFilter === 'income' || tileFilter === 'saleOrders') ? { account: 'Vyapar' } : {}}
             emptyMessage={tileFilter ? `No ${tileFilter === 'expenses' ? 'debit' : tileFilter === 'income' ? 'credit' : tileFilter === 'saleOrders' ? 'pending payment' : 'pending invoice'} transactions found` : 'No transactions found'}
             onRowClick={(row) => setSelectedTransaction(row)}
             getRowId={(row) => row.id}
