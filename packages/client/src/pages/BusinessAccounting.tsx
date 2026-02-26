@@ -331,9 +331,9 @@ export function BusinessAccounting() {
 
     switch (tileFilter) {
       case 'expenses':
-        return transactions.filter(tx => tx.transactionType === 'debit');
+        return transactions.filter(tx => tx.accountName === 'Vyapar' && tx.transactionType === 'debit');
       case 'income':
-        return transactions.filter(tx => tx.transactionType === 'credit');
+        return transactions.filter(tx => tx.accountName === 'Vyapar' && tx.transactionType === 'credit');
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
       case 'saleOrders': {
