@@ -85,6 +85,8 @@ export const transactionsApi = {
     api.patch(`/transactions/bank/${id}/category`, { categoryId }).then((r) => r.data),
   updateBankPurpose: (id: string, purpose: 'business' | 'personal' | null) =>
     api.patch(`/transactions/bank/${id}/purpose`, { purpose }).then((r) => r.data),
+  updateVyaparPurpose: (id: string, purpose: 'ignored' | null) =>
+    api.patch(`/transactions/vyapar/${id}/purpose`, { purpose }).then((r) => r.data),
   updateCreditCardCategory: (id: string, categoryId: string | null) =>
     api.patch(`/transactions/credit-card/${id}/category`, { categoryId }).then((r) => r.data),
   getCategories: () => api.get('/transactions/categories').then((r) => r.data),

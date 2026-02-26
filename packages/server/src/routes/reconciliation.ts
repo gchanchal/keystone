@@ -90,7 +90,23 @@ router.get('/', async (req, res) => {
       ? await db
           .select()
           .from(vyaparTransactions)
-          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, dataUserId)))
+          .where(and(
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, dataUserId),
+            sql`(${vyaparTransactions.purpose} IS NULL OR ${vyaparTransactions.purpose} != 'ignored')`
+          ))
+      : [];
+
+    // Fetch ignored Vyapar transactions separately
+    const ignoredVyaparTxns = vyaparEnabled
+      ? await db
+          .select()
+          .from(vyaparTransactions)
+          .where(and(
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, dataUserId),
+            eq(vyaparTransactions.purpose, 'ignored')
+          ))
       : [];
 
     // Separate matched and unmatched
@@ -158,10 +174,12 @@ router.get('/', async (req, res) => {
         total: vyaparTxns.length,
         lastImportAt: lastVyaparUpload?.processedAt || null,
       },
+      ignoredVyapar: ignoredVyaparTxns,
       summary: {
         matchedCount: matchedBank.length,
         unmatchedBankCount: unmatchedBank.length,
         unmatchedVyaparCount: unmatchedVyapar.length,
+        ignoredVyaparCount: ignoredVyaparTxns.length,
         matchedAmount: matchedBank.reduce((s, t) => s + t.amount, 0),
         unmatchedBankAmount: unmatchedBank.reduce((s, t) => s + t.amount, 0),
         unmatchedVyaparAmount: unmatchedVyapar.reduce((s, t) => s + t.amount, 0),
@@ -642,13 +660,17 @@ router.get('/export', async (req, res) => {
       .from(bankTransactions)
       .where(and(...bankConditions));
 
-    // Get vyapar transactions only if Vyapar is enabled
+    // Get vyapar transactions only if Vyapar is enabled (exclude ignored)
     const vyaparEnabled = await isVyaparEnabled(dataUserId);
     const vyaparTxns = vyaparEnabled
       ? await db
           .select()
           .from(vyaparTransactions)
-          .where(and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, dataUserId)))
+          .where(and(
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, dataUserId),
+            sql`(${vyaparTransactions.purpose} IS NULL OR ${vyaparTransactions.purpose} != 'ignored')`
+          ))
       : [];
 
     // Build matched pairs

@@ -72,6 +72,7 @@ export interface VyaparTransaction {
   description: string | null;
   isReconciled: boolean;
   reconciledWithId: string | null;
+  purpose?: string | null;
   uploadId: string | null;
   createdAt: string;
   updatedAt: string;

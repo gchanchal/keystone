@@ -472,6 +472,38 @@ router.patch('/bank/:id/purpose', async (req, res) => {
   }
 });
 
+// Update Vyapar transaction purpose (ignore/un-ignore for reconciliation)
+router.patch('/vyapar/:id/purpose', async (req, res) => {
+  try {
+    const { purpose } = z
+      .object({
+        purpose: z.enum(['ignored']).nullable(),
+      })
+      .parse(req.body);
+
+    const now = new Date().toISOString();
+
+    await db
+      .update(vyaparTransactions)
+      .set({ purpose, updatedAt: now })
+      .where(and(eq(vyaparTransactions.id, req.params.id), eq(vyaparTransactions.userId, req.userId!)));
+
+    const updated = await db
+      .select()
+      .from(vyaparTransactions)
+      .where(and(eq(vyaparTransactions.id, req.params.id), eq(vyaparTransactions.userId, req.userId!)))
+      .limit(1);
+
+    res.json(updated[0]);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error updating vyapar transaction purpose:', error);
+    res.status(500).json({ error: 'Failed to update purpose' });
+  }
+});
+
 // Bulk update category
 router.patch('/bank/bulk-category', async (req, res) => {
   try {

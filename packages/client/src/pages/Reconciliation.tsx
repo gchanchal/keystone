@@ -23,6 +23,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  EyeOff,
+  Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -173,6 +175,15 @@ export function Reconciliation() {
     },
   });
 
+  // Ignore/un-ignore Vyapar transaction (exclude from reconciliation)
+  const ignoreVyaparMutation = useMutation({
+    mutationFn: ({ id, purpose }: { id: string; purpose: 'ignored' | null }) =>
+      transactionsApi.updateVyaparPurpose(id, purpose),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+    },
+  });
+
   // Repair match inconsistencies
   const repairMatchesMutation = useMutation({
     mutationFn: reconciliationApi.repairMatches,
@@ -267,6 +278,7 @@ export function Reconciliation() {
     unmatched: rawVyapar.unmatched.filter((t: VyaparTransaction) => !excludedTypes.includes(t.transactionType)),
     total: rawVyapar.total,
   };
+  const ignoredVyapar: VyaparTransaction[] = reconciliationData?.ignoredVyapar || [];
   const summary = reconciliationData?.summary || {
     matchedCount: 0,
     unmatchedBankCount: 0,
@@ -501,7 +513,29 @@ export function Reconciliation() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Reconciliation</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Reconciliation</h1>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-sm font-medium text-green-600">
+              <CheckCircle className="h-3.5 w-3.5" />
+              {filteredBankMatched.length} Matched
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-sm font-medium text-red-600">
+              <XCircle className="h-3.5 w-3.5" />
+              {filteredBankUnmatched.length} Unmatched Bank
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {filteredVyaparUnmatched.length} Unmatched Vyapar
+            </span>
+            {ignoredVyapar.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 px-3 py-1 text-sm font-medium text-gray-500">
+                <EyeOff className="h-3.5 w-3.5" />
+                {ignoredVyapar.length} Ignored
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />
@@ -575,35 +609,17 @@ export function Reconciliation() {
               <Wand2 className="mr-2 h-4 w-4" />
               Auto Match
             </Button>
+            <Button
+              variant={viewMode === 'matched-pairs' ? 'default' : 'outline'}
+              onClick={() => setViewMode(viewMode === 'matched-pairs' ? 'split' : 'matched-pairs')}
+            >
+              <Link className="mr-1.5 h-3.5 w-3.5" />
+              {viewMode === 'matched-pairs' ? 'Back to Split View' : 'View All Pairs'}
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Stats Bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-sm font-medium text-green-600">
-            <CheckCircle className="h-3.5 w-3.5" />
-            {filteredBankMatched.length} Matched
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-sm font-medium text-red-600">
-            <XCircle className="h-3.5 w-3.5" />
-            {filteredBankUnmatched.length} Unmatched Bank
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600">
-            <AlertCircle className="h-3.5 w-3.5" />
-            {filteredVyaparUnmatched.length} Unmatched Vyapar
-          </span>
-        </div>
-        <Button
-          variant={viewMode === 'matched-pairs' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setViewMode(viewMode === 'matched-pairs' ? 'split' : 'matched-pairs')}
-        >
-          <Link className="mr-1.5 h-3.5 w-3.5" />
-          {viewMode === 'matched-pairs' ? 'Back to Split View' : 'View All Pairs'}
-        </Button>
-      </div>
 
       {/* Auto-Match Results */}
       {autoMatchRan && pendingMatches.length === 0 && (
@@ -1080,6 +1096,42 @@ export function Reconciliation() {
                 </table>
               </div>
             )}
+            {/* Ignored Vyapar Transactions */}
+            {ignoredVyapar.length > 0 && (
+              <div className="border-t">
+                <div className="px-3 py-2 bg-gray-500/5">
+                  <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                    <EyeOff className="h-3 w-3" />
+                    Ignored Vyapar Transactions ({ignoredVyapar.length})
+                  </span>
+                </div>
+                <div className="divide-y">
+                  {ignoredVyapar.map((txn: VyaparTransaction) => (
+                    <div
+                      key={txn.id}
+                      className="flex items-center justify-between px-3 py-1.5 text-sm text-muted-foreground bg-gray-500/5 hover:bg-gray-500/10"
+                    >
+                      <span className="text-xs whitespace-nowrap">{formatDate(txn.date)}</span>
+                      <span className="px-3 max-w-[200px] truncate" title={txn.partyName || ''}>
+                        {txn.partyName || txn.invoiceNumber || '-'}
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{txn.transactionType}</Badge>
+                      <span className="px-3 font-medium whitespace-nowrap">{formatCurrency(txn.amount)}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-gray-500 border-gray-400">Ignored</Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-green-600"
+                        onClick={() => ignoreVyaparMutation.mutate({ id: txn.id, purpose: null })}
+                        title="Un-ignore (restore to reconciliation)"
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         );
@@ -1434,7 +1486,21 @@ export function Reconciliation() {
                             />
                           </div>
                         </div>
-                        <span className="font-medium ml-2">{formatCurrency(txn.amount)}</span>
+                        <div className="flex items-center gap-1 ml-2">
+                          <span className="font-medium">{formatCurrency(txn.amount)}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-orange-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              ignoreVyaparMutation.mutate({ id: txn.id, purpose: 'ignored' });
+                            }}
+                            title="Ignore (exclude from reconciliation)"
+                          >
+                            <EyeOff className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}

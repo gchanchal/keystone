@@ -799,6 +799,13 @@ export function initializeDatabase() {
     }
   }
 
+  // Migration: Add purpose field to vyapar_transactions (for ignoring in reconciliation)
+  try {
+    sqlite.exec('ALTER TABLE vyapar_transactions ADD COLUMN purpose TEXT');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
   // Migration: Add credit card specific fields to accounts
   const accountMigrations = [
     'ALTER TABLE accounts ADD COLUMN card_name TEXT',

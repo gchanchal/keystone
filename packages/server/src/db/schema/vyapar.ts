@@ -19,6 +19,7 @@ export const vyaparTransactions = sqliteTable('vyapar_transactions', {
   matchedBankAmount: real('matched_bank_amount'),
   matchedBankNarration: text('matched_bank_narration'),
   matchedBankAccountId: text('matched_bank_account_id'),
+  purpose: text('purpose'), // null (default, business) | 'ignored'
   uploadId: text('upload_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
