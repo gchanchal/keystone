@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2, FileSpreadsheet } from 'lucide-react';
+import { Plus, Building2, CreditCard, Wallet, MoreVertical, Pencil, Trash2, Upload, Loader2, FileSpreadsheet, X, Lock, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -73,7 +73,11 @@ export function Accounts() {
     // Credit card fields
     cardName: '',
     cardNetwork: '',
+    // Statement password
+    statementPassword: '' as string | null,
   });
+
+  const [showPassword, setShowPassword] = useState(false);
 
   // Smart upload state
   const [isSmartImporting, setIsSmartImporting] = useState(false);
@@ -190,8 +194,10 @@ export function Accounts() {
       accountStatus: '',
       cardName: '',
       cardNetwork: '',
+      statementPassword: null,
     });
     setEditingAccount(null);
+    setShowPassword(false);
   };
 
   const handleEdit = (account: Account) => {
@@ -209,15 +215,20 @@ export function Accounts() {
       accountStatus: account.accountStatus || '',
       cardName: account.cardName || '',
       cardNetwork: account.cardNetwork || '',
+      statementPassword: account.statementPassword || '',
     });
     setDialogOpen(true);
   };
 
   const handleSubmit = () => {
+    const submitData = {
+      ...formData,
+      statementPassword: formData.statementPassword || null,
+    };
     if (editingAccount) {
-      updateMutation.mutate({ id: editingAccount.id, data: formData });
+      updateMutation.mutate({ id: editingAccount.id, data: submitData });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(submitData);
     }
   };
 
@@ -591,6 +602,53 @@ export function Accounts() {
                 onChange={(e) => setFormData({ ...formData, openingBalance: parseFloat(e.target.value) || 0 })}
               />
             </div>
+
+            {formData.accountType !== 'credit_card' && editingAccount && (
+              <div className="space-y-2">
+                <Label htmlFor="statementPassword">
+                  <span className="flex items-center gap-1.5">
+                    <Lock className="h-3.5 w-3.5" />
+                    PDF Statement Password
+                  </span>
+                </Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="statementPassword"
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.statementPassword || ''}
+                      onChange={(e) => setFormData({ ...formData, statementPassword: e.target.value || null })}
+                      placeholder="Enter password for auto-unlock"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {formData.statementPassword && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => { setFormData({ ...formData, statementPassword: null }); setShowPassword(false); }}
+                      title="Clear password"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Saved password will be auto-applied when importing statements for this account.
+                </p>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

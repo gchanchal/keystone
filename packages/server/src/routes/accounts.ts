@@ -24,6 +24,7 @@ const accountSchema = z.object({
   cardNetwork: z.string().optional().nullable(),
   cardHolderName: z.string().optional().nullable(),
   cardImage: z.string().optional().nullable(),
+  statementPassword: z.string().optional().nullable(),
 });
 
 // Get all accounts (only active by default)

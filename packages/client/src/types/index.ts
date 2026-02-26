@@ -33,6 +33,7 @@ export interface Account {
   cardNetwork: string | null;
   cardHolderName: string | null;
   cardImage: string | null;
+  statementPassword: string | null;
   createdAt: string;
   updatedAt: string;
 }

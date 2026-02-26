@@ -1940,8 +1940,18 @@ router.post('/smart-import', upload.single('file'), async (req, res) => {
     // Step 1: Detect file type and bank (with password if provided)
     let detection = await detectFileType(buffer, req.file.originalname, req.file.mimetype, password, req.userId);
 
+    // If user-provided password was wrong, return error immediately
+    if (detection.needsPassword && password) {
+      return res.status(401).json({
+        error: 'Incorrect password',
+        needsPassword: true,
+        detected: detection,
+        message: 'The provided password is incorrect. Please try again.',
+      });
+    }
+
     // Check if PDF needs password - try saved passwords from user's accounts
-    if (detection.needsPassword && !password) {
+    if (detection.needsPassword) {
       const userAccounts = await db
         .select({ statementPassword: accounts.statementPassword })
         .from(accounts)
