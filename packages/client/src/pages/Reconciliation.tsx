@@ -584,15 +584,15 @@ export function Reconciliation() {
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-sm font-medium text-green-600">
             <CheckCircle className="h-3.5 w-3.5" />
-            {summary.matchedCount} Matched
+            {filteredBankMatched.length} Matched
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-sm font-medium text-red-600">
             <XCircle className="h-3.5 w-3.5" />
-            {summary.unmatchedBankCount} Bank
+            {filteredBankUnmatched.length} Unmatched Bank
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600">
             <AlertCircle className="h-3.5 w-3.5" />
-            {summary.unmatchedVyaparCount} Vyapar
+            {filteredVyaparUnmatched.length} Unmatched Vyapar
           </span>
         </div>
         <Button
