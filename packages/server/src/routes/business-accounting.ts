@@ -438,7 +438,7 @@ router.get('/transactions', async (req, res) => {
         const isIncome = isActualIncome || isPendingIncome;
 
         return {
-          id: v.id,
+          id: `vyapar-${v.id}`,
           accountId: vyaparAccountId,
           userId: v.userId,
           date: v.date,
