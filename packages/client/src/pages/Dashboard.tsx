@@ -720,10 +720,10 @@ export function Dashboard() {
                   <Receipt className="h-6 w-6 text-yellow-500" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Pending Orders</p>
+                  <p className="text-sm text-muted-foreground">Pending Payments</p>
                   <p className="text-2xl font-bold text-yellow-600">{formatAmount(vyaparData?.saleOrders || 0)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {vyaparData?.saleOrdersCount || 0} orders
+                    {vyaparData?.saleOrdersCount || 0} orders/invoices
                   </p>
                 </div>
               </CardContent>

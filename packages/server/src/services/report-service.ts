@@ -497,9 +497,7 @@ export async function getVyaparSummary(startDate: string, endDate: string, userI
         }
         break;
       case 'Sale Order':
-        summary.saleOrders += txn.amount;
-        summary.saleOrdersCount++;
-        summary.totalPending += txn.amount;
+        // Will be calculated below with smart pending logic
         break;
       case 'Payment-In':
         summary.paymentIn += txn.amount;
@@ -530,6 +528,64 @@ export async function getVyaparSummary(startDate: string, endDate: string, userI
         break;
     }
   }
+
+  // Smart pending calculation: only count Sale Orders not yet converted to Sales,
+  // plus Sales with outstanding balance (partial payments)
+  // This matches Business Accounting's logic exactly
+  const userConditions = userId
+    ? and(
+        between(vyaparTransactions.date, startDate, endDate),
+        eq(vyaparTransactions.userId, userId)
+      )
+    : between(vyaparTransactions.date, startDate, endDate);
+
+  const [pendingResult] = await db
+    .select({
+      pendingTotal: sql<number>`
+        SUM(CASE
+          WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+            AND ${vyaparTransactions.isReconciled} = 0
+            AND NOT EXISTS (
+              SELECT 1 FROM vyapar_transactions v2
+              WHERE v2.transaction_type = 'Sale'
+                AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
+                AND v2.amount = vyapar_transactions.amount
+                AND v2.party_name IS NOT NULL
+                AND v2.user_id = vyapar_transactions.user_id
+            )
+            THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
+          WHEN ${vyaparTransactions.transactionType} = 'Sale'
+            AND ${vyaparTransactions.isReconciled} = 0
+            AND COALESCE(${vyaparTransactions.balance}, 0) > 0
+            THEN ${vyaparTransactions.balance}
+          ELSE 0
+        END)`,
+      pendingCount: sql<number>`
+        SUM(CASE
+          WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
+            AND ${vyaparTransactions.isReconciled} = 0
+            AND NOT EXISTS (
+              SELECT 1 FROM vyapar_transactions v2
+              WHERE v2.transaction_type = 'Sale'
+                AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
+                AND v2.amount = vyapar_transactions.amount
+                AND v2.party_name IS NOT NULL
+                AND v2.user_id = vyapar_transactions.user_id
+            )
+            THEN 1
+          WHEN ${vyaparTransactions.transactionType} = 'Sale'
+            AND ${vyaparTransactions.isReconciled} = 0
+            AND COALESCE(${vyaparTransactions.balance}, 0) > 0
+            THEN 1
+          ELSE 0
+        END)`,
+    })
+    .from(vyaparTransactions)
+    .where(userConditions);
+
+  summary.saleOrders = pendingResult.pendingTotal || 0;
+  summary.saleOrdersCount = pendingResult.pendingCount || 0;
+  summary.totalPending = pendingResult.pendingTotal || 0;
 
   return summary;
 }
