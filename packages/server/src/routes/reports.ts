@@ -4,6 +4,8 @@ import {
   getMonthlyPL,
   getExpenseBreakdown,
   getGSTSummary,
+  getVyaparPL,
+  getVyaparExpenseBreakdown,
 } from '../services/report-service.js';
 import {
   exportToCSV,
@@ -13,21 +15,40 @@ import {
 } from '../services/export-service.js';
 import { db, bankTransactions, vyaparTransactions, categories } from '../db/index.js';
 import { between, eq, and, desc, sql } from 'drizzle-orm';
+import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
 import { getGearupDataUserId } from '../utils/gearup-auth.js';
 
 const router = Router();
 
-// Get P&L report
+// Get P&L report (Vyapar-based, supports date range)
 router.get('/pl', async (req, res) => {
   try {
-    const { month } = z
+    const { month, startDate, endDate, minAmount } = z
       .object({
-        month: z.string().regex(/^\d{4}-\d{2}$/),
+        month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        minAmount: z.string().optional(),
       })
       .parse(req.query);
 
     const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
-    const pl = await getMonthlyPL(month, dataUserId);
+
+    // Support date range or fall back to single month
+    let start: string;
+    let end: string;
+    if (startDate && endDate) {
+      start = startDate;
+      end = endDate;
+    } else if (month) {
+      const date = parseISO(month + '-01');
+      start = format(startOfMonth(date), 'yyyy-MM-dd');
+      end = format(endOfMonth(date), 'yyyy-MM-dd');
+    } else {
+      return res.status(400).json({ error: 'Either month or startDate/endDate required' });
+    }
+
+    const pl = await getVyaparPL(start, end, dataUserId, minAmount ? parseInt(minAmount) : undefined);
     res.json(pl);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -41,15 +62,31 @@ router.get('/pl', async (req, res) => {
 // Export P&L report
 router.get('/pl/export', async (req, res) => {
   try {
-    const { month, format: exportFormat } = z
+    const { month, startDate, endDate, format: exportFormat } = z
       .object({
-        month: z.string().regex(/^\d{4}-\d{2}$/),
+        month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
         format: z.enum(['xlsx', 'csv']).default('xlsx'),
       })
       .parse(req.query);
 
     const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
-    const pl = await getMonthlyPL(month, dataUserId);
+
+    let start: string;
+    let end: string;
+    if (startDate && endDate) {
+      start = startDate;
+      end = endDate;
+    } else if (month) {
+      const date = parseISO(month + '-01');
+      start = format(startOfMonth(date), 'yyyy-MM-dd');
+      end = format(endOfMonth(date), 'yyyy-MM-dd');
+    } else {
+      return res.status(400).json({ error: 'Either month or startDate/endDate required' });
+    }
+
+    const pl = await getVyaparPL(start, end, dataUserId);
 
     if (exportFormat === 'xlsx') {
       const buffer = formatPLReport(pl);
@@ -113,12 +150,7 @@ router.get('/category-breakdown', async (req, res) => {
       .parse(req.query);
 
     const dataUserId = (await getGearupDataUserId(req)) || req.userId!;
-    const breakdown = await getExpenseBreakdown(startDate, endDate, dataUserId);
-
-    // If type is specified, filter appropriately
-    // For now, getExpenseBreakdown returns expenses only
-    // You can extend this to handle income as well
-
+    const breakdown = await getVyaparExpenseBreakdown(startDate, endDate, dataUserId);
     res.json(breakdown);
   } catch (error) {
     if (error instanceof z.ZodError) {

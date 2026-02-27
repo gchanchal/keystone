@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { bankTransactions, vyaparTransactions, categories, accounts } from '../db/index.js';
-import { eq, and, between, sql, gte, lte, desc } from 'drizzle-orm';
+import { bankTransactions, vyaparTransactions, vyaparItemDetails, categories, accounts } from '../db/index.js';
+import { eq, and, between, sql, gte, lte, desc, asc } from 'drizzle-orm';
 import { format, startOfMonth, endOfMonth, parseISO, subMonths, addDays, addMonths } from 'date-fns';
 
 export interface DashboardStats {
@@ -663,4 +663,294 @@ export async function getGSTSummary(startDate: string, endDate: string, userId?:
     netGSTLiability: outputGST - inputGST,
     transactionCount: vyaparTxns.length,
   };
+}
+
+// Color palette for Vyapar expense categories
+const CATEGORY_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
+  '#f43f5e', '#a855f7', '#6366f1', '#0ea5e9', '#10b981',
+];
+
+// Get P&L from Vyapar transactions (single source of truth for GearUp)
+export async function getVyaparPL(startDate: string, endDate: string, userId?: string, minAmount = 5000): Promise<MonthlyPL> {
+  const txns = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(
+      userId
+        ? and(between(vyaparTransactions.date, startDate, endDate), eq(vyaparTransactions.userId, userId))
+        : between(vyaparTransactions.date, startDate, endDate)
+    );
+
+  // Revenue = Sale only, Expenses = Expense only (matches Dashboard getVyaparSummary)
+  // Payment-In is cash receipt against Sale invoices (not additional income)
+  // Purchase, Payment-Out are cash-flow items tracked separately
+  const expenseByCategory = new Map<string, number>();
+
+  let revenue = 0;   // Sale only
+  let expenses = 0;  // Expense only
+
+  for (const txn of txns) {
+    switch (txn.transactionType) {
+      case 'Sale': {
+        revenue += txn.amount;
+        break;
+      }
+      case 'Expense': {
+        expenses += txn.amount;
+        const expCat = txn.categoryName || 'Uncategorized';
+        expenseByCategory.set(expCat, (expenseByCategory.get(expCat) || 0) + txn.amount);
+        break;
+      }
+    }
+  }
+
+  // Income breakdown: group by item category from vyaparItemDetails (Service, Accessories, etc.)
+  // Item-level amounts may not sum to invoice totals (pre-discount line items),
+  // so we use item proportions but scale to match the actual transaction revenue.
+  const saleItems = await db
+    .select()
+    .from(vyaparItemDetails)
+    .where(
+      userId
+        ? and(
+            eq(vyaparItemDetails.transactionType, 'Sale'),
+            between(vyaparItemDetails.date, startDate, endDate),
+            eq(vyaparItemDetails.userId, userId)
+          )
+        : and(
+            eq(vyaparItemDetails.transactionType, 'Sale'),
+            between(vyaparItemDetails.date, startDate, endDate)
+          )
+    );
+
+  const incomeByCategory = new Map<string, number>();
+
+  if (saleItems.length > 0) {
+    // Group items: use category if available, otherwise use item name directly
+    // This avoids a giant "Other Sales" bucket when items aren't categorized
+    const rawByLabel = new Map<string, number>();
+    let rawTotal = 0;
+    for (const item of saleItems) {
+      const label = item.category || item.itemName || 'Other Sales';
+      rawByLabel.set(label, (rawByLabel.get(label) || 0) + item.amount);
+      rawTotal += item.amount;
+    }
+
+    // Scale each label proportionally to match actual transaction revenue
+    // (item line amounts may differ from invoice totals due to discounts)
+    if (rawTotal > 0) {
+      // Show items >= minAmount individually, lump the rest as "Other Sales (< Xk)"
+      let otherRaw = 0;
+
+      for (const [label, rawAmount] of rawByLabel) {
+        const scaled = Math.round((rawAmount / rawTotal) * revenue * 100) / 100;
+        if (scaled >= minAmount) {
+          incomeByCategory.set(label, scaled);
+        } else {
+          otherRaw += rawAmount;
+        }
+      }
+
+      if (otherRaw > 0) {
+        const label = minAmount >= 1000
+          ? `Other Sales (< ${minAmount / 1000}k)`
+          : `Other Sales (< ${minAmount})`;
+        incomeByCategory.set(label, Math.round((otherRaw / rawTotal) * revenue * 100) / 100);
+      }
+    }
+  }
+
+  // If no item details exist, show revenue as a single "Sales Revenue" line
+  if (incomeByCategory.size === 0 && revenue > 0) {
+    incomeByCategory.set('Sales Revenue', revenue);
+  }
+
+  const items: MonthlyPL['items'] = [];
+
+  for (const [category, amount] of incomeByCategory) {
+    items.push({ category, type: 'income', amount });
+  }
+  for (const [category, amount] of expenseByCategory) {
+    items.push({ category, type: 'expense', amount });
+  }
+
+  // Sort items by amount descending, but "Other Sales" always last within its type
+  items.sort((a, b) => {
+    if (a.type !== b.type) return 0; // keep income/expense groups separate
+    const aIsOther = a.category.startsWith('Other Sales');
+    const bIsOther = b.category.startsWith('Other Sales');
+    if (aIsOther && !bIsOther) return 1;
+    if (!aIsOther && bIsOther) return -1;
+    return b.amount - a.amount;
+  });
+
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
+  const monthLabel = format(start, 'MMMM yyyy') === format(end, 'MMMM yyyy')
+    ? format(start, 'MMMM yyyy')
+    : `${format(start, 'MMM yyyy')} - ${format(end, 'MMM yyyy')}`;
+
+  return {
+    month: monthLabel,
+    revenue,
+    expenses,
+    netProfit: revenue - expenses,
+    items,
+  };
+}
+
+// Get expense breakdown from Vyapar transactions
+export async function getVyaparExpenseBreakdown(startDate: string, endDate: string, userId?: string): Promise<ExpenseBreakdown[]> {
+  const txns = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(
+      userId
+        ? and(
+            eq(vyaparTransactions.transactionType, 'Expense'),
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, userId)
+          )
+        : and(
+            eq(vyaparTransactions.transactionType, 'Expense'),
+            between(vyaparTransactions.date, startDate, endDate)
+          )
+    );
+
+  // Group by categoryName
+  const categoryTotals = new Map<string, number>();
+  let totalExpense = 0;
+
+  for (const txn of txns) {
+    const category = txn.categoryName || 'Uncategorized';
+    categoryTotals.set(category, (categoryTotals.get(category) || 0) + txn.amount);
+    totalExpense += txn.amount;
+  }
+
+  const result: ExpenseBreakdown[] = [];
+  let colorIndex = 0;
+
+  // Sort by amount descending
+  const sorted = Array.from(categoryTotals.entries()).sort((a, b) => b[1] - a[1]);
+
+  for (const [category, amount] of sorted) {
+    result.push({
+      category,
+      amount,
+      percentage: totalExpense > 0 ? (amount / totalExpense) * 100 : 0,
+      color: CATEGORY_COLORS[colorIndex % CATEGORY_COLORS.length],
+    });
+    colorIndex++;
+  }
+
+  return result;
+}
+
+// Get top customers by sales revenue
+export async function getTopCustomers(startDate: string, endDate: string, userId?: string, limit = 5) {
+  const txns = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(
+      userId
+        ? and(
+            eq(vyaparTransactions.transactionType, 'Sale'),
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, userId)
+          )
+        : and(
+            eq(vyaparTransactions.transactionType, 'Sale'),
+            between(vyaparTransactions.date, startDate, endDate)
+          )
+    );
+
+  const customerMap = new Map<string, { totalAmount: number; count: number }>();
+
+  for (const txn of txns) {
+    const name = txn.partyName || 'Unknown';
+    const existing = customerMap.get(name) || { totalAmount: 0, count: 0 };
+    existing.totalAmount += txn.amount;
+    existing.count++;
+    customerMap.set(name, existing);
+  }
+
+  return Array.from(customerMap.entries())
+    .map(([partyName, data]) => ({ partyName, ...data }))
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .slice(0, limit);
+}
+
+// Get pending receivables (unreconciled Sale Orders)
+export async function getPendingReceivables(startDate: string, endDate: string, userId?: string, limit = 5) {
+  const txns = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(
+      userId
+        ? and(
+            eq(vyaparTransactions.transactionType, 'Sale Order'),
+            eq(vyaparTransactions.isReconciled, false),
+            between(vyaparTransactions.date, startDate, endDate),
+            eq(vyaparTransactions.userId, userId)
+          )
+        : and(
+            eq(vyaparTransactions.transactionType, 'Sale Order'),
+            eq(vyaparTransactions.isReconciled, false),
+            between(vyaparTransactions.date, startDate, endDate)
+          )
+    );
+
+  const partyMap = new Map<string, { totalPending: number; count: number; oldestDate: string }>();
+
+  for (const txn of txns) {
+    const name = txn.partyName || 'Unknown';
+    const existing = partyMap.get(name) || { totalPending: 0, count: 0, oldestDate: txn.date };
+    existing.totalPending += txn.amount;
+    existing.count++;
+    if (txn.date < existing.oldestDate) {
+      existing.oldestDate = txn.date;
+    }
+    partyMap.set(name, existing);
+  }
+
+  return Array.from(partyMap.entries())
+    .map(([partyName, data]) => ({ partyName, ...data }))
+    .sort((a, b) => b.totalPending - a.totalPending)
+    .slice(0, limit);
+}
+
+// Get top selling items from vyaparItemDetails
+export async function getTopSellingItems(startDate: string, endDate: string, userId?: string, limit = 5) {
+  const items = await db
+    .select()
+    .from(vyaparItemDetails)
+    .where(
+      userId
+        ? and(
+            eq(vyaparItemDetails.transactionType, 'Sale'),
+            between(vyaparItemDetails.date, startDate, endDate),
+            eq(vyaparItemDetails.userId, userId)
+          )
+        : and(
+            eq(vyaparItemDetails.transactionType, 'Sale'),
+            between(vyaparItemDetails.date, startDate, endDate)
+          )
+    );
+
+  const itemMap = new Map<string, { totalAmount: number; totalQuantity: number }>();
+
+  for (const item of items) {
+    const name = item.itemName;
+    const existing = itemMap.get(name) || { totalAmount: 0, totalQuantity: 0 };
+    existing.totalAmount += item.amount;
+    existing.totalQuantity += item.quantity || 0;
+    itemMap.set(name, existing);
+  }
+
+  return Array.from(itemMap.entries())
+    .map(([itemName, data]) => ({ itemName, ...data }))
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .slice(0, limit);
 }

@@ -52,6 +52,12 @@ export const dashboardApi = {
     api.get('/dashboard/vyapar-summary', { params: { startDate, endDate } }).then((r) => r.data),
   getRecentTransactions: (limit?: number) =>
     api.get('/dashboard/recent-transactions', { params: { limit } }).then((r) => r.data),
+  getTopCustomers: (startDate: string, endDate: string, limit?: number) =>
+    api.get('/dashboard/top-customers', { params: { startDate, endDate, limit } }).then((r) => r.data),
+  getPendingReceivables: (startDate: string, endDate: string, limit?: number) =>
+    api.get('/dashboard/pending-receivables', { params: { startDate, endDate, limit } }).then((r) => r.data),
+  getTopItems: (startDate: string, endDate: string, limit?: number) =>
+    api.get('/dashboard/top-items', { params: { startDate, endDate, limit } }).then((r) => r.data),
 };
 
 // Accounts
@@ -284,10 +290,11 @@ export const loansApi = {
 
 // Reports
 export const reportsApi = {
-  getPL: (month: string) => api.get('/reports/pl', { params: { month } }).then((r) => r.data),
-  exportPL: (month: string, format: 'xlsx' | 'csv' = 'xlsx') =>
+  getPL: (params: { startDate: string; endDate: string; minAmount?: number } | { month: string; minAmount?: number }) =>
+    api.get('/reports/pl', { params }).then((r) => r.data),
+  exportPL: (params: { startDate: string; endDate: string; format?: 'xlsx' | 'csv' } | { month: string; format?: 'xlsx' | 'csv' }) =>
     api.get('/reports/pl/export', {
-      params: { month, format },
+      params: { format: 'xlsx', ...params },
       responseType: 'blob',
     }).then((r) => r.data),
   getGST: (startDate: string, endDate: string) =>

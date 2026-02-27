@@ -4,11 +4,15 @@ import {
   getDashboardStats,
   getCashFlowData,
   getExpenseBreakdown,
+  getVyaparExpenseBreakdown,
   getRecentTransactions,
   getTransactionTrends,
   getCategoryTrends,
   getVyaparSummary,
   getVyaparTrends,
+  getTopCustomers,
+  getPendingReceivables,
+  getTopSellingItems,
 } from '../services/report-service.js';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { getGearupDataUserId } from '../utils/gearup-auth.js';
@@ -41,7 +45,7 @@ router.get('/', async (req, res) => {
     const now = month ? new Date(month + '-01') : new Date();
     const startDate = format(startOfMonth(now), 'yyyy-MM-dd');
     const endDate = format(endOfMonth(now), 'yyyy-MM-dd');
-    const expenseBreakdown = await getExpenseBreakdown(startDate, endDate, dataUserId);
+    const expenseBreakdown = await getVyaparExpenseBreakdown(startDate, endDate, dataUserId);
 
     res.json({
       stats,
@@ -91,7 +95,7 @@ router.get('/cash-flow', async (req, res) => {
   }
 });
 
-// Get expense breakdown
+// Get expense breakdown (Vyapar-based for GearUp)
 router.get('/expense-breakdown', async (req, res) => {
   try {
     const { startDate, endDate } = z
@@ -102,7 +106,7 @@ router.get('/expense-breakdown', async (req, res) => {
       .parse(req.query);
 
     const dataUserId = await resolveUserId(req);
-    const breakdown = await getExpenseBreakdown(startDate, endDate, dataUserId);
+    const breakdown = await getVyaparExpenseBreakdown(startDate, endDate, dataUserId);
     res.json(breakdown);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -236,6 +240,75 @@ router.get('/vyapar-summary', async (req, res) => {
     }
     console.error('Error fetching Vyapar summary:', error);
     res.status(500).json({ error: 'Failed to fetch Vyapar summary' });
+  }
+});
+
+// Get top customers by sales revenue
+router.get('/top-customers', async (req, res) => {
+  try {
+    const { startDate, endDate, limit } = z
+      .object({
+        startDate: z.string(),
+        endDate: z.string(),
+        limit: z.string().optional(),
+      })
+      .parse(req.query);
+
+    const dataUserId = await resolveUserId(req);
+    const customers = await getTopCustomers(startDate, endDate, dataUserId, limit ? parseInt(limit) : 5);
+    res.json(customers);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error fetching top customers:', error);
+    res.status(500).json({ error: 'Failed to fetch top customers' });
+  }
+});
+
+// Get pending receivables (unreconciled Sale Orders)
+router.get('/pending-receivables', async (req, res) => {
+  try {
+    const { startDate, endDate, limit } = z
+      .object({
+        startDate: z.string(),
+        endDate: z.string(),
+        limit: z.string().optional(),
+      })
+      .parse(req.query);
+
+    const dataUserId = await resolveUserId(req);
+    const receivables = await getPendingReceivables(startDate, endDate, dataUserId, limit ? parseInt(limit) : 5);
+    res.json(receivables);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error fetching pending receivables:', error);
+    res.status(500).json({ error: 'Failed to fetch pending receivables' });
+  }
+});
+
+// Get top selling items
+router.get('/top-items', async (req, res) => {
+  try {
+    const { startDate, endDate, limit } = z
+      .object({
+        startDate: z.string(),
+        endDate: z.string(),
+        limit: z.string().optional(),
+      })
+      .parse(req.query);
+
+    const dataUserId = await resolveUserId(req);
+    const items = await getTopSellingItems(startDate, endDate, dataUserId, limit ? parseInt(limit) : 5);
+    res.json(items);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('Error fetching top items:', error);
+    res.status(500).json({ error: 'Failed to fetch top items' });
   }
 });
 

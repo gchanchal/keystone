@@ -17,6 +17,9 @@ import {
   HandCoins,
   Building2,
   Calendar,
+  Users,
+  Clock,
+  Package,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -208,6 +211,25 @@ export function Dashboard() {
   const { data: vyaparData } = useQuery({
     queryKey: ['dashboard-vyapar', startDate, endDate],
     queryFn: () => dashboardApi.getVyaparSummary(startDate, endDate),
+    enabled: activeTab === 'business',
+  });
+
+  // Fetch actionable insights for business dashboard
+  const { data: topCustomers } = useQuery({
+    queryKey: ['dashboard-top-customers', startDate, endDate],
+    queryFn: () => dashboardApi.getTopCustomers(startDate, endDate),
+    enabled: activeTab === 'business',
+  });
+
+  const { data: pendingReceivables } = useQuery({
+    queryKey: ['dashboard-pending-receivables', startDate, endDate],
+    queryFn: () => dashboardApi.getPendingReceivables(startDate, endDate),
+    enabled: activeTab === 'business',
+  });
+
+  const { data: topItems } = useQuery({
+    queryKey: ['dashboard-top-items', startDate, endDate],
+    queryFn: () => dashboardApi.getTopItems(startDate, endDate),
     enabled: activeTab === 'business',
   });
 
@@ -781,6 +803,7 @@ export function Dashboard() {
             </CardContent>
           </Card>
 
+          {/* Row 1: Expense Breakdown + Top Customers + Pending Collections */}
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Expense Breakdown */}
             <Card>
@@ -822,91 +845,108 @@ export function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* Vyapar Summary */}
-            <Card className="lg:col-span-2">
+            {/* Top Customers */}
+            <Card>
               <CardHeader>
-                <CardTitle>Vyapar Summary</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-green-600" />
+                  Top Customers
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {vyaparData ? (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {vyaparData.sales > 0 && (
-                        <div
-                          className="rounded-lg bg-green-50 dark:bg-green-900/20 p-3 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                          onClick={() => goToTransactions('vyapar', { transactionType: 'Sale' })}
-                        >
-                          <div className="flex items-center gap-2 text-green-600">
-                            <ShoppingCart className="h-4 w-4" />
-                            <span className="text-xs font-medium">Sales ({vyaparData.salesCount})</span>
+              <CardContent>
+                {topCustomers && topCustomers.length > 0 ? (
+                  <div className="space-y-3">
+                    {topCustomers.map((customer: any, index: number) => (
+                      <div key={customer.partyName} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-muted-foreground w-5">{index + 1}.</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{customer.partyName}</p>
+                            <p className="text-xs text-muted-foreground">{customer.count} sale{customer.count !== 1 ? 's' : ''}</p>
                           </div>
-                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.sales)}</p>
                         </div>
-                      )}
-                      {vyaparData.saleOrders > 0 && (
-                        <div
-                          className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 p-3 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
-                          onClick={() => goToTransactions('vyapar', { transactionType: 'Sale Order' })}
-                        >
-                          <div className="flex items-center gap-2 text-yellow-600">
-                            <Receipt className="h-4 w-4" />
-                            <span className="text-xs font-medium">Orders ({vyaparData.saleOrdersCount})</span>
-                          </div>
-                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.saleOrders)}</p>
-                        </div>
-                      )}
-                      {vyaparData.paymentIn > 0 && (
-                        <div
-                          className="rounded-lg bg-purple-50 dark:bg-purple-900/20 p-3 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
-                          onClick={() => goToTransactions('vyapar', { transactionType: 'Payment-In' })}
-                        >
-                          <div className="flex items-center gap-2 text-purple-600">
-                            <CreditCard className="h-4 w-4" />
-                            <span className="text-xs font-medium">Payment In</span>
-                          </div>
-                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.paymentIn)}</p>
-                        </div>
-                      )}
-                      {vyaparData.expenses > 0 && (
-                        <div
-                          className="rounded-lg bg-red-50 dark:bg-red-900/20 p-3 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                          onClick={() => goToTransactions('vyapar', { transactionType: 'Expense' })}
-                        >
-                          <div className="flex items-center gap-2 text-red-600">
-                            <TrendingDown className="h-4 w-4" />
-                            <span className="text-xs font-medium">Expenses ({vyaparData.expensesCount})</span>
-                          </div>
-                          <p className="text-lg font-bold mt-1">{formatAmount(vyaparData.expenses)}</p>
-                        </div>
-                      )}
-                    </div>
-
-
-                    <div className="border-t pt-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total Inflow</span>
-                        <span className="font-medium text-green-600">{formatAmount(vyaparData.totalInflow)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm mt-1">
-                        <span className="text-muted-foreground">Total Outflow</span>
-                        <span className="font-medium text-red-600">{formatAmount(vyaparData.totalOutflow)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm mt-2 pt-2 border-t">
-                        <span className="font-medium">Net Cash Flow</span>
-                        <span className={`font-bold ${vyaparData.totalInflow - vyaparData.totalOutflow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatAmount(vyaparData.totalInflow - vyaparData.totalOutflow)}
+                        <span className="font-semibold text-green-600 text-sm whitespace-nowrap ml-2">
+                          {formatAmount(customer.totalAmount)}
                         </span>
                       </div>
-                    </div>
-                  </>
+                    ))}
+                  </div>
                 ) : (
-                  <div className="flex h-[200px] items-center justify-center text-muted-foreground">
-                    No Vyapar data
+                  <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                    No sales data
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Pending Collections */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-yellow-600" />
+                  Pending Collections
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pendingReceivables && pendingReceivables.length > 0 ? (
+                  <div className="space-y-3">
+                    {pendingReceivables.map((item: any, index: number) => (
+                      <div key={item.partyName} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-muted-foreground w-5">{index + 1}.</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{item.partyName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.count} order{item.count !== 1 ? 's' : ''} &middot; since {format(new Date(item.oldestDate), 'dd MMM')}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="font-semibold text-yellow-600 text-sm whitespace-nowrap ml-2">
+                          {formatAmount(item.totalPending)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex h-[300px] items-center justify-center text-muted-foreground text-sm">
+                    No pending collections
                   </div>
                 )}
               </CardContent>
             </Card>
           </div>
+
+          {/* Row 2: Top Selling Items (full width) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-blue-600" />
+                Top Selling Items
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {topItems && topItems.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+                  {topItems.map((item: any, index: number) => (
+                    <div key={item.itemName} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                      <span className="text-lg font-bold text-muted-foreground">{index + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate" title={item.itemName}>{item.itemName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.totalQuantity > 0 ? `${item.totalQuantity} sold` : ''}
+                        </p>
+                        <p className="text-sm font-semibold text-blue-600">{formatAmount(item.totalAmount)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex h-24 items-center justify-center text-muted-foreground">
+                  No item sales data
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Net Cash Flow Chart */}
           <Card>

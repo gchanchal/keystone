@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,10 @@ export function Reports() {
   const [startMonth, setStartMonth] = useState(getMonthYear());
   const [endMonth, setEndMonth] = useState(getMonthYear());
   const [activeTab, setActiveTab] = useState('pl');
+  const [minAmount, setMinAmount] = useState(() => {
+    const saved = localStorage.getItem('keystone-pl-min-amount');
+    return saved ? parseInt(saved) : 5000;
+  });
 
   const startMonthDate = parseMonthYear(startMonth);
   const endMonthDate = parseMonthYear(endMonth);
@@ -51,8 +56,8 @@ export function Reports() {
   const endDate = format(endOfMonth(endMonthDate), 'yyyy-MM-dd');
 
   const { data: plData } = useQuery({
-    queryKey: ['reports', 'pl', startMonth, endMonth],
-    queryFn: () => reportsApi.getPL(startMonth), // TODO: Update API to support date range
+    queryKey: ['reports', 'pl', startDate, endDate, minAmount],
+    queryFn: () => reportsApi.getPL({ startDate, endDate, minAmount }),
   });
 
   const { data: gstData } = useQuery({
@@ -107,7 +112,7 @@ export function Reports() {
   };
 
   const handleExportPL = async () => {
-    const blob = await reportsApi.exportPL(startMonth, 'xlsx');
+    const blob = await reportsApi.exportPL({ startDate, endDate, format: 'xlsx' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -179,7 +184,30 @@ export function Reports() {
 
         {/* P&L Tab */}
         <TabsContent value="pl" className="mt-4 space-y-6">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Show items above:</span>
+              <Select
+                value={String(minAmount)}
+                onValueChange={(v) => {
+                  const val = parseInt(v);
+                  setMinAmount(val);
+                  localStorage.setItem('keystone-pl-min-amount', v);
+                }}
+              >
+                <SelectTrigger className="w-28 h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1000">1,000</SelectItem>
+                  <SelectItem value="2000">2,000</SelectItem>
+                  <SelectItem value="5000">5,000</SelectItem>
+                  <SelectItem value="10000">10,000</SelectItem>
+                  <SelectItem value="25000">25,000</SelectItem>
+                  <SelectItem value="50000">50,000</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button variant="outline" onClick={handleExportPL}>
               <Download className="mr-2 h-4 w-4" />
               Export P&L
