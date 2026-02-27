@@ -4,21 +4,13 @@ import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
 
-// Get version - reads from version.txt (generated before deploy)
+// Get version with git commit hash
 function getVersion() {
   try {
-    const versionFile = path.resolve(__dirname, 'version.txt');
-    if (fs.existsSync(versionFile)) {
-      return fs.readFileSync(versionFile, 'utf-8').trim();
-    }
-  } catch {}
-
-  // Fallback to git for local dev
-  try {
     const shortHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-    return `v0.2-${shortHash}`;
+    return `v1.0-${shortHash}`;
   } catch {
-    return 'v0.2-dev';
+    return 'v1.0-dev';
   }
 }
 

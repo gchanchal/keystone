@@ -6,6 +6,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 import { initializeDatabase, db } from './db/index.js';
 import { users } from './db/schema/users.js';
@@ -93,9 +94,18 @@ app.use('/api/investment-advisor', requireAuth, investmentAdvisorRouter);
 app.use('/api/calendar', requireAuth, calendarRouter);
 app.use('/api/personal-team', requireAuth, personalTeamRouter);
 
-// Health check
+// Health check with version info
+const APP_VERSION = (() => {
+  try {
+    const shortHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+    return `v1.0-${shortHash}`;
+  } catch {
+    return 'v1.0';
+  }
+})();
+
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: APP_VERSION, timestamp: new Date().toISOString() });
 });
 
 // Serve static files from uploads (use /data on Railway, otherwise local data folder)
