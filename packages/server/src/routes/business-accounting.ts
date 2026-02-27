@@ -1765,38 +1765,20 @@ router.get('/summary', async (req, res) => {
         totalIncome: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Sale' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
         // Expenses = Expense only (matches Dashboard expenses for P&L)
         totalExpenses: sql<number>`SUM(CASE WHEN ${vyaparTransactions.transactionType} = 'Expense' THEN ${vyaparTransactions.amount} ELSE 0 END)`,
-        // Pending Payments = Sale Orders (not converted to Sale) + Sales with balance > 0 (partial paid)
-        // A Sale Order is "converted" if a Sale exists with the same party_name AND amount
+        // Pending Payments = any Sale Order or Sale with balance > 0 (money still owed)
+        // Reconciliation with bank doesn't mean fully paid — balance is the source of truth
         pendingPaymentsTotal: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
-              AND ${vyaparTransactions.isReconciled} = 0
-              AND NOT EXISTS (
-                SELECT 1 FROM vyapar_transactions v2
-                WHERE v2.transaction_type = 'Sale'
-                  AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
-                  AND v2.amount = vyapar_transactions.amount
-                  AND v2.party_name IS NOT NULL
-                  AND v2.user_id = vyapar_transactions.user_id
-              )
-              THEN COALESCE(${vyaparTransactions.balance}, ${vyaparTransactions.amount})
-            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND ${vyaparTransactions.isReconciled} = 0 AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN ${vyaparTransactions.balance}
+            WHEN ${vyaparTransactions.transactionType} IN ('Sale Order', 'Sale')
+              AND COALESCE(${vyaparTransactions.balance}, 0) > 0
+              THEN ${vyaparTransactions.balance}
             ELSE 0
           END)`,
         pendingPaymentsCount: sql<number>`
           SUM(CASE
-            WHEN ${vyaparTransactions.transactionType} = 'Sale Order'
-              AND ${vyaparTransactions.isReconciled} = 0
-              AND NOT EXISTS (
-                SELECT 1 FROM vyapar_transactions v2
-                WHERE v2.transaction_type = 'Sale'
-                  AND LOWER(v2.party_name) = LOWER(vyapar_transactions.party_name)
-                  AND v2.amount = vyapar_transactions.amount
-                  AND v2.party_name IS NOT NULL
-                  AND v2.user_id = vyapar_transactions.user_id
-              )
+            WHEN ${vyaparTransactions.transactionType} IN ('Sale Order', 'Sale')
+              AND COALESCE(${vyaparTransactions.balance}, 0) > 0
               THEN 1
-            WHEN ${vyaparTransactions.transactionType} = 'Sale' AND ${vyaparTransactions.isReconciled} = 0 AND COALESCE(${vyaparTransactions.balance}, 0) > 0 THEN 1
             ELSE 0
           END)`,
       })
