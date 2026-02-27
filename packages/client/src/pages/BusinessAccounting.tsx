@@ -337,18 +337,12 @@ export function BusinessAccounting() {
       case 'pending':
         return transactions.filter(tx => tx.needsInvoice && !tx.invoiceFileId);
       case 'saleOrders': {
-        // Build set of party+amount keys that have a Sale (converted from Sale Order)
-        const salesKeys = new Set(
-          transactions
-            .filter(tx => tx.accountName === 'Vyapar' && tx.bizType === 'SALE' && tx.vendorName)
-            .map(tx => `${tx.vendorName!.toLowerCase()}|${tx.amount}`)
-        );
-        // Include Sale Orders (exclude reconciled + those converted to Sale by matching party+amount) + Sales with balance > 0 (partial paid) - Vyapar only
+        // Pending = any Sale Order or Sale with balance > 0 (money still owed)
+        // Matches backend summary logic exactly
         return transactions.filter(tx =>
-          tx.accountName === 'Vyapar' && !tx.isReconciled && (
-            (tx.bizType === 'SALE_ORDER' && !(tx.vendorName && salesKeys.has(`${tx.vendorName.toLowerCase()}|${tx.amount}`))) ||
-            (tx.bizType === 'SALE' && tx.balance !== null && tx.balance > 0)
-          )
+          tx.accountName === 'Vyapar' &&
+          (tx.bizType === 'SALE_ORDER' || tx.bizType === 'SALE') &&
+          tx.balance !== null && tx.balance !== undefined && tx.balance > 0
         );
       }
       default:
@@ -358,6 +352,16 @@ export function BusinessAccounting() {
 
   // Column definitions for DataTable - matching Transactions page layout
   const columns: ColumnDef<BusinessTransaction>[] = useMemo(() => [
+    {
+      id: 'slNo',
+      header: 'Sl.#',
+      width: '50px',
+      minWidth: 50,
+      sortable: false,
+      filterable: false,
+      align: 'center',
+      cell: (_row, index) => <span className="text-xs text-muted-foreground">{index}</span>,
+    },
     {
       id: 'date',
       header: 'Date',

@@ -35,7 +35,7 @@ export interface ColumnDef<T> {
   id: string
   header: string
   accessorKey?: keyof T | ((row: T) => any)
-  cell?: (row: T) => React.ReactNode
+  cell?: (row: T, index?: number) => React.ReactNode
   sortable?: boolean
   filterable?: boolean
   filterType?: 'text' | 'select' | 'number' | 'date'
@@ -443,7 +443,9 @@ export function DataTable<T extends Record<string, any>>({
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedData.map((row, index) => (
+              paginatedData.map((row, index) => {
+                const absoluteIndex = showPagination ? (currentPage - 1) * pageSize + index + 1 : index + 1;
+                return (
                 <TableRow
                   key={getRowId ? getRowId(row) : index}
                   onClick={() => onRowClick?.(row)}
@@ -467,12 +469,13 @@ export function DataTable<T extends Record<string, any>>({
                           column.className
                         )}
                       >
-                        {column.cell ? column.cell(row) : getValue(row, column)}
+                        {column.cell ? column.cell(row, absoluteIndex) : getValue(row, column)}
                       </TableCell>
                     )
                   })}
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>
