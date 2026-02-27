@@ -217,15 +217,25 @@ function amountsMatch(amount1: number, amount2: number, tolerance = 0.01): boole
 // Bank debit (money out) should match with Vyapar Expense/Purchase/Payment-Out (money out)
 function areDirectionsCompatible(bankTxnType: string, vyaparTxnType: string): boolean {
   const bankIsCredit = bankTxnType === 'credit'; // Money coming in
-  const vyaparIsIncoming = vyaparTxnType === 'Sale'; // Sale = money coming in
+  const vyaparIsIncoming = vyaparTxnType === 'Sale' || vyaparTxnType === 'Sale Order (Advance)'; // Sale/Advance = money coming in
   const vyaparIsOutgoing = ['Expense', 'Purchase', 'Payment-Out'].includes(vyaparTxnType); // Money going out
 
-  // Credit (money in) should match with Sale (money in)
+  // Credit (money in) should match with Sale or Sale Order (Advance) (money in)
   if (bankIsCredit && vyaparIsIncoming) return true;
   // Debit (money out) should match with Expense/Purchase/Payment-Out (money out)
   if (!bankIsCredit && vyaparIsOutgoing) return true;
 
   return false;
+}
+
+// Helper: Check if a vyapar transaction ID is a synthetic advance entry
+function isSyntheticAdvanceId(id: string): boolean {
+  return id.startsWith('so-advance-');
+}
+
+// Helper: Get the real Sale Order ID from a synthetic advance ID
+function getRealSaleOrderId(syntheticId: string): string {
+  return syntheticId.replace('so-advance-', '');
 }
 
 // Check if dates are within range
@@ -295,10 +305,38 @@ export async function autoReconcile(
     vyaparConditions.push(eq(vyaparTransactions.userId, userId));
   }
 
-  const vyaparTxns = await db
+  const vyaparTxns: any[] = await db
     .select()
     .from(vyaparTransactions)
     .where(and(...vyaparConditions));
+
+  // Also fetch unreconciled Sale Orders with partial payments to generate synthetic advance entries
+  const saleOrderConditions = [
+    sql`(${vyaparTransactions.isReconciled} = 0 OR ${vyaparTransactions.isReconciled} IS NULL OR ${vyaparTransactions.isReconciled} = false)`,
+    between(vyaparTransactions.date, startDate, endDate),
+    eq(vyaparTransactions.transactionType, 'Sale Order'),
+    sql`${vyaparTransactions.balance} IS NOT NULL AND ${vyaparTransactions.balance} > 0 AND ${vyaparTransactions.balance} < ${vyaparTransactions.amount}`,
+  ];
+  if (userId) {
+    saleOrderConditions.push(eq(vyaparTransactions.userId, userId));
+  }
+
+  const saleOrdersWithAdvances = await db
+    .select()
+    .from(vyaparTransactions)
+    .where(and(...saleOrderConditions));
+
+  // Generate synthetic advance entries for auto-matching
+  for (const so of saleOrdersWithAdvances) {
+    vyaparTxns.push({
+      ...so,
+      id: `so-advance-${so.id}`,
+      transactionType: 'Sale Order (Advance)',
+      amount: so.amount - so.balance!, // The advance amount received
+      isReconciled: false,
+      reconciledWithId: null,
+    });
+  }
 
   // Filter bank transactions by account if specified
   const filteredBankTxns = accountIds?.length
@@ -516,6 +554,10 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
     await markReconciled(match.bankTransactionId, match.vyaparTransactionId, 'vyapar', now);
 
     // Update vyapar transaction with fingerprint for auto-restore
+    // For synthetic advance IDs, update the real Sale Order
+    const realVyaparId = isSyntheticAdvanceId(match.vyaparTransactionId)
+      ? getRealSaleOrderId(match.vyaparTransactionId)
+      : match.vyaparTransactionId;
     const narration = isCCTxn ? txnData.description : txnData.narration;
     await db
       .update(vyaparTransactions)
@@ -528,7 +570,7 @@ export async function applyMatches(matches: ReconciliationMatch[]): Promise<numb
         matchedBankAccountId: txnData.accountId,
         updatedAt: now,
       })
-      .where(eq(vyaparTransactions.id, match.vyaparTransactionId));
+      .where(eq(vyaparTransactions.id, realVyaparId));
 
     appliedCount++;
   }
@@ -542,6 +584,11 @@ export async function manualMatch(
   userId?: string
 ): Promise<boolean> {
   const now = new Date().toISOString();
+
+  // Resolve synthetic advance ID to real Sale Order ID
+  const realVyaparId = isSyntheticAdvanceId(vyaparTransactionId)
+    ? getRealSaleOrderId(vyaparTransactionId)
+    : vyaparTransactionId;
 
   // Fetch bank transaction (or CC transaction) to get fingerprint data
   let txnData: any = null;
@@ -566,10 +613,11 @@ export async function manualMatch(
   const vyaparTxn = await db
     .select()
     .from(vyaparTransactions)
-    .where(eq(vyaparTransactions.id, vyaparTransactionId))
+    .where(eq(vyaparTransactions.id, realVyaparId))
     .limit(1);
 
   // Update bank or CC transaction as reconciled
+  // Store the original (possibly synthetic) vyapar ID so the bank side knows what it matched with
   await markReconciled(bankTransactionId, vyaparTransactionId, 'vyapar', now);
 
   const narration = isCCTxn ? txnData.description : txnData.narration;
@@ -584,7 +632,7 @@ export async function manualMatch(
       matchedBankAccountId: txnData.accountId,
       updatedAt: now,
     })
-    .where(eq(vyaparTransactions.id, vyaparTransactionId));
+    .where(eq(vyaparTransactions.id, realVyaparId));
 
   // Save reconciliation rule for future auto-matching (bank transactions only, not CC)
   const effectiveUserId = userId || txnData.userId;
@@ -674,7 +722,11 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
   // Try multiple strategies to find and update the matched vyapar transaction(s)
 
   // Strategy 1: Direct ID match (legacy 1:1 match where reconciledWithId is vyapar ID)
+  // Also handle synthetic advance IDs (so-advance-xxx -> resolve to real Sale Order ID)
   if (reconciledWithId) {
+    const realId = isSyntheticAdvanceId(reconciledWithId)
+      ? getRealSaleOrderId(reconciledWithId)
+      : reconciledWithId;
     await db
       .update(vyaparTransactions)
       .set({
@@ -682,7 +734,7 @@ export async function unmatch(bankTransactionId: string): Promise<boolean> {
         reconciledWithId: null,
         updatedAt: now,
       })
-      .where(eq(vyaparTransactions.id, reconciledWithId));
+      .where(eq(vyaparTransactions.id, realId));
   }
 
   // Strategy 2: Find vyapar transactions that reference this bank transaction ID
@@ -763,12 +815,17 @@ export async function multiMatch(
 
   const narration = primaryBankTxn?.narration || primaryBankTxn?.description;
   for (const vyaparId of vyaparTransactionIds) {
+    // Resolve synthetic advance ID to real Sale Order ID
+    const realVyaparId = isSyntheticAdvanceId(vyaparId)
+      ? getRealSaleOrderId(vyaparId)
+      : vyaparId;
+
     await db.insert(reconciliationMatches).values({
       id: uuidv4(),
       userId: userId || null,
       matchGroupId,
       bankTransactionId: null,
-      vyaparTransactionId: vyaparId,
+      vyaparTransactionId: realVyaparId,
       createdAt: now,
     });
 
@@ -784,7 +841,7 @@ export async function multiMatch(
         matchedBankAccountId: primaryBankTxn?.accountId,
         updatedAt: now,
       })
-      .where(eq(vyaparTransactions.id, vyaparId));
+      .where(eq(vyaparTransactions.id, realVyaparId));
   }
 
   return { success: true, matchGroupId };

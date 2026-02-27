@@ -109,6 +109,32 @@ router.get('/', async (req, res) => {
           ))
       : [];
 
+    // Generate synthetic "advance received" entries from Sale Orders with partial payments
+    // A Sale Order with amount=10000 and balance=7000 means ₹3000 was received as advance
+    const syntheticAdvances: any[] = [];
+    for (const txn of vyaparTxns) {
+      if (
+        txn.transactionType === 'Sale Order' &&
+        txn.balance !== null &&
+        txn.balance > 0 &&
+        txn.balance < txn.amount
+      ) {
+        const advanceAmount = txn.amount - txn.balance;
+        // If the Sale Order is reconciled, the advance entry should also show as reconciled
+        syntheticAdvances.push({
+          ...txn,
+          id: `so-advance-${txn.id}`,
+          transactionType: 'Sale Order (Advance)',
+          amount: advanceAmount,
+          isReconciled: txn.isReconciled,
+          reconciledWithId: txn.reconciledWithId,
+        });
+      }
+    }
+    if (syntheticAdvances.length > 0) {
+      vyaparTxns.push(...syntheticAdvances);
+    }
+
     // Separate matched and unmatched
     const matchedBank = bankTxns.filter(t => t.isReconciled);
     const unmatchedBank = bankTxns.filter(t => !t.isReconciled);
@@ -327,11 +353,16 @@ router.post('/unmatch-vyapar', async (req, res) => {
 
     const now = new Date().toISOString();
 
+    // Resolve synthetic advance ID to real Sale Order ID
+    const realVyaparId = vyaparTransactionId.startsWith('so-advance-')
+      ? vyaparTransactionId.replace('so-advance-', '')
+      : vyaparTransactionId;
+
     // Get the vyapar transaction first to find its match info
     const [vyaparTxn] = await db
       .select()
       .from(vyaparTransactions)
-      .where(eq(vyaparTransactions.id, vyaparTransactionId));
+      .where(eq(vyaparTransactions.id, realVyaparId));
 
     if (vyaparTxn && vyaparTxn.reconciledWithId) {
       // Check if it's a match group
@@ -347,6 +378,7 @@ router.post('/unmatch-vyapar', async (req, res) => {
       }
 
       // Single match - clear bank transaction that points to this vyapar OR has this ID as reconciledWithId
+      // Search for both the original vyaparTransactionId (which may be synthetic so-advance-xxx) and realVyaparId
       await db
         .update(bankTransactions)
         .set({
@@ -356,6 +388,18 @@ router.post('/unmatch-vyapar', async (req, res) => {
           updatedAt: now,
         })
         .where(eq(bankTransactions.reconciledWithId, vyaparTransactionId));
+
+      if (realVyaparId !== vyaparTransactionId) {
+        await db
+          .update(bankTransactions)
+          .set({
+            isReconciled: false,
+            reconciledWithId: null,
+            reconciledWithType: null,
+            updatedAt: now,
+          })
+          .where(eq(bankTransactions.reconciledWithId, realVyaparId));
+      }
 
       // Also try matching by the vyapar's reconciledWithId (in case it's the bank ID)
       await db
@@ -378,6 +422,17 @@ router.post('/unmatch-vyapar', async (req, res) => {
         })
         .where(eq(creditCardTransactions.reconciledWithId, vyaparTransactionId));
 
+      if (realVyaparId !== vyaparTransactionId) {
+        await db
+          .update(creditCardTransactions)
+          .set({
+            isReconciled: false,
+            reconciledWithId: null,
+            updatedAt: now,
+          })
+          .where(eq(creditCardTransactions.reconciledWithId, realVyaparId));
+      }
+
       if (vyaparTxn.reconciledWithId) {
         await db
           .update(creditCardTransactions)
@@ -390,7 +445,7 @@ router.post('/unmatch-vyapar', async (req, res) => {
       }
     }
 
-    // Update the vyapar transaction
+    // Update the vyapar transaction (use realVyaparId for DB operations)
     await db
       .update(vyaparTransactions)
       .set({
@@ -398,7 +453,7 @@ router.post('/unmatch-vyapar', async (req, res) => {
         reconciledWithId: null,
         updatedAt: now,
       })
-      .where(eq(vyaparTransactions.id, vyaparTransactionId));
+      .where(eq(vyaparTransactions.id, realVyaparId));
 
     res.json({ success: true });
   } catch (error) {
@@ -528,11 +583,16 @@ router.get('/match-details', async (req, res) => {
         vyaparTxnIds = [txnData.reconciledWithId];
       }
     } else if (vyaparId) {
+      // Resolve synthetic advance ID to real Sale Order ID
+      const realVyaparId = vyaparId.startsWith('so-advance-')
+        ? vyaparId.replace('so-advance-', '')
+        : vyaparId;
+
       // Find the vyapar transaction
       const [vyaparTxn] = await db
         .select()
         .from(vyaparTransactions)
-        .where(and(eq(vyaparTransactions.id, vyaparId), eq(vyaparTransactions.userId, dataUserId)));
+        .where(and(eq(vyaparTransactions.id, realVyaparId), eq(vyaparTransactions.userId, dataUserId)));
 
       if (!vyaparTxn) {
         return res.status(404).json({ error: 'Vyapar transaction not found' });
